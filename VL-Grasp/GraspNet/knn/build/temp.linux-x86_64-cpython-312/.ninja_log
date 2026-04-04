@@ -1,0 +1,4 @@
+# ninja log v5
+0	2603	1774790284032873143	/root/KCC2026_VLM/VL-Grasp/GraspNet/knn/build/temp.linux-x86_64-cpython-312/root/KCC2026_VLM/VL-Grasp/GraspNet/knn/src/cuda/knn.o	15f894e5f8b50519
+0	18593	1774790300013041930	/root/KCC2026_VLM/VL-Grasp/GraspNet/knn/build/temp.linux-x86_64-cpython-312/root/KCC2026_VLM/VL-Grasp/GraspNet/knn/src/cpu/knn_cpu.o	25c35e1aa45bc246
+1	19092	1774790300508520841	/root/KCC2026_VLM/VL-Grasp/GraspNet/knn/build/temp.linux-x86_64-cpython-312/root/KCC2026_VLM/VL-Grasp/GraspNet/knn/src/vision.o	f03b3c96ca118184

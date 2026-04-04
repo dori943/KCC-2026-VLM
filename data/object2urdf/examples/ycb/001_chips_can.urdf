@@ -1,0 +1,22 @@
+<robot name="001_chips_can">
+	<link name="_name">
+		<visual>
+			<origin xyz="0.05990296981521187 -0.11081013306461217 -1.2244100268503002" rpy="0 0 0" />
+			<geometry>
+				<mesh filename="001_chips_can/poisson/textured.obj" scale="10 10 10" />
+			</geometry>
+			<material name="texture">
+				<color rgba="1.0 1.0 1.0 1.0" />
+			</material>
+		</visual>
+		<collision>
+			<geometry>
+				<mesh filename="001_chips_can/poisson/textured.obj" scale="10 10 10" />
+			</geometry>
+		<origin xyz="0.05990296981521187 -0.11081013306461217 -1.2244100268503002" rpy="0 0 0" /></collision>
+		<inertial>
+			<mass value="1.0" />
+			<inertia ixx="1.0" ixy="0.0" ixz="0.0" iyy="1.0" iyz="0.0" izz="1.0" />
+		</inertial>
+	</link>
+</robot>

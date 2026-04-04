@@ -1,0 +1,12 @@
+# ninja log v5
+0	26009	1774789983391406789	/root/KCC2026_VLM/VL-Grasp/GraspNet/pointnet2/build/temp.linux-x86_64-cpython-312/_ext_src/src/ball_query.o	d236a84e6c8cd008
+1	26141	1774789983523452042	/root/KCC2026_VLM/VL-Grasp/GraspNet/pointnet2/build/temp.linux-x86_64-cpython-312/_ext_src/src/group_points.o	4bcfede07ef9f0aa
+0	26294	1774789983675504150	/root/KCC2026_VLM/VL-Grasp/GraspNet/pointnet2/build/temp.linux-x86_64-cpython-312/_ext_src/src/bindings.o	95b5fe4edb326510
+2	26298	1774789983679505523	/root/KCC2026_VLM/VL-Grasp/GraspNet/pointnet2/build/temp.linux-x86_64-cpython-312/_ext_src/src/sampling.o	e748d03c4d45acf4
+2	26329	1774789983711516492	/root/KCC2026_VLM/VL-Grasp/GraspNet/pointnet2/build/temp.linux-x86_64-cpython-312/_ext_src/src/interpolate.o	daaff68bb3c027d8
+1	26430	1774789983815552146	/root/KCC2026_VLM/VL-Grasp/GraspNet/pointnet2/build/temp.linux-x86_64-cpython-312/_ext_src/src/cylinder_query.o	52fe87ce90b39eab
+0	44199	1774790001583838385	/root/KCC2026_VLM/VL-Grasp/GraspNet/pointnet2/build/temp.linux-x86_64-cpython-312/_ext_src/src/ball_query_gpu.o	31f6fe07d5fe8620
+1	45043	1774790002427815294	/root/KCC2026_VLM/VL-Grasp/GraspNet/pointnet2/build/temp.linux-x86_64-cpython-312/_ext_src/src/cylinder_query_gpu.o	dfcb63962a4705d6
+2	45262	1774790002647808811	/root/KCC2026_VLM/VL-Grasp/GraspNet/pointnet2/build/temp.linux-x86_64-cpython-312/_ext_src/src/sampling_gpu.o	d1f068c30f4d2412
+1	45595	1774790002979799026	/root/KCC2026_VLM/VL-Grasp/GraspNet/pointnet2/build/temp.linux-x86_64-cpython-312/_ext_src/src/group_points_gpu.o	6c6a1cb76d636152
+2	45964	1774790003347786921	/root/KCC2026_VLM/VL-Grasp/GraspNet/pointnet2/build/temp.linux-x86_64-cpython-312/_ext_src/src/interpolate_gpu.o	b9b000c3a7e57334

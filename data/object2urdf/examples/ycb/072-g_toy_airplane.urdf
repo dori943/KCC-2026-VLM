@@ -1,0 +1,22 @@
+<robot name="072-g_toy_airplane">
+	<link name="_name">
+		<visual>
+			<origin xyz="0.37327738420253853 -0.11521693235428285 0.03982328192930455" rpy="0 0 0" />
+			<geometry>
+				<mesh filename="072-g_toy_airplane/tsdf/nontextured.stl" scale="10 10 10" />
+			</geometry>
+			<material name="texture">
+				<color rgba="1.0 1.0 1.0 1.0" />
+			</material>
+		</visual>
+		<collision>
+			<geometry>
+				<mesh filename="072-g_toy_airplane/tsdf/nontextured.stl" scale="10 10 10" />
+			</geometry>
+		<origin xyz="0.37327738420253853 -0.11521693235428285 0.03982328192930455" rpy="0 0 0" /></collision>
+		<inertial>
+			<mass value="1.0" />
+			<inertia ixx="1.0" ixy="0.0" ixz="0.0" iyy="1.0" iyz="0.0" izz="1.0" />
+		</inertial>
+	</link>
+</robot>

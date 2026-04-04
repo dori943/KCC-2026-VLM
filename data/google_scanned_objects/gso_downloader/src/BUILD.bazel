@@ -1,0 +1,84 @@
+#  Copyright 2021 Northwestern Inclusive Technology Lab
+# 
+#  Licensed under the Apache License, Version 2.0 (the 'License');
+#  you may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at
+# 
+#     http://www.apache.org/licenses/LICENSE-2.0
+# 
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an 'AS IS' BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+
+load("@rules_python//python:defs.bzl", "py_binary", "py_library")
+load("@rules_proto//proto:defs.bzl", "proto_library")
+load("@build_stack_rules_proto//python:python_proto_library.bzl", "python_proto_library")
+load("@pip//:requirements.bzl", "requirement")
+
+py_binary(
+    name = "download",
+    srcs = [
+        "download.py"
+    ],
+    deps = [
+        ":ignition_py_lib",
+        ":utils_py_lib",
+        ":model_pb_py_lib",
+        requirement("fire")
+    ],
+    visibility = ["//visibility:public"],
+)
+
+py_library(
+    name = "download_py_lib",
+    srcs = [
+        "download.py"
+    ],
+    deps = [
+        ":ignition_py_lib",
+        ":utils_py_lib",
+        ":model_pb_py_lib",
+        requirement("fire")
+    ],
+    visibility = ["//visibility:public"],
+)
+
+py_library(
+    name = "ignition_py_lib",
+    srcs = [
+        "ignition.py"
+    ],
+    deps = [
+        ":utils_py_lib",
+        ":model_pb_py_lib",
+        requirement("requests")
+    ],
+    visibility = ["//visibility:public"],
+)
+
+py_library(
+    name = "utils_py_lib",
+    srcs = [
+        "utils.py"
+    ],
+    data = [
+        "strings.json"
+    ],
+    visibility = ["//visibility:public"],
+)
+
+proto_library(
+    name = "model_pb_lib",
+    srcs = [
+        "model.proto"
+    ],
+)
+
+python_proto_library(
+    name = "model_pb_py_lib",
+    deps = [
+        ":model_pb_lib"
+    ],
+)
