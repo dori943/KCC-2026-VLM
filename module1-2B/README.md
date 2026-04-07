@@ -1,264 +1,114 @@
-﻿# Module 2-B Env-Only Experiment Framework (Python)
+﻿# module1-2B (Module 1 -> Module 2-A -> Module 2-B)
 
-## 1. Current Scope vs Future Scope
+이 디렉토리는 Module 1, Module 2-A, Module 2-B 연구 파이프라인을 단일 CLI로 실행/검증하기 위한 실험 하네스입니다.
 
-### Current scope (implemented now)
-- Module 2-B only: Target object + environment constraints (env-only)
-- Local/mock/file-based end-to-end execution (no external LLM/VLM API)
-- Strict layered artifacts:
-  - raw upstream bundle
-  - normalized internal context
-  - env-only reasoning trace
-  - strict Module 2-B output + Module 3 handoff preview
-- Deterministic rule-based baseline for:
-  - target binding
-  - environment structure synthesis
-  - numeric estimate derivation
-  - derived constraint generation
-  - Module 3 handoff packaging
+## 1. 현재 구현 범위
 
-### Future scope (not implemented in this phase)
-- Module 3 reasoning/candidate ranking/planning
-- tool recommendation/combo generation
-- rollout/simulation planning
-- material/state/damage merge reasoning
-- external provider-backed LLM/VLM inference
-- GT annotation-based evaluation
+### Module 1
+- 입력(raw Module 1 output) 검증 및 정규화
+- `scene_resources_from_module1` 생성
+- `module2_common_input_template` 브리지 생성
+- PyBullet surrogate 시나리오 실행(선택)
 
-## 2. Why 4 Layers Are Separated
+### Module 2-A
+- `module2_common_input` 기반 subgoal 분해
+- subgoal별 요구사항(reasoning) 생성
+- `module2a_output` 산출
 
-Layer separation prevents hidden coupling and silent mutation:
-- Layer 1 raw preserves upstream evidence exactly.
-- Layer 2 normalized creates typed, stable internal data for deterministic reasoning.
-- Layer 3 trace records every rule hit/fallback/omission/confidence component.
-- Layer 4 strict output gives downstream-stable contract + handoff view.
+### Module 2-B
+- 입력 번들(`module2_common_input + module2a_output`) 검증
+- env-only target/environment binding
+- numeric estimates -> derived constraints 생성
+- `module2b_output` 및 `module3_handoff_preview` 산출
 
-This lets us swap reasoners/providers later without losing provenance or repeatability.
+## 2. 파이프라인 흐름
 
-## 3. Derived Minimal Contract Rationale
+1. Module 1: raw 출력 검증/정규화
+2. Bridge: Module 1 -> Module 2 입력 계약 생성
+3. Module 2-A: subgoal 및 요구사항 추론
+4. Module 2-B: 환경 제약(env-only) 추론 및 handoff 생성
 
-Official full `module2_common_input` may not exist yet, so this repo uses a derived minimal schema for Module 2-B only:
-- `schemas/module2_common_input_for_module2b_derived_min.schema.json`
-- `schema_name = module2_common_input_for_module2b_derived_min`
-- `schema_version = 0.1`
+## 3. 디렉토리 구성
 
-Validation strategy:
-- Input validator enforces required minimum fields and referential integrity.
-- Raw layer can still keep richer upstream fields.
-- Normalized layer stores only Module 2-B-consumed fields.
+- `app/`: CLI, runners, reasoners, validators, pipelines
+- `configs/`: 룰/변형/registry 설정
+- `schemas/`: 실행 계약(JSON schema)
+- `fixtures/`: 테스트 케이스/번들/샘플 입력
+- `specs/`: Module 1/2-A/2-B 명세 문서
+- `tests/`: 단위/통합 테스트
+- `outputs/`: 실행 산출물
 
-## 4. Target Means Task Object (Not Tool)
+## 4. 주요 CLI 명령
 
-Module 2-B enforces:
-- target candidates only from `scene_resources.resource_inventory`
-- no invented `object_id`
-- tool-like object types are penalized in target scoring
-- `primary_targets[].object_id` must exist in inventory
+### Module 1 전체 실행
+```bash
+python -m app.cli run-experiments --provider mock --case-id wooden_block_like_object --scenarios all
+```
 
-## 5. Deterministic Target Binding Heuristic
+### Module 1 -> Module 2 Bridge만 추출
+```bash
+python -m app.cli export-module2-bridge --provider mock --case-id mug_or_container_like_object
+```
 
-Implemented in `app/module2b/reasoners/target_binding.py`:
-- evidence text sources:
-  - `task_brief.user_goal`, `success_criteria`, `task_notes`
-  - `task_model.task_restatement`, `primary_success_condition`
-  - each subgoal `objective`, `success_condition`
-- score components (configurable):
-  - semantic match
-  - target state-change alignment
-  - visibility
-  - accessibility
-  - relation evidence
-- output mode/status:
-  - `target_mode`: `single | multiple | implicit | ambiguous | none`
-  - `binding_status`: `resolved | partially_resolved | ambiguous | deferred`
+### Module 2-A 실행
+```bash
+python -m app.cli run-module2a --provider mock --case-id wooden_block_like_object
+```
 
-Config:
-- `configs/module2b_target_binding_rules.yaml`
-- `configs/target_alias_registry.yaml`
-
-## 6. Environment Structure Synthesis Without 1:1 Inventory Mapping
-
-Environment structures may exist even without a dedicated inventory object.
-
-Implemented in `app/module2b/reasoners/environment_binding.py`:
-- relation/accessibility/geometry/task-keyword evidence fusion
-- deterministic `environment_structure_id`: `env_01`, `env_02`, ...
-- complete `access_path_profile` generation:
-  - `entry_mode`
-  - `rotation_clearance`
-  - `requires_pass_through_opening`
-  - `requires_deep_reach`
-  - `available_support_surface`
-  - `slip_hazard_present`
-  - `confinement_level` (1/2/3)
-
-## 7. Why `numeric_estimates` and `derived_constraints` Are Split
-
-Two-step logic is explicit by design:
-1. `numeric_estimates` quantify environment facts.
-2. `derived_constraints` translate those facts into comparison-ready constraints.
-
-Benefits:
-- clearer provenance
-- safer fallback (ordinal ranges when scale anchor is weak)
-- easier future replacement by learned/LLM components
-
-## 8. Env-Only Limitation and Pending Merge Policy
-
-This baseline intentionally omits material/state/damage families.
-
-`module3_handoff` therefore includes:
-- `pending_merge_sources`: typically `material_reasoner`
-- `omitted_constraint_families`:
-  - `risk_limit`
-  - `target_material_state`
-  - `damage_sensitivity`
-  - `contact_style_preference`
-
-`handoff_status` is usually `partial` in env-only mode.
-
-## 9. How to Attach Real Module 3 Later
-
-When Module 3 is added:
-1. Read `module2b_output.json`
-2. Merge pending source families into constraint space
-3. Use `module3_handoff.handoff_constraint_ids` for downstream ranking/planning
-4. Preserve current IDs and ordering to keep compatibility
-
-## 10. How to Attach Real LLM Providers Later
-
-Provider seam is separated now:
-- `app/module2b/providers.py`
-  - `MockBundleProvider`
-  - `FileBundleProvider`
-  - `Module2BBundleProvider` protocol
-
-A future provider can implement the same interface and return the same bundle contract.
-
-## 11. How to Change Rules/Thresholds/Vocab
-
-- prompt variant registry: `configs/prompt_registry.yaml`
-- run variant registry: `configs/module2b_run_variants.yaml`
-- target binding rules: `configs/module2b_target_binding_rules.yaml`
-- environment rules: `configs/module2b_environment_rules.yaml`
-- numericization rules: `configs/module2b_numericization_rules.yaml`
-- constraint rules: `configs/module2b_constraint_rules.yaml`
-- allowed enums/vocab: `configs/vocab_registry.json`
-
-## 12. How to Add Fixture Cases
-
-Add a directory under `fixtures/module2b_cases/<case_id>/` with:
-- `module2_common_input.json`
-- `module2a_output.json`
-- `bundle.json`
-- `expected.json`
-
-Then update:
-- `fixtures/module2b_cases/index.json`
-- optional bundled shortcut under `fixtures/bundles/<case_id>.json`
-
-## 13. Deterministic ID + Ordering Rules
-
-Implemented deterministic rules:
-- target candidates: score descending, inventory order tie-break
-- `environment_structure_id`: `env_XX` by first evidence order + structure role priority
-- `measurement_id`: `m_XX` by `(environment_structure_id, parameter_name, bound_type)`
-- `constraint_id`: `c_XX` by `(subgoal_order, priority, category, parameter_name, applies_to)`
-- `subgoal_bindings`: exact Module 2-A subgoal order
-- dedup policy documented in diagnostics artifact and run manifest
-
-## 14. Repeatability and Comparison Harness
-
-Implemented:
-- repeated batch runs
-- deterministic run comparison
-- structural/value diff artifacts
-
-Outputs:
-- `comparison_summary.json`
-- `structural_diff.json`
-- `value_diff.json`
-
-## Repository Structure (Module 2-B additions)
-
-- `specs/module2a_prompt_spec.md`
-- `specs/module2b_prompt_spec.md`
-- `schemas/module2_common_input_for_module2b_derived_min.schema.json`
-- `schemas/module2b_input_bundle.schema.json`
-- `schemas/module2b_output_env_only.schema.json`
-- `schemas/module2b_diagnostics.schema.json`
-- `configs/module2b_*.yaml`
-- `configs/target_alias_registry.yaml`
-- `fixtures/module2b_cases/*`
-- `fixtures/bundles/*`
-- `app/module2b/*`
-- `app/pipelines/module2b_pipeline.py`
-- `app/runners/module2b_runner.py`
-- `tests/test_module2b_pipeline.py`
-
-## CLI Examples
-
-### Validate input bundle
+### Module 2-B 입력 검증
 ```bash
 python -m app.cli validate-module2b-input --bundle fixtures/bundles/coin_in_narrow_gap_case.json
 ```
 
-### Run Module 2-B from bundle
-```bash
-python -m app.cli run-module2b --bundle fixtures/bundles/mug_under_overhang_case.json
-```
-
-### Run Module 2-B from split files
-```bash
-python -m app.cli run-module2b \
-  --module2-common fixtures/module2b_cases/bottle_in_deep_recess_case/module2_common_input.json \
-  --module2a-output fixtures/module2b_cases/bottle_in_deep_recess_case/module2a_output.json
-```
-
-### Run Module 2-B with mock provider by case id
+### Module 2-B 실행
 ```bash
 python -m app.cli run-module2b --provider mock --case-id coin_in_narrow_gap_case
 ```
 
-### Export normalized context only
-```bash
-python -m app.cli export-module2b-normalized --provider mock --case-id mug_under_overhang_case
-```
-
-### Batch run + repeatability
+### Module 2-B 반복 실행/비교
 ```bash
 python -m app.cli batch-module2b --cases all --provider mock --repeats 2
+python -m app.cli compare-module2b-runs --run-a outputs/<run_a_dir> --run-b outputs/<run_b_dir>
 ```
 
-### Compare two run outputs
-```bash
-python -m app.cli compare-module2b-runs --run-a outputs/module2b_... --run-b outputs/module2b_...
-```
+## 5. 핵심 산출물
 
-## Run Artifacts Per Module 2-B Execution
+### Module 1
+- `raw_module1_output.json`
+- `normalized_module1_output.json`
+- `scene_resources_from_module1.json`
+- `module2_common_input_template.json`
+- `module2_bridge_diagnostics.json`
 
-Each run stores at least:
-- `run_manifest.json`
+### Module 2-A
+- `module2_common_input.json`
+- `module2a_output.json`
+
+### Module 2-B
 - `raw_input_bundle.json`
 - `normalized_context.json`
-- `validation_report.json`
+- `module2b_output.json`
+- `module3_handoff_preview.json`
 - `target_binding_candidates.json`
 - `environment_structure_candidates.json`
 - `numeric_estimates_trace.json`
 - `derived_constraints_trace.json`
-- `module2b_output.json`
-- `module3_handoff_preview.json`
-- `summary.json`
 
-## Tests
+## 6. 테스트
 
-Run Module 2-B tests:
 ```bash
+pytest -q
+```
+
+선택 실행:
+```bash
+pytest tests/test_e2e_smoke.py -q
+pytest tests/test_module2a_reasoner.py -q
 pytest tests/test_module2b_pipeline.py -q
 ```
 
-## Important Assumptions
+## 7. 연구 재현성 메모
 
-- APPENDIX_A/B prompt blocks in the task request were placeholders; this repo stores those literal placeholders in spec files.
-- Strict executable contracts are enforced through JSON schemas and validators in this repository.
-- No external LLM/VLM API is called in this phase.
+- `fixtures/`, `schemas/`, `specs/`는 재현성 자산으로 유지합니다.
+- `outputs/`는 실행 결과 디렉토리이므로 별도 보관/정리 정책을 적용할 수 있습니다.
+- Module 2-B는 현재 env-only baseline이며, material/state/damage 계열은 후속 merge 대상으로 남겨둡니다.
