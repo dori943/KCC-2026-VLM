@@ -1,0 +1,11 @@
+# Python bytecode/cache
+__pycache__/
+*.py[cod]
+
+# Transient pytest cache directories observed in this workspace
+pytest-cache-files-*
+
+# Runtime artifacts
+outputs/scratch/
+outputs/**/__pycache__/
+outputs/**/*.pyc

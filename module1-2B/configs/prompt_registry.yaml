@@ -1,0 +1,27 @@
+registry_version: "0.1"
+module1:
+  schema_name: "module1_raw_output_lite"
+  schema_version: "0.4"
+  variants:
+    baseline_v0_4:
+      prompt_spec_path: "specs/module1_prompt_spec.md"
+      schema_path: "schemas/module1_raw_output_lite.schema.json"
+      notes: "Authoritative Module 1 prompt spec from APPENDIX_A."
+module2a:
+  schema_name: "module2a_output"
+  schema_version: "0.2"
+  variants:
+    baseline_v0_2:
+      prompt_spec_path: "specs/module2a_prompt_spec.md"
+      notes: "Deterministic local Module 2-A reasoner is implemented for subgoal/requirement extraction."
+module2b:
+  schema_name: "module2b_output_env_only"
+  schema_version: "0.1"
+  variants:
+    baseline_v0_1:
+      prompt_spec_path: "specs/module2b_prompt_spec.md"
+      notes: "Deterministic env-only baseline with strict output + Module 3 handoff artifact."
+defaults:
+  active_module1_variant: "baseline_v0_4"
+  active_module2a_variant: "baseline_v0_2"
+  active_module2b_variant: "baseline_v0_1"
