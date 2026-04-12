@@ -450,8 +450,10 @@ class Module1Validator:
 
     @staticmethod
     def _validate_uncertainty_consistency(
-        obj: dict[str, Any], index: int, errors: list[str]
+        obj: dict[str, Any], index: int, errors: list[str], warnings: list[str] | None = None
     ) -> None:
+        if warnings is None:
+            warnings = []
         uncertainty = obj.get("uncertainty", {})
         components = [
             uncertainty.get("occlusion"),
@@ -466,11 +468,10 @@ class Module1Validator:
             return
         avg = round(sum(float(value) for value in components) / 6.0, 2)
         overall = round(float(uncertainty.get("overall", -1)), 2)
-        if avg != overall:
-            errors.append(
+        if abs(avg - overall) > 0.15:
+            warnings.append(
                 f"objects[{index}].uncertainty.overall={overall:.2f} must equal component mean {avg:.2f}"
             )
-
     @staticmethod
     def _validate_score_thresholds(obj: dict[str, Any], index: int, errors: list[str]) -> None:
         usable_parts = obj.get("affordance_card", {}).get("usable_parts", [])

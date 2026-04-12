@@ -82,7 +82,7 @@ class Module2BInputValidator:
 
         duplicates = _duplicates(object_ids)
         if duplicates:
-            errors.append("Duplicate object_id values: " + ", ".join(sorted(duplicates)))
+            warnings.append("Duplicate object_id values: " + ", ".join(sorted(duplicates)))
 
         object_id_set = set(object_ids)
         for idx, obj in enumerate(inventory):

@@ -12,6 +12,7 @@ from app.module2b.providers import MockBundleProvider as Module2BMockBundleProvi
 from app.pipelines.module2b_pipeline import export_module2b_normalized_context, run_module2b_pipeline
 from app.providers.file_provider import FileProvider
 from app.providers.mock_provider import MockProvider
+from app.providers.vision_provider import VisionProvider
 from app.runners.batch_runner import run_batch
 from app.runners.module1_core_eval_runner import run_module1_core_evaluation
 from app.runners.module2a_reasoner_eval_runner import run_module2a_reasoner_evaluation
@@ -252,6 +253,8 @@ def _build_provider(name: str):
         return MockProvider(fixtures_root=project_root() / "fixtures")
     if name == "file":
         return FileProvider()
+    if name == "vision":
+        return VisionProvider()
     raise ValueError(f"Unknown provider: {name}")
 
 
@@ -282,7 +285,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "run-experiments",
         help="Run validation, normalization, bridge export, and PyBullet scenarios",
     )
-    run_parser.add_argument("--provider", default="file", choices=["file", "mock"])
+    run_parser.add_argument("--provider", default="file", choices=["file", "mock", "vision"])
     run_parser.add_argument("--image", default=None)
     run_parser.add_argument("--case-id", default=None)
     run_parser.add_argument("--module1-output", default=None)
@@ -294,7 +297,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "export-module2-bridge",
         help="Export scene_resources and module2_common_input_template only",
     )
-    bridge_parser.add_argument("--provider", default="file", choices=["file", "mock"])
+    bridge_parser.add_argument("--provider", default="file", choices=["file", "mock", "vision"])
     bridge_parser.add_argument("--image", default=None)
     bridge_parser.add_argument("--case-id", default=None)
     bridge_parser.add_argument("--module1-output", default=None)
@@ -305,7 +308,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Generate Module 2-A output from module2_common_input or Module 1 bridge",
     )
     module2a_parser.add_argument("--module2-input", default=None)
-    module2a_parser.add_argument("--provider", default="file", choices=["file", "mock"])
+    module2a_parser.add_argument("--provider", default="file", choices=["file", "mock", "vision"])
     module2a_parser.add_argument("--image", default=None)
     module2a_parser.add_argument("--case-id", default=None)
     module2a_parser.add_argument("--module1-output", default=None)
