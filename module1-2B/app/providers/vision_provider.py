@@ -14,6 +14,138 @@ from urllib import request as url_request
 from app.providers.base import ProviderResult
 from app.utils import load_json, project_root
 
+_CONTACT_PROFILES = ("cavity_rim", "tip", "broad_flat_face", "curved_side", "edge")
+_CONTACT_PROFILE_TIE_PRIORITY = ("tip", "edge", "cavity_rim", "broad_flat_face", "curved_side")
+_CONTACT_PROFILE_WITH_UNKNOWN = _CONTACT_PROFILES + ("unknown",)
+_CONTACT_PROFILE_LLM_CACHE: dict[str, str] = {}
+
+# Stage-1 deterministic lexical matcher (expanded dictionary).
+_CONTACT_PROFILE_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "cavity_rim": (
+        "ring",
+        "loop",
+        "bowl",
+        "bucket",
+        "tube",
+        "container",
+        "recess",
+        "cup",
+        "mug",
+        "jar",
+        "bottle",
+        "can",
+        "socket",
+        "holder",
+        "sleeve",
+        "cavity",
+        "opening",
+        "mouth",
+        "nozzle",
+        "funnel",
+        "hole",
+        "slot",
+        "groove",
+    ),
+    "tip": (
+        "tip",
+        "needle",
+        "pin",
+        "hook",
+        "clip",
+        "paperclip",
+        "tweezer",
+        "tweezers",
+        "forceps",
+        "pick",
+        "awl",
+        "point",
+        "pointed",
+        "screwdriver",
+        "driver",
+        "blade",
+        "knife",
+        "scalpel",
+        "chisel",
+        "dart",
+        "skewer",
+        "toothpick",
+        "probe",
+    ),
+    "broad_flat_face": (
+        "sheet",
+        "mesh",
+        "paper",
+        "cloth",
+        "tape",
+        "block",
+        "cube",
+        "magnet",
+        "card",
+        "business card",
+        "sticky note",
+        "sticky notes",
+        "post it",
+        "post-it",
+        "note",
+        "notebook",
+        "label",
+        "envelope",
+        "board",
+        "panel",
+        "plate",
+        "tile",
+        "pad",
+        "folder",
+    ),
+    "curved_side": (
+        "motor",
+        "cylinder",
+        "cylindrical",
+        "roll",
+        "roller",
+        "wheel",
+        "sphere",
+        "ball",
+        "pipe",
+        "hose",
+        "spool",
+        "reel",
+    ),
+    "edge": (
+        "stick",
+        "rod",
+        "wire",
+        "string",
+        "rope",
+        "spring",
+        "shaft",
+        "pen",
+        "pencil",
+        "ruler",
+        "spatula",
+        "scraper",
+        "strip",
+        "bar",
+        "rail",
+        "chopstick",
+        "edge",
+        "swab",
+        "cotton swab",
+        "qtip",
+        "q-tip",
+        "applicator",
+        "stem",
+    ),
+}
+
+_ROLE_TO_PROFILE = {
+    "container_cavity": "cavity_rim",
+    "rigid_tip": "tip",
+    "thin_edge": "edge",
+    "flat_face": "broad_flat_face",
+    "grip_body": "curved_side",
+}
+
 
 class VisionProvider:
     """Generate Module 1 raw output directly from an input image."""
@@ -253,7 +385,11 @@ def _build_object_entry(raw_entry: Any, index: int) -> dict[str, Any]:
     support_context = _infer_support_context(coarse_location)
     pose_class = _infer_pose_class(object_name, coarse_location)
 
-    profile = _infer_contact_profile(object_name)
+    profile = _infer_contact_profile(
+        name=object_name,
+        raw_entry=item,
+        coarse_location=coarse_location,
+    )
     role_canonical, part_name = _infer_role_and_part(profile)
     material = _infer_material(object_name)
     uncertainty = _build_uncertainty(visibility)
@@ -365,18 +501,336 @@ def _infer_pose_class(name: str, location: str) -> str:
     return "lying"
 
 
-def _infer_contact_profile(name: str) -> str:
-    text = name.lower()
-    if any(token in text for token in ("ring", "loop", "bowl", "bucket", "tube", "container", "recess")):
-        return "cavity_rim"
-    if any(token in text for token in ("tip", "needle", "pin", "hook", "clip", "paperclip")):
+def _infer_contact_profile(
+    name: str,
+    raw_entry: Any | None = None,
+    coarse_location: str | None = None,
+) -> str:
+    """Infer contact profile via multi-signal deterministic scoring.
+
+    Stage-1:
+      - expanded lexical matching
+      - geometry / part-role / target-numeric hints when available
+    Stage-2:
+      - fallback classifier for long-tail object names
+    """
+    text = _build_profile_text(name=name, raw_entry=raw_entry, coarse_location=coarse_location)
+    scores = {profile: 0.0 for profile in _CONTACT_PROFILES}
+
+    _accumulate_keyword_profile_scores(scores=scores, normalized_text=text)
+    _accumulate_structural_profile_scores(
+        scores=scores,
+        raw_entry=raw_entry,
+        coarse_location=coarse_location or "",
+    )
+
+    profile, score = _pick_best_profile(scores=scores)
+    if score >= 0.6:
+        return profile
+
+    fallback_profile = _infer_contact_profile_fallback(normalized_text=text)
+    if fallback_profile != "unknown":
+        return fallback_profile
+
+    llm_profile = _infer_contact_profile_via_llm(
+        name=name,
+        normalized_text=text,
+        raw_entry=raw_entry,
+        coarse_location=coarse_location or "",
+    )
+    if llm_profile in _CONTACT_PROFILES:
+        return llm_profile
+
+    # Keep weak signal if available; otherwise mark unknown.
+    return profile if score >= 0.45 else "unknown"
+
+
+def _build_profile_text(name: str, raw_entry: Any | None, coarse_location: str | None) -> str:
+    values: list[str] = [name]
+    if coarse_location:
+        values.append(coarse_location)
+    if isinstance(raw_entry, dict):
+        for key in (
+            "object_type_canonical",
+            "object_type",
+            "type",
+            "category",
+            "label",
+            "description",
+        ):
+            value = raw_entry.get(key)
+            if isinstance(value, str) and value.strip():
+                values.append(value)
+    return _normalize_profile_text(" ".join(values))
+
+
+def _normalize_profile_text(value: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", value.lower())).strip()
+
+
+def _text_has_token(normalized_text: str, token: str) -> bool:
+    normalized_token = _normalize_profile_text(token)
+    if not normalized_token:
+        return False
+    haystack = f" {normalized_text} "
+    needle = f" {normalized_token} "
+    return needle in haystack
+
+
+def _accumulate_keyword_profile_scores(
+    scores: dict[str, float],
+    normalized_text: str,
+) -> None:
+    for profile, tokens in _CONTACT_PROFILE_KEYWORDS.items():
+        for token in tokens:
+            if _text_has_token(normalized_text=normalized_text, token=token):
+                # Multi-word tokens carry slightly stronger evidence.
+                scores[profile] += 0.8 if " " not in token else 0.95
+
+
+def _accumulate_structural_profile_scores(
+    scores: dict[str, float],
+    raw_entry: Any | None,
+    coarse_location: str,
+) -> None:
+    if any(token in coarse_location.lower() for token in ("inside", "hole", "slot", "recess", "drawer")):
+        scores["cavity_rim"] += 0.15
+
+    if not isinstance(raw_entry, dict):
+        return
+
+    geometry = raw_entry.get("geometry_cues", {})
+    if isinstance(geometry, dict):
+        primary = str(geometry.get("primary_contact_profile", "")).lower()
+        if "tip" in primary or "point" in primary:
+            scores["tip"] += 0.8
+        if "edge" in primary:
+            scores["edge"] += 0.8
+        if "rim" in primary or "cavity" in primary:
+            scores["cavity_rim"] += 0.8
+        if "flat" in primary or "face" in primary:
+            scores["broad_flat_face"] += 0.8
+        if "curved" in primary or "cylinder" in primary or "round" in primary:
+            scores["curved_side"] += 0.8
+
+        if bool(geometry.get("has_open_cavity", False)):
+            scores["cavity_rim"] += 0.6
+        if bool(geometry.get("has_flat_contact_face", False)):
+            scores["broad_flat_face"] += 0.45
+        if bool(geometry.get("has_pointed_or_thin_end", False)):
+            scores["tip"] += 0.55
+            scores["edge"] += 0.25
+
+        aspect_ratio = str(geometry.get("aspect_ratio_hint", "")).lower()
+        if aspect_ratio == "elongated":
+            scores["edge"] += 0.35
+        if aspect_ratio == "sheet_like":
+            scores["broad_flat_face"] += 0.5
+        if aspect_ratio in {"compact", "round"}:
+            scores["curved_side"] += 0.2
+
+    for part in raw_entry.get("functional_parts", []) or []:
+        if not isinstance(part, dict):
+            continue
+        role = str(part.get("role_canonical", "")).lower()
+        mapped = _ROLE_TO_PROFILE.get(role)
+        if mapped:
+            scores[mapped] += 0.95
+
+        part_profile = str(part.get("contact_profile", "")).lower()
+        if part_profile in _CONTACT_PROFILES:
+            scores[part_profile] += 1.2
+
+    usable_parts = ((raw_entry.get("affordance_card") or {}).get("usable_parts") or [])
+    if usable_parts and isinstance(usable_parts[0], dict):
+        target_mode = usable_parts[0].get("target_mode_numeric", {}) or {}
+        point_score = _to_non_negative_float(target_mode.get("point_score"))
+        edge_score = _to_non_negative_float(target_mode.get("edge_score"))
+        face_score = _to_non_negative_float(target_mode.get("face_score"))
+        rim_score = _to_non_negative_float(target_mode.get("rim_score"))
+        cavity_score = _to_non_negative_float(target_mode.get("cavity_score"))
+        axis_score = _to_non_negative_float(target_mode.get("axis_score"))
+
+        if point_score >= 0.6:
+            scores["tip"] += 0.5
+        if edge_score >= 0.55:
+            scores["edge"] += 0.5
+        if face_score >= 0.55:
+            scores["broad_flat_face"] += 0.5
+        if max(rim_score, cavity_score) >= 0.5:
+            scores["cavity_rim"] += 0.5
+        if axis_score >= 0.55:
+            scores["edge"] += 0.25
+            scores["curved_side"] += 0.2
+
+
+def _pick_best_profile(scores: dict[str, float]) -> tuple[str, float]:
+    priority_index = {profile: idx for idx, profile in enumerate(_CONTACT_PROFILE_TIE_PRIORITY)}
+    best_profile = "unknown"
+    best_score = -1.0
+    best_priority = 999
+    for profile in _CONTACT_PROFILES:
+        score = float(scores.get(profile, 0.0))
+        idx = priority_index.get(profile, 999)
+        if score > best_score or (score == best_score and idx < best_priority):
+            best_profile = profile
+            best_score = score
+            best_priority = idx
+    return best_profile, best_score
+
+
+def _infer_contact_profile_fallback(normalized_text: str) -> str:
+    """Stage-2 fallback classifier for long-tail or unseen object names."""
+    if _text_has_any(normalized_text, ("tweezers", "tweezer", "forceps", "screwdriver", "needle", "pin", "awl", "pick", "probe", "toothpick", "blade", "knife", "scalpel")):
         return "tip"
-    if any(token in text for token in ("sheet", "mesh", "paper", "cloth", "tape", "block", "cube", "magnet")):
-        return "broad_flat_face"
-    if any(token in text for token in ("motor", "cylinder", "roll")):
-        return "curved_side"
-    if any(token in text for token in ("stick", "rod", "wire", "string", "rope", "spring", "shaft", "pen", "pencil")):
+    if _text_has_any(normalized_text, ("ruler", "rod", "stick", "shaft", "strip", "bar", "rail", "chopstick", "pen", "pencil", "wire", "string", "rope", "swab", "cotton swab", "qtip", "q tip")):
         return "edge"
+    if _text_has_any(normalized_text, ("business card", "card", "paper", "note", "sticky note", "post it", "sheet", "panel", "board", "label", "envelope", "plate", "pad")):
+        return "broad_flat_face"
+    if _text_has_any(normalized_text, ("cup", "mug", "bottle", "jar", "can", "container", "bowl", "bucket", "hole", "slot", "recess", "socket", "opening")):
+        return "cavity_rim"
+    if _text_has_any(normalized_text, ("cylinder", "cylindrical", "roller", "wheel", "ball", "sphere", "pipe", "hose", "spool")):
+        return "curved_side"
+    return "unknown"
+
+
+def _text_has_any(normalized_text: str, tokens: tuple[str, ...]) -> bool:
+    return any(_text_has_token(normalized_text=normalized_text, token=token) for token in tokens)
+
+
+def _infer_contact_profile_via_llm(
+    name: str,
+    normalized_text: str,
+    raw_entry: Any | None,
+    coarse_location: str,
+) -> str:
+    if not _is_llm_profile_fallback_enabled():
+        return "unknown"
+
+    cache_key = _contact_profile_cache_key(name=name, normalized_text=normalized_text, coarse_location=coarse_location)
+    cached = _CONTACT_PROFILE_LLM_CACHE.get(cache_key)
+    if cached:
+        return cached
+
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return "unknown"
+
+    model = (
+        os.getenv("MODULE1_CONTACT_PROFILE_MODEL")
+        or os.getenv("MODULE1_VISION_MODEL")
+        or os.getenv("OPENAI_MODEL")
+        or "gpt-4.1-mini"
+    )
+    base = os.getenv("OPENAI_API_BASE") or "https://api.openai.com/v1"
+    api_url = base.rstrip("/") + "/chat/completions"
+
+    role_hint = ""
+    if isinstance(raw_entry, dict):
+        role_hint = str(raw_entry.get("object_type") or raw_entry.get("object_type_canonical") or raw_entry.get("category") or "")
+
+    system_prompt = (
+        "You classify contact profile for manipulation planning. "
+        "Return one label only from the allowed set."
+    )
+    user_prompt = (
+        "Choose the best contact_profile for this object from:\n"
+        "- cavity_rim\n- tip\n- broad_flat_face\n- curved_side\n- edge\n- unknown\n\n"
+        f"object_name: {name}\n"
+        f"normalized_text: {normalized_text}\n"
+        f"coarse_location_hint: {coarse_location}\n"
+        f"type_hint: {role_hint}\n"
+        "Output strict JSON with keys: contact_profile, confidence."
+    )
+    schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "contact_profile": {"type": "string", "enum": list(_CONTACT_PROFILE_WITH_UNKNOWN)},
+            "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        },
+        "required": ["contact_profile", "confidence"],
+    }
+
+    body = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "module1_contact_profile",
+                "strict": True,
+                "schema": schema,
+            },
+        },
+        "temperature": 0,
+    }
+
+    try:
+        payload = _post_json(
+            url=api_url,
+            api_key=api_key,
+            body=body,
+            timeout_seconds=25.0,
+        )
+    except ValueError:
+        fallback_body = {
+            "model": model,
+            "messages": body["messages"],
+            "response_format": {"type": "json_object"},
+            "temperature": 0,
+        }
+        try:
+            payload = _post_json(
+                url=api_url,
+                api_key=api_key,
+                body=fallback_body,
+                timeout_seconds=25.0,
+            )
+        except ValueError:
+            return "unknown"
+
+    try:
+        parsed = _extract_json_content(response_payload=payload)
+    except ValueError:
+        return "unknown"
+
+    source = parsed.get("module1_contact_profile", parsed)
+    if not isinstance(source, dict):
+        return "unknown"
+
+    candidate = _normalize_profile_label(str(source.get("contact_profile", "")).strip())
+    if candidate in _CONTACT_PROFILES:
+        _CONTACT_PROFILE_LLM_CACHE[cache_key] = candidate
+        return candidate
+    return "unknown"
+
+
+def _is_llm_profile_fallback_enabled() -> bool:
+    raw = str(os.getenv("MODULE1_ENABLE_CONTACT_PROFILE_LLM_FALLBACK", "1")).strip().lower()
+    return raw not in {"0", "false", "off", "no"}
+
+
+def _contact_profile_cache_key(name: str, normalized_text: str, coarse_location: str) -> str:
+    return _normalize_profile_text(f"{name}::{normalized_text}::{coarse_location}")
+
+
+def _normalize_profile_label(label: str) -> str:
+    normalized = _normalize_profile_text(label).replace(" ", "_")
+    alias = {
+        "broad_flatface": "broad_flat_face",
+        "broad_face": "broad_flat_face",
+        "flat_face": "broad_flat_face",
+        "flat": "broad_flat_face",
+        "cavity": "cavity_rim",
+        "rim": "cavity_rim",
+    }
+    normalized = alias.get(normalized, normalized)
+    if normalized in _CONTACT_PROFILE_WITH_UNKNOWN:
+        return normalized
     return "unknown"
 
 
@@ -396,13 +850,31 @@ def _infer_role_and_part(profile: str) -> tuple[str, str]:
 
 def _infer_material(name: str) -> str:
     text = name.lower()
-    if any(token in text for token in ("wood", "stick")):
+    if any(token in text for token in ("wood", "stick", "ruler")):
         return "wood"
-    if any(token in text for token in ("string", "rope", "cloth", "mesh")):
+    if any(token in text for token in ("string", "rope", "cloth", "mesh", "cotton", "swab", "qtip", "q-tip")):
         return "fiber"
-    if any(token in text for token in ("motor", "spring", "paperclip", "wire", "magnet")):
+    if any(
+        token in text
+        for token in (
+            "motor",
+            "spring",
+            "paperclip",
+            "wire",
+            "magnet",
+            "screwdriver",
+            "tweezer",
+            "tweezers",
+            "forceps",
+            "blade",
+            "knife",
+            "clip",
+            "pin",
+            "needle",
+        )
+    ):
         return "metal"
-    if any(token in text for token in ("tape", "ring", "plastic")):
+    if any(token in text for token in ("tape", "ring", "plastic", "card", "paper", "sticky note", "post-it")):
         return "polymer"
     return "mixed"
 
@@ -411,13 +883,62 @@ def _infer_geometry(name: str, profile: str) -> dict[str, Any]:
     text = name.lower()
     aspect = "unknown"
     thickness = "medium"
-    if any(token in text for token in ("stick", "rod", "wire", "string", "rope", "spring", "shaft", "pen", "pencil")):
+    if any(
+        token in text
+        for token in (
+            "stick",
+            "rod",
+            "wire",
+            "string",
+            "rope",
+            "spring",
+            "shaft",
+            "pen",
+            "pencil",
+            "ruler",
+            "screwdriver",
+            "tweezer",
+            "tweezers",
+            "forceps",
+            "needle",
+            "pin",
+            "swab",
+            "qtip",
+            "q-tip",
+            "awl",
+            "pick",
+            "skewer",
+            "chopstick",
+            "blade",
+        )
+    ):
         aspect, thickness = "elongated", "thin"
-    if any(token in text for token in ("sheet", "mesh", "paper", "cloth", "film")):
+    if any(
+        token in text
+        for token in (
+            "sheet",
+            "mesh",
+            "paper",
+            "cloth",
+            "film",
+            "card",
+            "business card",
+            "sticky note",
+            "post-it",
+            "note",
+            "label",
+            "envelope",
+            "board",
+            "panel",
+        )
+    ):
         aspect, thickness = "sheet_like", "thin"
-    if any(token in text for token in ("block", "cube", "motor", "magnet", "battery", "box")):
+    if any(token in text for token in ("block", "cube", "motor", "magnet", "battery", "box", "clip", "clamp")):
         aspect, thickness = "blocky", "thick"
-    if any(token in text for token in ("ring", "loop", "bowl", "bucket", "tube", "container")) and aspect == "unknown":
+    if any(
+        token in text
+        for token in ("ring", "loop", "bowl", "bucket", "tube", "container", "cup", "mug", "jar", "bottle", "can")
+    ) and aspect == "unknown":
         aspect = "compact"
 
     has_open_cavity = profile == "cavity_rim"
@@ -572,6 +1093,14 @@ def _to_positive_int(value: Any, default: int) -> int:
     except (TypeError, ValueError):
         return default
     return parsed if parsed > 0 else default
+
+
+def _to_non_negative_float(value: Any) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return parsed if parsed >= 0 else 0.0
 
 
 def _to_snake_case(value: str) -> str:
