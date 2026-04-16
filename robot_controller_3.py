@@ -770,6 +770,65 @@ class PandaController:
         if open_after:
             self.open_gripper(steps=steps)
 
+    # ── Assembly attach / detach ──────────────────────────────────────────────
+
+    def attach_to_body(
+        self,
+        main_body_id: int,
+        aux_body_id: int,
+        contact_offset: list | None = None,
+        settle_steps: int = 60,
+    ) -> int | None:
+        """
+        두 물체를 고정 constraint로 결합한다 (affordance_r1_assembly.py assemble_objects 이식).
+
+        main_body_id 위에 aux_body_id를 붙인다.
+        contact_offset: main_body 기준 프레임 내 부착 위치 ([x, y, z]).
+                        None이면 AABB 기반으로 자동 계산 (위쪽 면 중심).
+        Returns: constraint id (성공) or None (실패).
+        """
+        if contact_offset is None:
+            try:
+                main_aabb_min, main_aabb_max = p.getAABB(main_body_id)
+                aux_aabb_min,  aux_aabb_max  = p.getAABB(aux_body_id)
+                main_half_z = (main_aabb_max[2] - main_aabb_min[2]) / 2.0
+                aux_half_z  = (aux_aabb_max[2]  - aux_aabb_min[2])  / 2.0
+                contact_offset = [0.0, 0.0, main_half_z + aux_half_z]
+            except Exception:
+                contact_offset = [0.0, 0.0, 0.05]
+
+        try:
+            constraint_id = p.createConstraint(
+                parentBodyUniqueId=main_body_id,
+                parentLinkIndex=-1,
+                childBodyUniqueId=aux_body_id,
+                childLinkIndex=-1,
+                jointType=p.JOINT_FIXED,
+                jointAxis=[0, 0, 0],
+                parentFramePosition=contact_offset,
+                childFramePosition=[0, 0, 0],
+            )
+            p.changeConstraint(constraint_id, maxForce=500)
+            _step_simulation(settle_steps)
+            print(
+                f"[{self.name}] attach: body {aux_body_id} → body {main_body_id} "
+                f"(constraint={constraint_id}, offset={[round(v,4) for v in contact_offset]})"
+            )
+            return constraint_id
+        except Exception as exc:
+            print(f"[{self.name}][WARN] attach_to_body failed: {exc}")
+            return None
+
+    def detach_body(self, constraint_id: int) -> bool:
+        """attach_to_body로 만든 constraint를 제거한다."""
+        try:
+            p.removeConstraint(constraint_id)
+            print(f"[{self.name}] detach: constraint {constraint_id} removed.")
+            return True
+        except Exception as exc:
+            print(f"[{self.name}][WARN] detach_body failed: {exc}")
+            return False
+
     def grasp_body(
         self,
         body_id: int,

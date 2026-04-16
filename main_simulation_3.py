@@ -609,38 +609,87 @@ def run_sequential_demo(
         print("[Demo][WARN] no YCB objects were loaded, skipping grasp demo.")
         return
 
+    # ── 파지 대상 선택 ─────────────────────────────────────────────────────────
     left_target_label = "apple" if "apple" in ycb_object_ids else next(iter(ycb_object_ids))
     right_target_label = (
         "mustard_bottle" if "mustard_bottle" in ycb_object_ids else next(iter(ycb_object_ids))
     )
 
+    # ── Left arm: 첫 번째 물체 파지 후 조립 위치로 이동 ────────────────────────
     print(f"[Demo] left-arm grasp target: {left_target_label}")
     left_ok = left.grasp_body(
         body_id=ycb_object_ids[left_target_label],
         object_label=left_target_label,
         orientation=down_orn,
     )
+
+    # 조립 위치: 테이블 중앙 위 (두 팔이 만나는 지점)
+    ASSEMBLY_POS = [0.60, 0.0, 1.00]
+
     if left_ok:
         left.maintain_grasp_hold(steps=120)
-        left.move_end_effector_to([0.58, -0.35, 1.00], orientation=down_orn, steps=600)
-        left.maintain_grasp_hold(steps=100)
-        left.release_grasp(open_after=True, steps=140)
+        # 조립 위치로 운반 (main 파트 역할 — 고정 위치 유지)
+        left.move_end_effector_to(ASSEMBLY_POS, orientation=down_orn, steps=600)
+        left.maintain_grasp_hold(steps=80)
     else:
         print(f"[Demo][WARN] left-arm grasp failed for '{left_target_label}'")
 
+    # ── Right arm: 두 번째 물체 파지 후 조립 위치로 접근 ──────────────────────
     print(f"[Demo] right-arm grasp target: {right_target_label}")
     right_ok = right.grasp_body(
         body_id=ycb_object_ids[right_target_label],
         object_label=right_target_label,
         orientation=down_orn,
     )
+
     if right_ok:
         right.maintain_grasp_hold(steps=120)
-        right.move_end_effector_to([0.78, 0.35, 1.00], orientation=down_orn, steps=600)
-        right.maintain_grasp_hold(steps=100)
-        right.release_grasp(open_after=True, steps=140)
+        # main 물체 바로 위로 aux 물체 접근
+        aux_approach = [ASSEMBLY_POS[0], ASSEMBLY_POS[1], ASSEMBLY_POS[2] + 0.12]
+        right.move_end_effector_to(aux_approach, orientation=down_orn, steps=600)
+        right.maintain_grasp_hold(steps=80)
     else:
         print(f"[Demo][WARN] right-arm grasp failed for '{right_target_label}'")
+
+    # ── Assembly: 두 물체 고정 결합 ────────────────────────────────────────────
+    assembly_constraint = None
+    if left_ok and right_ok:
+        print("[Demo] assembling parts...")
+        # left가 쥔 물체(main)에 right가 쥔 물체(aux)를 붙임
+        # attach_to_body는 PandaController 인스턴스에 추가된 메서드
+        assembly_constraint = left.attach_to_body(
+            main_body_id=ycb_object_ids[left_target_label],
+            aux_body_id=ycb_object_ids[right_target_label],
+        )
+        if assembly_constraint is not None:
+            print("[Demo] assembly successful — holding assembled structure.")
+            # 결합 후 두 팔 모두 hold 유지하며 안정화
+            for _ in range(DEMO_HOLD_STEPS):
+                p.stepSimulation()
+                time.sleep(SIM_TIMESTEP)
+        else:
+            print("[Demo][WARN] assembly constraint failed.")
+    else:
+        print("[Demo][WARN] skipping assembly (one or both grasps failed).")
+
+    # ── 결합체 내려놓기 ────────────────────────────────────────────────────────
+    PLACE_POS = [0.60, 0.0, 0.85]
+    if left_ok:
+        left.move_end_effector_to(PLACE_POS, orientation=down_orn, steps=400)
+        left.maintain_grasp_hold(steps=60)
+        left.release_grasp(open_after=True, steps=140)
+
+    if right_ok:
+        right.move_end_effector_to(
+            [PLACE_POS[0], PLACE_POS[1], PLACE_POS[2] + 0.12],
+            orientation=down_orn,
+            steps=400,
+        )
+        right.maintain_grasp_hold(steps=60)
+        right.release_grasp(open_after=True, steps=140)
+
+    # constraint는 release 후에도 물체끼리 붙어있게 유지 (필요시 detach 가능)
+    # left.detach_body(assembly_constraint)  # 분리하려면 이 줄 활성화
 
     print("[Demo] return to home")
     left.reset_to_home(steps=600)
