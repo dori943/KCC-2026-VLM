@@ -416,7 +416,7 @@ class PandaController:
         if features["round_like"]:
             grasp_z_ratio = 0.62
         elif features["slender_like"]:
-            grasp_z_ratio = 0.72
+            grasp_z_ratio = 0.82
         elif features["flat_like"]:
             grasp_z_ratio = 0.92
         approach_height = _clamp(0.12 + size_z * 0.65, 0.12, 0.24)
@@ -628,13 +628,13 @@ class PandaController:
 
         summary = self._finger_contact_summary(body_id)
         return summary["total"] > 0, end_closed, summary
-
+# 수정 후
     def _descend_until_precontact(
         self,
         body_id: int,
         orientation,
-        drop_step: float = 0.015,
-        max_drop: float = 0.18,
+        drop_step: float = 0.010,    # 0.015 → 0.010: 더 정밀하게
+        max_drop: float = 0.30,      # 0.18 → 0.30: 더 넓은 탐색 범위
     ) -> None:
         checks = int(max_drop / drop_step)
         for _ in range(checks):
@@ -642,8 +642,14 @@ class PandaController:
             if summary["total"] > 0:
                 return
             ee_pos, _ = self.get_end_effector_pose()
-            next_pos = [float(ee_pos[0]), float(ee_pos[1]), float(ee_pos[2] - drop_step)]
-            self.move_end_effector_to(next_pos, orientation=orientation, steps=80)
+            # 물체 AABB bottom보다 아래로는 내려가지 않도록 안전 제한
+            aabb_min, _ = p.getAABB(body_id)
+            safe_floor = float(aabb_min[2]) - 0.02
+            next_z = float(ee_pos[2]) - drop_step
+            if next_z < safe_floor:
+                return
+            next_pos = [float(ee_pos[0]), float(ee_pos[1]), next_z]
+            self.move_end_effector_to(next_pos, orientation=orientation, steps=60)
 
     def get_end_effector_pose(self) -> tuple[np.ndarray, np.ndarray]:
         self._ensure_loaded()
@@ -653,6 +659,7 @@ class PandaController:
             computeForwardKinematics=True,
         )
         return np.array(link_state[0]), np.array(link_state[1])
+
 
     def _enable_hold_control(
         self,
@@ -689,7 +696,35 @@ class PandaController:
             steps=steps,
             max_velocity=0.10,
         )
+    def _compute_grasp_orientation(self, body_id: int, base_orientation) -> tuple:
+        """
+        물체의 AABB 단면 긴 축에 그리퍼 yaw를 정렬한다.
+        - 단면이 원형에 가까우면 base_orientation 그대로 반환
+        - 타원형/직사각형이면 긴 축 방향으로 yaw 회전
+        """
+        try:
+            aabb_min, aabb_max = p.getAABB(body_id)
+            size_x = float(aabb_max[0] - aabb_min[0])
+            size_y = float(aabb_max[1] - aabb_min[1])
+            # 단면이 거의 원형이면 회전 불필요
+            ratio = min(size_x, size_y) / max(size_x, size_y, 1e-6)
+            if ratio > 0.88:
+                return base_orientation, 0.0
 
+            # 긴 축 방향 yaw 계산 (그리퍼 핑거가 긴 축에 수직이 되도록)
+            if size_x >= size_y:
+                yaw = 0.0        # 긴 축이 X축 → 핑거를 Y 방향으로
+            else:
+                yaw = np.pi / 2  # 긴 축이 Y축 → 핑거를 X 방향으로
+
+            base_euler = p.getEulerFromQuaternion(base_orientation)
+            aligned_orn = p.getQuaternionFromEuler(
+                [base_euler[0], base_euler[1], base_euler[2] + yaw]
+            )
+            return aligned_orn, yaw
+        except Exception:
+            return base_orientation, 0.0
+    
     def _grasp_body_no_constraint(
         self,
         body_id: int,
@@ -710,14 +745,21 @@ class PandaController:
         grasp_z_ratio = _clamp(grasp_z_ratio, 0.45, 0.98)
         target_grasp_z = bottom_z + size_z * grasp_z_ratio
 
-        approach = [target_xy[0], target_xy[1], max(top_z, target_grasp_z) + approach_height]
+        # ── 물체 단면 긴 축에 그리퍼 yaw 정렬 ──────────────────────────────
+        aligned_orn, yaw_applied = self._compute_grasp_orientation(body_id, orientation)
+        if yaw_applied != 0.0:
+            print(f"[{self.name}] grasp orientation aligned: yaw={np.degrees(yaw_applied):.1f}°")
+
+        # approach는 물체 정상보다 충분히 위 → 내려오면서 물체를 밀지 않도록
+        approach_z = top_z + approach_height
+        approach = [target_xy[0], target_xy[1], approach_z]
         grasp = [target_xy[0], target_xy[1], target_grasp_z + grasp_clearance]
         lift = [target_xy[0], target_xy[1], grasp[2] + lift_height]
 
         self.open_gripper(steps=90)
-        self.move_end_effector_to(approach, orientation=orientation, steps=500)
-        self.move_end_effector_to(grasp, orientation=orientation, steps=360)
-        self._descend_until_precontact(body_id=body_id, orientation=orientation)
+        self.move_end_effector_to(approach, orientation=aligned_orn, steps=500)
+        self.move_end_effector_to(grasp, orientation=aligned_orn, steps=360)
+        self._descend_until_precontact(body_id=body_id, orientation=aligned_orn)
 
         contact_found, hold_target, summary = self._close_until_contact(body_id=body_id)
         if not contact_found:
@@ -763,6 +805,7 @@ class PandaController:
             return False
         self._held_reference_ee_distance = ee_to_object
         return True
+
 
     def release_grasp(self, open_after: bool = True, steps: int = 120) -> None:
         self._ensure_loaded()
@@ -880,6 +923,9 @@ class PandaController:
         retry_offsets = self._build_retry_offsets(max_attempts=max_attempts)
         attempts = len(retry_offsets)
         for attempt_idx in range(attempts):
+            # 튕겨나간 물체를 새 위치에서 다시 추적
+            self._active_body_features = self._read_body_features(body_id)
+
             ok = self._grasp_body_no_constraint(
                 body_id=body_id,
                 orientation=orientation,
@@ -892,9 +938,17 @@ class PandaController:
                 return True
             if attempt_idx < attempts - 1:
                 self.release_grasp(open_after=True, steps=70)
+                # 후퇴 전 물체 안정화 대기
+                for _ in range(120):
+                    p.stepSimulation()
+                    time.sleep(SIM_TIMESTEP)
                 self.move_end_effector_to(
                     [self.base_position[0] + 0.55, self.base_position[1], 1.02],
                     orientation=orientation,
                     steps=260,
                 )
+                # 후퇴 후 물체가 완전히 멈출 때까지 추가 대기
+                for _ in range(180):
+                    p.stepSimulation()
+                    time.sleep(SIM_TIMESTEP)
         return False

@@ -1,13 +1,3 @@
-"""
-main_simulation_3.py
-Boot-only dual-arm Panda simulation orchestration.
-
-Notes:
-- R1 model assets should be obtained from Hugging Face:
-  https://huggingface.co/hqking/affordance-r1
-- This boot path intentionally avoids GPT / OpenAI / VL-Grasp / open3d imports.
-"""
-
 import os
 import time
 
@@ -30,12 +20,12 @@ AFFORDANCE_MODEL_ID = "hqking/affordance-r1"
 SAM2_MODEL_ID = "facebook/sam2-hiera-large"
 AFFORDANCE_CAPTURE_WIDTH = 640
 AFFORDANCE_CAPTURE_HEIGHT = 480
-MODULE1_MAP_PATH = r"C:\Users\SAMSUNG\Downloads\module1-2B\configs\module1_to_pybullet_map.yaml"
+MODULE1_MAP_PATH = "/workspace/KCC-2026-VLM/module1-2B/configs/module1_to_pybullet_map.yaml"
 
 LEFT_BASE_POSITION = [0.0, -0.35, 0.65]
 RIGHT_BASE_POSITION = [0.0, 0.35, 0.65]
 TABLE_BASE_POSITION = [0.6, 0.0, 0.0]
-YCB_DIR = r"C:\Users\SAMSUNG\Downloads\data\object2urdf\examples\ycb"
+YCB_DIR = "/workspace/KCC-2026-VLM/data/object2urdf/examples/ycb"
 
 YCB_OBJECT_SPECS = [
     ("chips_can", "001_chips_can.urdf", [0.80, -0.15, 0.82]),
@@ -140,7 +130,7 @@ YCB_DYNAMICS_OVERRIDE_BY_LABEL = {
     # Real-apple test profile (temporary): if grasp degrades, revert to stable profile.
     "apple": {
         "mass_kg": 0.18,
-        "lateral_friction": 0.30,
+        "lateral_friction": 0.65,
     },
 }
 
@@ -635,6 +625,7 @@ def run_sequential_demo(
         print(f"[Demo][WARN] left-arm grasp failed for '{left_target_label}'")
 
     # ── Right arm: 두 번째 물체 파지 후 조립 위치로 접근 ──────────────────────
+    # 수정 후
     print(f"[Demo] right-arm grasp target: {right_target_label}")
     right_ok = right.grasp_body(
         body_id=ycb_object_ids[right_target_label],
@@ -642,14 +633,16 @@ def run_sequential_demo(
         orientation=down_orn,
     )
 
-    if right_ok:
-        right.maintain_grasp_hold(steps=120)
-        # main 물체 바로 위로 aux 물체 접근
-        aux_approach = [ASSEMBLY_POS[0], ASSEMBLY_POS[1], ASSEMBLY_POS[2] + 0.12]
-        right.move_end_effector_to(aux_approach, orientation=down_orn, steps=600)
-        right.maintain_grasp_hold(steps=80)
+    if not right_ok:
+        print(f"[Demo][WARN] right-arm grasp failed for '{right_target_label}', skipping right arm.")
     else:
-        print(f"[Demo][WARN] right-arm grasp failed for '{right_target_label}'")
+        right.maintain_grasp_hold(steps=120)
+        # left_ok인 경우에만 조립 위치로 이동, 아니면 제자리 hold
+        if left_ok:
+            aux_approach = [ASSEMBLY_POS[0], ASSEMBLY_POS[1], ASSEMBLY_POS[2] + 0.12]
+            right.move_end_effector_to(aux_approach, orientation=down_orn, steps=600)
+        right.maintain_grasp_hold(steps=80)
+
 
     # ── Assembly: 두 물체 고정 결합 ────────────────────────────────────────────
     assembly_constraint = None

@@ -13,11 +13,13 @@ __pycache__/
 *.onnx
 *.weights
 *.pb
+data/
+affordance-r1/
+VL-Grasp/
+data.zip
+
 
 # 결과물 및 로그
-*.png
-*.jpg
-*.jpeg
 *.json
 *.mp4
 results/
@@ -26,3 +28,22 @@ logs/
 # 시스템 파일
 .DS_Store
 .vscode/
+# Build artifacts
+VL-Grasp/GraspNet/knn/build/
+VL-Grasp/GraspNet/knn/dist/
+VL-Grasp/GraspNet/pointnet2/build/
+VL-Grasp/GraspNet/pointnet2/dist/
+VL-Grasp/GraspNet/knn/knn_pytorch.egg-info/
+*.egg
+*.so
+*.o
+*.ninja_deps
+*.ninja_log
+build.ninja
+
+# YCB data (binary/generated)
+data/object2urdf/examples/ycb/
+
+# Sim artifacts
+scene_capture.png
+affordance_visualization.png
