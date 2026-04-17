@@ -12,6 +12,7 @@ dependencies = [
   "jsonschema>=4.22.0",
   "PyYAML>=6.0.0",
   "pybullet>=3.2.6",
+  "openai>=1.0.0",
 ]
 
 [project.optional-dependencies]

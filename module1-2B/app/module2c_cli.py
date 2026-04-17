@@ -20,12 +20,12 @@ def cli() -> None:
 @click.option("--api-key", default=None)
 @click.option("--model", default="gpt-4o", show_default=True)
 @click.option("--temperature", default=0.3, show_default=True, type=float)
-# ↓ Material Reasoner용 옵션 추가
 @click.option("--image", "image_path", type=click.Path(path_type=Path), default=None, help="타겟 물체 이미지 경로 (Material Reasoner용)")
 @click.option("--target-name", default="business card", show_default=True, help="타겟 물체 이름")
 @click.option("--task", "task_text", default=None, help="task 설명 (없으면 2-B output에서 자동 추출)")
+@click.option("--scene-info", "scene_info_path", type=click.Path(path_type=Path), default=None, help="파이불렛 scene_info.json 경로 (실제 AABB 좌표)")
 def run_module2c(bundle_path, case_id, provider_name, output_root, api_key, model, temperature,
-                 image_path, target_name, task_text):
+                 image_path, target_name, task_text, scene_info_path):
     """Module 2-C 후보 생성 실행."""
     from app.module2c.providers import FileInputProvider, MockInputProvider, Module2BOutputProvider
 
@@ -37,6 +37,7 @@ def run_module2c(bundle_path, case_id, provider_name, output_root, api_key, mode
             target_name=target_name,
             task=task_text,
             api_key=api_key or os.environ.get("OPENAI_API_KEY"),
+            scene_info_path=scene_info_path,
         )
     else:
         provider = FileInputProvider()

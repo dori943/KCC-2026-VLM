@@ -9,3 +9,7 @@ pytest-cache-files-*
 outputs/scratch/
 outputs/**/__pycache__/
 outputs/**/*.pyc
+outputs/
+outputs_archive/
+outputs_backup.zip
+outputs_old_backup.zip

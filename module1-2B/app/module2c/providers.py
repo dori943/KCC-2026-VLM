@@ -62,10 +62,7 @@ class MockInputProvider:
 
 
 class Module2BOutputProvider:
-    """Module 2-B run_dir을 읽어 Module 2-C input으로 변환.
-    
-    image_path + target_name + task를 주면 Material Reasoner도 함께 호출함.
-    """
+    """Module 2-B run_dir을 읽어 Module 2-C input으로 변환."""
 
     def __init__(
         self,
@@ -73,11 +70,13 @@ class Module2BOutputProvider:
         target_name: str = "business card",
         task: str | None = None,
         api_key: str | None = None,
+        scene_info_path: Path | None = None,
     ) -> None:
         self.image_path = Path(image_path) if image_path else None
         self.target_name = target_name
         self.task = task
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
+        self.scene_info_path = Path(scene_info_path) if scene_info_path else None
 
     def get_bundle(
         self,
@@ -92,16 +91,22 @@ class Module2BOutputProvider:
             module2b_output = load_json(p / "module2b_output.json")
             nc_path = p / "normalized_context.json"
             normalized_context = load_json(nc_path) if nc_path.exists() else {}
+
             module1_normalized = _find_module1_normalized(p)
             if module1_normalized:
                 normalized_context = _merge_module1_into_context(
                     normalized_context, module1_normalized
                 )
+
+            module1_raw = _find_module1_raw(p)
+            module2a_output = _find_module2a_output(p)
+
         else:
             module2b_output = load_json(p)
             normalized_context = load_json(p.parent / "normalized_context.json")
+            module1_raw = None
+            module2a_output = None
 
-        # Material Reasoner 호출
         material_result = None
         if self.image_path and self.image_path.exists():
             try:
@@ -118,7 +123,10 @@ class Module2BOutputProvider:
                 print(f"[Material Reasoner] 경고: {e}")
 
         bundle = _convert_module2b_to_2c_input(
-            module2b_output, normalized_context, material_result
+            module2b_output, normalized_context, material_result,
+            scene_info_path=self.scene_info_path,
+            module1_raw=module1_raw,
+            module2a_output=module2a_output,
         )
 
         return Module2CInputResult(
@@ -128,11 +136,13 @@ class Module2BOutputProvider:
                 "bundle_path": str(bundle_path),
                 "case_id": case_id,
                 "material_reasoner_used": material_result is not None,
+                "scene_info_used": self.scene_info_path is not None,
+                "module1_raw_used": module1_raw is not None,
             },
         )
 
 
-# ─── Module 1 탐색 및 병합 ─────────────────────────────────────
+# ─── Module 1 탐색 ─────────────────────────────────────────────
 
 def _find_module1_normalized(module2b_dir: Path) -> dict[str, Any] | None:
     search_roots = [
@@ -152,6 +162,77 @@ def _find_module1_normalized(module2b_dir: Path) -> dict[str, Any] | None:
             if path.exists():
                 try:
                     return load_json(path)
+                except Exception:
+                    continue
+    return None
+
+
+def _find_module1_raw(module2b_dir: Path) -> dict[str, Any] | None:
+    """raw_module1_output.json 탐색 - affordance_card 포함."""
+    # 1. module2b_dir 안에 직접 있는 경우 (teamwork 폴더 등)
+    direct_path = module2b_dir / "raw_module1_output.json"
+    if direct_path.exists():
+        try:
+            data = load_json(direct_path)
+            print(f"[Module1 Raw] 로드 완료: {len(data.get('objects', []))}개 물체")
+            return data
+        except Exception:
+            pass
+
+    search_roots = [
+        module2b_dir.parent,
+        module2b_dir.parent.parent / "module1-2B" / "outputs",
+        module2b_dir.parent.parent / "outputs",
+    ]
+    for root in search_roots:
+        if not root.exists():
+            continue
+        candidates = sorted(
+            [d for d in root.iterdir() if d.is_dir() and d.name.startswith("run_")],
+            reverse=True,
+        )
+        for candidate in candidates:
+            path = candidate / "raw_module1_output.json"
+            if path.exists():
+                try:
+                    data = load_json(path)
+                    print(f"[Module1 Raw] 로드 완료: {len(data.get('objects', []))}개 물체")
+                    return data
+                except Exception:
+                    continue
+    return None
+
+
+def _find_module2a_output(module2b_dir: Path) -> dict[str, Any] | None:
+    """module2a_output.json 탐색 - required_atoms, required_interaction_primitives 추출용."""
+    # 1. module2b_dir 안에 직접 있는 경우 (teamwork 폴더 등)
+    direct_path = module2b_dir / "module2a_output.json"
+    if direct_path.exists():
+        try:
+            data = load_json(direct_path)
+            print(f"[Module2A] 로드 완료: {len(data.get('subgoals', []))}개 subgoal")
+            return data
+        except Exception:
+            pass
+
+    search_roots = [
+        module2b_dir.parent,
+        module2b_dir.parent.parent / "module1-2B" / "outputs",
+    ]
+    for root in search_roots:
+        if not root.exists():
+            continue
+        candidates = sorted(
+            [d for d in root.iterdir() if d.is_dir() and d.name.startswith("module2a_")],
+            reverse=True,
+        )
+        for candidate in candidates:
+            path = candidate / "module2a_output.json"
+            if path.exists():
+                try:
+                    data = load_json(path)
+                    print(f"[Module2A] 로드 완료: {len(data.get('subgoals', []))}개 subgoal")
+                    return data
                 except Exception:
                     continue
     return None
@@ -189,20 +270,88 @@ def _merge_module1_into_context(
     return ctx
 
 
+# ─── scene_info 병합 ──────────────────────────────────────────
+
+_SCENE_NAME_MAP: dict[str, str] = {
+    "bulldog_clip": "metal_clip",
+    "paper_clip": "metal_clip",
+    "binder_clip_small": "metal_clip",
+    "metal_binder_clip": "metal_clip",
+    "sticky_notes": "sticky_note",
+    "sticky_note_pad": "sticky_note",
+    "note_pad": "sticky_note",
+    "screwdriver": "flat_screwdriver",
+    "flat_head_screwdriver": "flat_screwdriver",
+    "cotton_swab": "cotton_swab",
+    "q_tip": "cotton_swab",
+    "pen": "pen",
+    "ballpoint_pen": "pen",
+    "tweezers": "tweezers",
+    "ruler": "ruler",
+    "binder_clip": "binder_clip",
+    "card_holder": "card_holder",
+}
+
+
+def _merge_scene_info(
+    scene_objects: list[dict[str, Any]],
+    scene_info_path: Path,
+) -> list[dict[str, Any]]:
+    if not scene_info_path.exists():
+        print(f"[scene_info] {scene_info_path} 없음 → AABB 업데이트 건너뜀")
+        return scene_objects
+
+    scene_info = load_json(scene_info_path)
+    pybullet_objects: dict[str, dict[str, Any]] = {}
+    for obj in scene_info.get("objects", []):
+        label = obj.get("label", "")
+        if label:
+            pybullet_objects[label] = obj
+
+    updated = 0
+    for scene_obj in scene_objects:
+        name = scene_obj.get("name", "")
+        mapped_name = _SCENE_NAME_MAP.get(name, name)
+        pb_obj = pybullet_objects.get(mapped_name)
+        if pb_obj:
+            if pb_obj.get("aabb_min"):
+                scene_obj["aabb_min"] = pb_obj["aabb_min"]
+            if pb_obj.get("aabb_max"):
+                scene_obj["aabb_max"] = pb_obj["aabb_max"]
+            if pb_obj.get("center_world"):
+                scene_obj["center_world"] = pb_obj["center_world"]
+            updated += 1
+
+    print(f"[scene_info] {updated}/{len(scene_objects)}개 물체 AABB 업데이트 완료")
+    return scene_objects
+
+
 # ─── 변환 함수 ────────────────────────────────────────────────
 
 def _convert_module2b_to_2c_input(
     module2b_output: dict[str, Any],
     normalized_context: dict[str, Any],
     material_result: dict[str, Any] | None = None,
+    scene_info_path: Path | None = None,
+    module1_raw: dict[str, Any] | None = None,
+    module2a_output: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    scene_objects = _extract_scene_objects(normalized_context)
+
+    if scene_info_path:
+        scene_objects = _merge_scene_info(scene_objects, scene_info_path)
+
+    object_physical_properties = _extract_physical_properties(
+        normalized_context, module1_raw
+    )
+
     return {
         "task": _extract_task(normalized_context),
         "tool_constraints": _extract_tool_constraints(
-            module2b_output, normalized_context, material_result
+            module2b_output, normalized_context, material_result, module2a_output
         ),
-        "scene_objects": _extract_scene_objects(normalized_context),
-        "object_physical_properties": _extract_physical_properties(normalized_context),
+        "scene_objects": scene_objects,
+        "object_physical_properties": object_physical_properties,
     }
 
 
@@ -229,6 +378,7 @@ def _extract_tool_constraints(
     module2b_output: dict[str, Any],
     normalized_context: dict[str, Any],
     material_result: dict[str, Any] | None = None,
+    module2a_output: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     derived = module2b_output.get("derived_constraints", {})
     env_ctx = module2b_output.get("environment_context", {})
@@ -250,17 +400,48 @@ def _extract_tool_constraints(
         c["constraint_id"]: c
         for c in derived.get("constraint_catalog", [])
     }
+
+    # module2a subgoal 인덱싱
+    m2a_subgoals: dict[str, dict[str, Any]] = {}
+    if module2a_output:
+        for m2a_sg in module2a_output.get("subgoals", []):
+            sid = m2a_sg.get("subgoal_id", "")
+            if sid:
+                m2a_subgoals[sid] = m2a_sg
+
     subgoal_constraints: list[dict[str, Any]] = []
     for sg in subgoals:
         sg_id = sg["subgoal_id"]
         bound_ids = subgoal_bindings.get(sg_id, [])
         bound = [catalog_by_id[cid] for cid in bound_ids if cid in catalog_by_id]
+
+        # Module 2-A output에서 required_atoms + required_interaction_primitives 추출
+        m2a_required, m2a_preferred, m2a_risk, m2a_primitives = [], [], [], []
+        m2a_sg = m2a_subgoals.get(sg_id)
+        if m2a_sg:
+            func_req = m2a_sg.get("function_requirements", {})
+            m2a_required = func_req.get("required_atoms", [])
+            m2a_preferred = func_req.get("preferred_atoms", [])
+            m2a_risk = func_req.get("risk_atoms_to_avoid", [])
+            m2a_primitives = m2a_sg.get("required_interaction_primitives", [])
+        else:
+            func_req = sg.get("function_requirements", {})
+            m2a_required = func_req.get("required_atoms", [])
+            m2a_preferred = func_req.get("preferred_atoms", [])
+            m2a_risk = func_req.get("risk_atoms_to_avoid", [])
+
+        # Module 2-B 환경 제약
+        m2b_required = [c["parameter_name"] for c in bound if c.get("hardness") == "hard"]
+        m2b_preferred = [c["parameter_name"] for c in bound if c.get("hardness") == "soft" and c.get("priority") == "medium"]
+        m2b_risk = [c["parameter_name"] for c in bound if c.get("priority") == "high" and c.get("hardness") == "soft"]
+
         subgoal_constraints.append({
             "subgoal_id": sg_id,
             "objective": sg.get("objective", ""),
-            "required_atoms": [c["parameter_name"] for c in bound if c.get("hardness") == "hard"],
-            "preferred_atoms": [c["parameter_name"] for c in bound if c.get("hardness") == "soft" and c.get("priority") == "medium"],
-            "risk_atoms_to_avoid": [c["parameter_name"] for c in bound if c.get("priority") == "high" and c.get("hardness") == "soft"],
+            "required_atoms": list(dict.fromkeys(m2a_required + m2b_required)),
+            "preferred_atoms": list(dict.fromkeys(m2a_preferred + m2b_preferred)),
+            "risk_atoms_to_avoid": list(dict.fromkeys(m2a_risk + m2b_risk)),
+            "required_interaction_primitives": m2a_primitives,  # ← 추가
         })
 
     numeric_estimates: dict[str, Any] = {}
@@ -296,7 +477,6 @@ def _extract_tool_constraints(
         "constraint_context": constraint_context,
     }
 
-    # Material Reasoner output 병합
     if material_result:
         result["target_material_constraints"] = {
             "target_name": material_result.get("target_name", ""),
@@ -341,21 +521,71 @@ def _extract_scene_objects(normalized_context: dict[str, Any]) -> list[dict[str,
     return scene_objects
 
 
-def _extract_physical_properties(normalized_context: dict[str, Any]) -> list[dict[str, Any]]:
+def _extract_physical_properties(
+    normalized_context: dict[str, Any],
+    module1_raw: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Module 1 raw output의 affordance_card까지 반영한 물리속성 추출."""
+
+    raw_affordance: dict[str, dict[str, Any]] = {}
+    if module1_raw:
+        for obj in module1_raw.get("objects", []):
+            oid = obj.get("object_id", "")
+            name = obj.get("object_name", "")
+            card = obj.get("affordance_card", {})
+            if oid:
+                raw_affordance[oid] = {"name": name, "affordance_card": card, "raw_obj": obj}
+
     seen_ids: set[str] = set()
     properties = []
+
     for obj in normalized_context.get("inventory", []):
         object_id = obj.get("object_id") or obj.get("raw_object_id", "")
         if not object_id or object_id in seen_ids:
             continue
         seen_ids.add(object_id)
+
         geo = obj.get("geometry_cues", {})
         physical = obj.get("physical_properties", {})
-        inferred_functions = list({
+
+        _NOISE_PREFIXES = ("material_prior:", "contact_profile:", "unknown")
+
+        inferred_functions = [
             part.get("role_canonical", "")
             for part in obj.get("functional_parts", [])
-            if part.get("role_canonical")
-        })
+            if part.get("role_canonical") and part.get("role_canonical") != "unknown"
+        ]
+
+        raw_info = raw_affordance.get(object_id, {})
+        affordance_card = raw_info.get("affordance_card", {})
+
+        for part in affordance_card.get("usable_parts", []):
+            scores = part.get("affordance_scores", {})
+            top_affordances = [
+                k for k, v in sorted(scores.items(), key=lambda x: -x[1])
+                if v >= 0.3 and not any(k.startswith(n) or k == n for n in _NOISE_PREFIXES)
+            ]
+            inferred_functions.extend(top_affordances)
+
+            primitives = part.get("interaction_primitives", {})
+            top_primitives = [
+                k for k, v in sorted(primitives.items(), key=lambda x: -x[1])
+                if v >= 0.5 and not any(k.startswith(n) or k == n for n in _NOISE_PREFIXES)
+            ]
+            inferred_functions.extend(top_primitives)
+
+        inferred_functions = [
+            f for f in dict.fromkeys(inferred_functions)
+            if f and not any(f.startswith(n) or f == n for n in _NOISE_PREFIXES)
+        ]
+
+        # connection_modes 추출 ← 추가
+        connection_modes = [
+            {"mode": cm.get("mode", ""), "score": cm.get("score", 0.0)}
+            for cm in affordance_card.get("connection_modes", [])
+            if cm.get("mode") and cm.get("score", 0.0) >= 0.3
+        ]
+
         surface_friction = "medium"
         if isinstance(physical, dict):
             fl = physical.get("surface_friction", {})
@@ -363,6 +593,7 @@ def _extract_physical_properties(normalized_context: dict[str, Any]) -> list[dic
                 surface_friction = fl.get("label", "medium")
             elif isinstance(fl, str):
                 surface_friction = fl
+
         rigidity = "rigid"
         if isinstance(physical, dict):
             dl = physical.get("deformability", {})
@@ -372,6 +603,7 @@ def _extract_physical_properties(normalized_context: dict[str, Any]) -> list[dic
                     rigidity = "flexible"
                 elif deform == "medium":
                     rigidity = "semi-rigid"
+
         for part in obj.get("functional_parts", []):
             tags = part.get("local_property_tags", [])
             if any(t in tags for t in ["high_friction", "rubber", "grip"]):
@@ -382,6 +614,7 @@ def _extract_physical_properties(normalized_context: dict[str, Any]) -> list[dic
                 rigidity = "flexible"
             elif "semi_rigid" in tags:
                 rigidity = "semi-rigid"
+
         estimated_mass = 0.1
         if isinstance(physical, dict):
             ml = physical.get("mass_category", {})
@@ -389,14 +622,30 @@ def _extract_physical_properties(normalized_context: dict[str, Any]) -> list[dic
                 label = ml.get("label", "light")
                 mass_map = {"very_light": 0.05, "light": 0.1, "medium": 0.3, "heavy": 1.0}
                 estimated_mass = mass_map.get(label, 0.1)
-        properties.append({
+
+        shape_category = geo.get("shape_category", "unknown")
+        if shape_category == "unknown" and raw_info:
+            raw_geo = raw_info.get("raw_obj", {}).get("geometry_cues", {})
+            shape_category = raw_geo.get("aspect_ratio_hint", "unknown")
+
+        weaknesses = affordance_card.get("weaknesses_or_risks", [])
+
+        prop_entry: dict[str, Any] = {
             "object_id": object_id,
-            "shape_category": geo.get("shape_category", "unknown"),
+            "name": obj.get("object_name") or raw_info.get("name", object_id),
+            "shape_category": shape_category,
             "estimated_mass_kg": estimated_mass,
             "surface_friction": surface_friction,
             "rigidity": rigidity,
             "inferred_functions": inferred_functions,
-        })
+            "connection_modes": connection_modes,  # ← 추가
+        }
+
+        if weaknesses:
+            prop_entry["weaknesses_or_risks"] = weaknesses
+
+        properties.append(prop_entry)
+
     return properties
 
 

@@ -22,7 +22,7 @@ def run_module2d_pipeline(
     temperature: float = 0.2,
 ) -> dict[str, Any]:
     """Run Module 2-D filtering and export artifacts."""
-    output_root = output_root or (Path(__file__).resolve().parents[3] / "outputs")
+    output_root = output_root or (Path(__file__).resolve().parents[2] / "outputs")
     run_id = timestamp_id()
     suffix = case_id or (Path(str(bundle_path)).stem if bundle_path else "ad_hoc")
     run_dir = _ensure_unique_run_dir(output_root, f"module2d_{run_id}_{suffix}")
