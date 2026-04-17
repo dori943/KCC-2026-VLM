@@ -277,18 +277,22 @@ _SCENE_NAME_MAP: dict[str, str] = {
     "paper_clip": "metal_clip",
     "binder_clip_small": "metal_clip",
     "metal_binder_clip": "metal_clip",
+    "clip": "metal_clip",
     "sticky_notes": "sticky_note",
     "sticky_note_pad": "sticky_note",
     "note_pad": "sticky_note",
+    "sticky notes": "sticky_note",
     "screwdriver": "flat_screwdriver",
     "flat_head_screwdriver": "flat_screwdriver",
     "cotton_swab": "cotton_swab",
+    "cotton swab": "cotton_swab",
     "q_tip": "cotton_swab",
     "pen": "pen",
     "ballpoint_pen": "pen",
     "tweezers": "tweezers",
     "ruler": "ruler",
     "binder_clip": "binder_clip",
+    "binder clip": "binder_clip",
     "card_holder": "card_holder",
 }
 
@@ -430,18 +434,17 @@ def _extract_tool_constraints(
             m2a_preferred = func_req.get("preferred_atoms", [])
             m2a_risk = func_req.get("risk_atoms_to_avoid", [])
 
-        # Module 2-B 환경 제약
-        m2b_required = [c["parameter_name"] for c in bound if c.get("hardness") == "hard"]
+        # Module 2-B 환경 제약 → required_atoms에 넣지 않고 별도 필드로
         m2b_preferred = [c["parameter_name"] for c in bound if c.get("hardness") == "soft" and c.get("priority") == "medium"]
         m2b_risk = [c["parameter_name"] for c in bound if c.get("priority") == "high" and c.get("hardness") == "soft"]
 
         subgoal_constraints.append({
             "subgoal_id": sg_id,
             "objective": sg.get("objective", ""),
-            "required_atoms": list(dict.fromkeys(m2a_required + m2b_required)),
+            "required_atoms": list(dict.fromkeys(m2a_required)),  # affordance atom만
             "preferred_atoms": list(dict.fromkeys(m2a_preferred + m2b_preferred)),
             "risk_atoms_to_avoid": list(dict.fromkeys(m2a_risk + m2b_risk)),
-            "required_interaction_primitives": m2a_primitives,  # ← 추가
+            "required_interaction_primitives": m2a_primitives,
         })
 
     numeric_estimates: dict[str, Any] = {}
@@ -623,10 +626,33 @@ def _extract_physical_properties(
                 mass_map = {"very_light": 0.05, "light": 0.1, "medium": 0.3, "heavy": 1.0}
                 estimated_mass = mass_map.get(label, 0.1)
 
+        raw_geo = raw_info.get("raw_obj", {}).get("geometry_cues", {}) if raw_info else {}
         shape_category = geo.get("shape_category", "unknown")
-        if shape_category == "unknown" and raw_info:
-            raw_geo = raw_info.get("raw_obj", {}).get("geometry_cues", {})
+        if shape_category == "unknown":
             shape_category = raw_geo.get("aspect_ratio_hint", "unknown")
+
+        geometry_profile = {
+            "primary_contact_profile": raw_geo.get("primary_contact_profile") or geo.get("primary_contact_profile"),
+            "has_pointed_or_thin_end": raw_geo.get("has_pointed_or_thin_end") if "has_pointed_or_thin_end" in raw_geo else geo.get("has_pointed_or_thin_end"),
+            "has_open_cavity": raw_geo.get("has_open_cavity") if "has_open_cavity" in raw_geo else geo.get("has_open_cavity"),
+            "has_flat_contact_face": raw_geo.get("has_flat_contact_face") if "has_flat_contact_face" in raw_geo else geo.get("has_flat_contact_face"),
+            "thickness_class": raw_geo.get("thickness_class") or geo.get("thickness_class"),
+        }
+        geometry_profile = {k: v for k, v in geometry_profile.items() if v is not None}
+
+        # Module 1 doesn't recognize spring-jaw mechanisms → correct has_open_cavity by name
+        _JAW_TOOL_KEYWORDS = ("clip", "tweezers", "tweezer", "clamp", "tong", "plier", "nipper")
+        obj_name_lower = (obj.get("object_name") or raw_info.get("name", object_id) if raw_info else object_id).lower()
+        if any(kw in obj_name_lower for kw in _JAW_TOOL_KEYWORDS):
+            geometry_profile["has_open_cavity"] = True
+            geometry_profile["mechanism_type"] = "spring_jaw"
+
+        numeric_profile: dict[str, Any] = {}
+        for part in affordance_card.get("usable_parts", []):
+            nm = part.get("target_mode_numeric", {})
+            for key in ("clearance_ratio", "exposure_ratio", "local_thickness_m", "tip_radius_m"):
+                if key in nm and key not in numeric_profile:
+                    numeric_profile[key] = nm[key]
 
         weaknesses = affordance_card.get("weaknesses_or_risks", [])
 
@@ -638,8 +664,12 @@ def _extract_physical_properties(
             "surface_friction": surface_friction,
             "rigidity": rigidity,
             "inferred_functions": inferred_functions,
-            "connection_modes": connection_modes,  # ← 추가
+            "connection_modes": connection_modes,
+            "geometry_profile": geometry_profile,
         }
+
+        if numeric_profile:
+            prop_entry["numeric_profile"] = numeric_profile
 
         if weaknesses:
             prop_entry["weaknesses_or_risks"] = weaknesses

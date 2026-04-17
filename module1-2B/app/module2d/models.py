@@ -64,10 +64,18 @@ class EvaluatedCandidate:
     failed_stage: str | None
     weak_points: list[WeakPoint]
     repair_analysis: RepairAnalysis
+    environment_filter: dict[str, Any] | None = field(default=None)
+    assembly_filter: dict[str, Any] | None = field(default=None)
+    checklist: dict[str, Any] | None = field(default=None)
+    pre_analysis: dict[str, Any] | None = field(default=None)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "candidate_id": self.candidate_id,
+            "pre_analysis": self.pre_analysis,
+            "environment_filter": self.environment_filter,
+            "assembly_filter": self.assembly_filter,
+            "checklist": self.checklist,
             "stage_scores": self.stage_scores.to_dict(),
             "total_score": self.total_score,
             "pass": self.passed,
@@ -79,14 +87,16 @@ class EvaluatedCandidate:
 
 @dataclass(slots=True)
 class FeedbackDecision:
-    need_feedback_to_module2a: bool
+    need_feedback: bool
+    feedback_target: str | None
     reason: str
     dominant_failure_pattern: list[str]
     suggested_relaxations: list[str]
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "need_feedback_to_module2a": self.need_feedback_to_module2a,
+            "need_feedback": self.need_feedback,
+            "feedback_target": self.feedback_target,
             "reason": self.reason,
             "dominant_failure_pattern": self.dominant_failure_pattern,
             "suggested_relaxations": self.suggested_relaxations,

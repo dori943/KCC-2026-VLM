@@ -155,7 +155,7 @@ Step F. verification 수행
 - contact_feasibility: 도구가 타겟 물체와 실제로 접촉 가능한 위치에 있는가
 Step G. feedback 결정
 - fail 2개 이상 / functional_end_exposed=fail / handle_region_free=fail
-  → need_feedback=true, feedback_target="module2c"
+  → need_feedback_to_module2c=true, feedback_target="module2c"
 
 # 출력 규칙
 
@@ -214,7 +214,7 @@ Step G. feedback 결정
   },
 
   "feedback": {
-    "need_feedback": false,
+    "need_feedback_to_module2c": false,
     "feedback_target": "module2c | null",
     "repair_type": "local_pose_adjustment | global_redesign",
     "suggested_action": "string"
@@ -277,6 +277,7 @@ def calculate_pose(
         "assembly_step_count": len(parsed.get("assembly_steps", [])),
         "is_valid": parsed.get("verification", {}).get("is_valid", False),
         "need_feedback": parsed.get("feedback", {}).get("need_feedback_to_module2c", False),
+        "feedback_target": parsed.get("feedback", {}).get("feedback_target"),
         "raw_response_preview": raw_text[:500],
     }
 

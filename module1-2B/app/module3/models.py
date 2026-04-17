@@ -53,12 +53,14 @@ class AssemblyStrategy:
     base_object: str
     strategy_summary: str
     sequence_reason: str
+    filter_result_reflection: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "base_object": self.base_object,
             "strategy_summary": self.strategy_summary,
             "sequence_reason": self.sequence_reason,
+            "filter_result_reflection": self.filter_result_reflection,
         }
 
 
@@ -107,10 +109,12 @@ class Feedback:
     need_feedback_to_module2c: bool
     repair_type: str
     suggested_action: str
+    feedback_target: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "need_feedback_to_module2c": self.need_feedback_to_module2c,
+            "feedback_target": self.feedback_target,
             "repair_type": self.repair_type,
             "suggested_action": self.suggested_action,
         }

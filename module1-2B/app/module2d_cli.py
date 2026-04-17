@@ -46,7 +46,7 @@ def run_module2d(bundle_path, case_id, provider_name, output_root, api_key, mode
     click.echo(f"   evaluated_count      : {result['summary']['evaluated_count']}")
     click.echo(f"   pass_count           : {result['summary']['pass_count']}")
     click.echo(f"   selected_candidate_id: {result['summary']['selected_candidate_id']}")
-    click.echo(f"   need_feedback        : {result['summary']['need_feedback_to_module2a']}")
+    click.echo(f"   need_feedback        : {result['summary']['need_feedback']}")
     click.echo(f"   tokens               : {result['summary']['prompt_tokens']} + {result['summary']['completion_tokens']}")
 
 

@@ -182,6 +182,11 @@ subgoal_constraints에 위 목록에 없는 atom이 있으면 그 의미를 추�
           "failure_type": "...",
           "cause": "...",
           "related_constraint": "..."
+        },        {
+          "subgoal_id": "sg_02",
+          "failure_type": "...",
+          "cause": "...",
+          "related_constraint": "..."
         }
       ]
     }
