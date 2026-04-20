@@ -1,9 +1,10 @@
 import json
 import base64
 import numpy as np
-from openai import OpenAI
+from dotenv import load_dotenv
 
-client = OpenAI(api_key="")  # OPENAI_API_KEY 환경변수 자동 참조
+load_dotenv()
+client = os.getenv("OPENAI_API_KEY")  # OPENAI_API_KEY 환경변수 자동 참조
 
 # ── 유틸: numpy RGB 이미지 → base64 PNG 문자열 ────────────────────────────────
 def _rgb_to_base64(rgb: np.ndarray) -> str:
