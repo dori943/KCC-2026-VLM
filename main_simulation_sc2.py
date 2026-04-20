@@ -15,7 +15,7 @@ import numpy as np
 import pybullet as p
 import pybullet_data
 
-from robot_controller_3 import PandaController
+from robot_controller_3 import PandaController, render_camera
 from assembly_manager import AssemblyManager
 
 
@@ -39,12 +39,35 @@ TABLE_BASE_POSITION = [0.6, 0.0, 0.0]
 YCB_DIR = "/workspace/KCC-2026-VLM/data/object2urdf/examples/ycb"
 
 YCB_OBJECT_SPECS = [
-    ("chips_can", "001_chips_can.urdf", [0.80, -0.15, 0.82]),
-    ("apple", "013_apple.urdf", [0.55, -0.25, 0.82]),
-    ("cracker_box", "003_cracker_box.urdf", [0.70, 0.10, 0.82]),
-    ("mug", "025_mug.urdf", [0.62, -0.05, 0.82]),
-    ("mustard_bottle", "006_mustard_bottle.urdf", [0.47, -0.12, 0.82]),
-    ("large_clamp", "051_large_clamp.urdf", [0.76, 0.22, 0.82]),
+
+    ("pitcher_base", "019_pitcher_base.urdf", [1.2, 0.3, 0.82]),
+
+    ("power_drill", "035_power_drill.urdf", [1.2, 0.10, 0.82]),
+
+    ("wood_block", "036_wood_block.urdf", [1.2, -0.10, 0.82]),
+
+    ("large_marker", "040_large_marker.urdf", [1.2, -0.3, 0.82]),
+
+    ("mug", "025_mug.urdf", [1.0, 0.2, 0.82]),
+
+    ("adjustable_wrench", "042_adjustable_wrench.urdf", [1.0, 0.0, 0.82]),
+
+    ("phillips_screwdriver", "043_phillips_screwdriver.urdf", [1.0, -0.2, 0.82]),   
+
+    ("hammer", "048_hammer.urdf", [0.7, 0.3, 0.82]),
+
+    ("small_clamp", "049_small_clamp.urdf", [0.7, 0.10, 0.82]),
+
+    ("medium_clamp", "050_medium_clamp.urdf", [0.7, -0.1, 0.82]),
+
+    ("large_clamp", "051_large_clamp.urdf", [0.7, -0.3, 0.82]),
+
+    ("extra_large_clamp", "052_extra_large_clamp.urdf", [0.45, 0.2, 0.82]),
+    ("chain", "059_chain.urdf", [0.45, 0.0, 0.82]),
+
+    ("foam_brick", "061_foam_brick.urdf", [0.45, -0.2, 0.82]),
+    
+    ("flat_screwdriver", "044_flat_screwdriver.urdf", [0.45, -0.35, 0.82]),
 ]
 
 MODULE1_FALLBACK_MAP = {
@@ -90,61 +113,27 @@ MODULE1_PROFILE_DEFAULT = {
     "deformability": "low",
 }
 
-# Optional per-label overrides. Base profile can be inferred from loaded body features.
 YCB_MODULE1_PROFILE_BY_LABEL = {
-    "chips_can": {
-        "surface_friction": "medium",
-        "slip_tendency": "medium",
-        "mass_category": "light",
-        "density_category": "medium",
-        "size_relative": "small",
-    },
-    "apple": {
-        "surface_friction": "medium",
-        "slip_tendency": "low",
-        "mass_category": "light",
-        "density_category": "medium",
-        "size_relative": "small",
-        "deformability": "medium",
-    },
-    "cracker_box": {
-        "surface_friction": "medium",
-        "slip_tendency": "medium",
-        "mass_category": "light",
-        "density_category": "medium",
-        "size_relative": "medium",
-    },
-    "mug": {
-        "surface_friction": "medium",
-        "slip_tendency": "medium",
-        "mass_category": "medium",
-        "density_category": "high",
-        "size_relative": "small",
-    },
-    "mustard_bottle": {
-        "surface_friction": "medium",
-        "slip_tendency": "low",
-        "mass_category": "light",
-        "density_category": "high",
-        "size_relative": "medium",
-    },
-    "large_clamp": {
-        "surface_friction": "high",
-        "slip_tendency": "low",
-        "mass_category": "medium",
-        "density_category": "high",
-        "size_relative": "small",
-    },
+    "pitcher_base": {"surface_friction": "low", "slip_tendency": "medium", "mass_category": "medium", "size_relative": "large"},
+    "power_drill": {"surface_friction": "high", "slip_tendency": "low", "mass_category": "heavy", "size_relative": "medium"},
+    "key": {"surface_friction": "high", "slip_tendency": "low", "mass_category": "light", "size_relative": "small"},
+    "large_marker": {"surface_friction": "medium", "slip_tendency": "medium", "mass_category": "light", "size_relative": "small"},
+    "small_marker": {"surface_friction": "medium", "slip_tendency": "medium", "mass_category": "light", "size_relative": "small"},
+    "adjustable_wrench": {"surface_friction": "medium", "slip_tendency": "low", "mass_category": "medium", "size_relative": "medium"},
+    "phillips_screwdriver": {"surface_friction": "medium", "slip_tendency": "low", "mass_category": "light", "size_relative": "medium"},
+    "flat_screwdriver": {"surface_friction": "medium", "slip_tendency": "low", "mass_category": "light", "size_relative": "medium"},
+    "hammer": {"surface_friction": "medium", "slip_tendency": "low", "mass_category": "heavy", "size_relative": "medium"},
+    "small_clamp": {"surface_friction": "high", "slip_tendency": "low", "mass_category": "light", "size_relative": "small"},
+    "medium_clamp": {"surface_friction": "high", "slip_tendency": "low", "mass_category": "light", "size_relative": "small"},
+    "large_clamp": {"surface_friction": "high", "slip_tendency": "low", "mass_category": "medium", "size_relative": "medium"},
+    "extra_large_clamp": {"surface_friction": "high", "slip_tendency": "low", "mass_category": "medium", "size_relative": "medium"},
+    "chain": {"surface_friction": "low", "slip_tendency": "high", "mass_category": "medium", "size_relative": "medium", "deformability": "high"},
+    "foam_brick": {"surface_friction": "high", "slip_tendency": "low", "mass_category": "light", "size_relative": "medium", "deformability": "high"},
 }
 
 YCB_DYNAMICS_OVERRIDE_BY_LABEL = {
-    # Real-apple test profile (temporary): if grasp degrades, revert to stable profile.
-    "apple": {
-        "mass_kg": 0.18,
-        "lateral_friction": 0.30,
-    },
+    
 }
-
 
 def env_flag(env_name: str, default: bool = False) -> bool:
     raw = os.getenv(env_name)
@@ -429,10 +418,10 @@ def summarize_applied_dynamics(applied: dict) -> dict:
 def configure_simulation() -> None:
     p.connect(p.GUI)
     p.resetDebugVisualizerCamera(
-        cameraDistance=1.6,
-        cameraYaw=45,
-        cameraPitch=-40,
-        cameraTargetPosition=[0.6, 0.0, 0.8],
+        cameraDistance=1.0,
+        cameraYaw=70,
+        cameraPitch=-60,
+        cameraTargetPosition=[1.3, 0.0, 0.8],
     )
     p.setAdditionalSearchPath(pybullet_data.getDataPath())
     p.setTimeStep(SIM_TIMESTEP)
@@ -511,7 +500,7 @@ def capture_affordance_rgb(
 ) -> np.ndarray:
     view_matrix = p.computeViewMatrix(
         cameraEyePosition=[1.05, -1.00, 1.35],
-        cameraTargetPosition=[0.60, 0.0, 0.83],
+        cameraTargetPosition=[1.3, 0.0, 0.8],
         cameraUpVector=[0.0, 0.0, 1.0],
     )
     projection_matrix = p.computeProjectionMatrixFOV(
@@ -622,6 +611,23 @@ def run_sequential_demo(
     right = controllers["right"]
     down_orn = p.getQuaternionFromEuler([np.pi, 0.0, 0.0])
 
+    CAM_CONFIG = {
+    "cam_target":   [1.0, 0.0, 0.8],
+    "cam_distance": 0.8,
+    "cam_yaw":      70,
+    "cam_pitch":    -60,
+    }
+
+    print("\n[3] 가상 카메라 렌더링 중...")
+    rgb, depth, proj_matrix, view_matrix = render_camera(**CAM_CONFIG)
+
+    try:
+        from PIL import Image as PILImage
+        PILImage.fromarray(rgb).save("scene_capture.png")
+        print("[3] scene_capture.png 저장 완료")
+    except Exception:
+        pass
+
     print("[Boot] reset both robots to home")
     left.reset_to_home(steps=600)
     right.reset_to_home(steps=600)
@@ -723,95 +729,42 @@ def run_sequential_demo(
         right.maintain_grasp_hold(steps=80)
         print("[Demo] right arm at assembly position.")
 
-    # 수정 후
     # ══════════════════════════════════════════════════════
-    # Step 3. Assembly — module3_output.json 계획 기반 실행
+    # Step 3. Assembly (constraint 생성)
     # ══════════════════════════════════════════════════════
-    assembly_manager = AssemblyManager()
-
-    # JSON 계획 로드 (파일이 없으면 fallback으로 직접 attach)
-    _plan_path = os.path.join(os.path.dirname(__file__), "module3_output.json")
-    _plan_loaded = False
-    if os.path.isfile(_plan_path):
-        try:
-            assembly_manager.load_plan_from_json(_plan_path)
-            # JSON의 object label과 pybullet body_id를 매핑
-            assembly_manager.register_bodies({
-                left_target_label:  left_body_id,
-                right_target_label: right_body_id,
-            })
-            _plan_loaded = True
-        except Exception as exc:
-            print(f"[Demo][WARN] module3 plan load failed ({exc}), using fallback attach.")
-    else:
-        print(f"[Demo][WARN] module3_output.json not found at {_plan_path}, using fallback attach.")
-
-    assembly_results = []
+    assembly_constraint = None
     if left_ok and right_ok:
-        # ── attach 전 두 물체 간 거리 확인 및 nudge ─────────────────────────
+        print("[Demo] assembling parts...")
+        # 현재 실제 위치 기반으로 offset 계산 → 순간이동 없음
         main_pos, main_orn = p.getBasePositionAndOrientation(left_body_id)
         aux_pos,  _        = p.getBasePositionAndOrientation(right_body_id)
-        body_dist = float(np.linalg.norm(np.array(aux_pos) - np.array(main_pos)))
-        print(f"[Demo] pre-attach body distance: {body_dist:.3f} m")
-
-        if body_dist > 0.35:
-            print("[Demo] bodies too far apart — nudging right arm closer...")
-            left_aabb_min, left_aabb_max   = p.getAABB(left_body_id)
-            right_aabb_min, right_aabb_max = p.getAABB(right_body_id)
-            apple_top_z    = float(left_aabb_max[2])
-            mustard_half_z = (float(right_aabb_max[2]) - float(right_aabb_min[2])) / 2.0
-            nudge_pos = [float(main_pos[0]), float(main_pos[1]), apple_top_z + mustard_half_z + 0.01]
-            right.move_end_effector_to(nudge_pos, orientation=down_orn, steps=400, hold_companion=left)
-            right.maintain_grasp_hold(steps=60)
-            main_pos, main_orn = p.getBasePositionAndOrientation(left_body_id)
-            aux_pos,  _        = p.getBasePositionAndOrientation(right_body_id)
-            body_dist = float(np.linalg.norm(np.array(aux_pos) - np.array(main_pos)))
-            print(f"[Demo] post-nudge body distance: {body_dist:.3f} m")
-
-        print("[Demo] assembling parts...")
-
-        if _plan_loaded:
-            # ── module3 JSON 계획 실행 ──────────────────────────────────────
-            # step1(position-only)은 배치 기록만, step2 이후 attach 실행
-            assembly_results = assembly_manager.execute_plan(settle_steps=60, max_force=500)
-            attach_results = [r for r in assembly_results if r.get("constraint_id") is not None]
-            if attach_results:
-                print(f"[Demo] assembly successful via module3 plan "
-                      f"({len(attach_results)} constraint(s) created).")
-            else:
-                print("[Demo][WARN] module3 plan produced no constraints — falling back.")
-                _plan_loaded = False   # fallback으로 전환
-
-        if not _plan_loaded:
-            # ── fallback: 현재 실제 위치 기반 직접 attach ──────────────────
-            main_orn_inv = p.invertTransform([0, 0, 0], list(main_orn))[1]
-            contact_offset, _ = p.multiplyTransforms(
-                [0, 0, 0], main_orn_inv,
-                (np.array(aux_pos) - np.array(main_pos)).tolist(), [0, 0, 0, 1],
-            )
-            cid = assembly_manager.attach(
-                main_body_id=left_body_id,
-                aux_body_id=right_body_id,
-                contact_offset=list(contact_offset),
-                label=f"{left_target_label}_{right_target_label}",
-                settle_steps=60,
-                max_force=500,
-            )
-            assembly_results = [{"step": 1, "ok": cid is not None, "constraint_id": cid}]
-            if cid is not None:
-                print(f"[Demo] fallback assembly successful (constraint={cid}, "
-                      f"offset=[{contact_offset[0]:.3f}, {contact_offset[1]:.3f}, {contact_offset[2]:.3f}], "
-                      f"dist={body_dist:.3f} m)")
-            else:
-                print("[Demo][WARN] fallback assembly also failed.")
-
+        main_orn_inv = p.invertTransform([0, 0, 0], list(main_orn))[1]
+        contact_offset, _ = p.multiplyTransforms(
+            [0, 0, 0], main_orn_inv,
+            (np.array(aux_pos) - np.array(main_pos)).tolist(), [0, 0, 0, 1],
+        )
+        assembly_constraint = p.createConstraint(
+            parentBodyUniqueId=left_body_id,
+            parentLinkIndex=-1,
+            childBodyUniqueId=right_body_id,
+            childLinkIndex=-1,
+            jointType=p.JOINT_FIXED,
+            jointAxis=[0, 0, 0],
+            parentFramePosition=list(contact_offset),
+            childFramePosition=[0, 0, 0],
+        )
+        p.changeConstraint(assembly_constraint, maxForce=500)
+        print(
+            f"[Demo] assembly constraint={assembly_constraint}, "
+            f"offset=[{contact_offset[0]:.3f}, {contact_offset[1]:.3f}, {contact_offset[2]:.3f}]"
+        )
         # 안정화
         for _ in range(DEMO_HOLD_STEPS):
             left._tick_gripper_hold()
             right._tick_gripper_hold()
             p.stepSimulation()
             time.sleep(SIM_TIMESTEP)
-
+        print("[Demo] assembly successful.")
     else:
         print("[Demo][WARN] skipping assembly (one or both grasps failed).")
 

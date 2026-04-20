@@ -111,6 +111,35 @@ OBJECT_GRASP_PROFILE_TABLE = {
     },
 }
 
+# ── 카메라 파라미터 ───────────────────────────────────────────────────────────
+CAM_WIDTH  = 640
+CAM_HEIGHT = 480
+CAM_FOV    = 60
+CAM_NEAR   = 0.1
+CAM_FAR    = 5.0
+
+def render_camera(cam_target=[0.55, -0.35, 0.8], cam_distance=1.2,
+                  cam_yaw=0, cam_pitch=-45):
+    view_matrix = p.computeViewMatrixFromYawPitchRoll(
+        cameraTargetPosition=cam_target,
+        distance=cam_distance,
+        yaw=cam_yaw, pitch=cam_pitch, roll=0,
+        upAxisIndex=2
+    )
+    proj_matrix = p.computeProjectionMatrixFOV(
+        fov=CAM_FOV, aspect=CAM_WIDTH / CAM_HEIGHT,
+        nearVal=CAM_NEAR, farVal=CAM_FAR
+    )
+    _, _, rgb_raw, depth_raw, _ = p.getCameraImage(
+        CAM_WIDTH, CAM_HEIGHT,
+        viewMatrix=view_matrix,
+        projectionMatrix=proj_matrix,
+        renderer=p.ER_TINY_RENDERER
+    )
+    rgb       = np.array(rgb_raw, dtype=np.uint8).reshape(CAM_HEIGHT, CAM_WIDTH, 4)[:, :, :3]
+    depth_buf = np.array(depth_raw, dtype=np.float32).reshape(CAM_HEIGHT, CAM_WIDTH)
+    depth     = CAM_FAR * CAM_NEAR / (CAM_FAR - (CAM_FAR - CAM_NEAR) * depth_buf)
+    return rgb, depth, proj_matrix, view_matrix
 
 def _clamp(value: float, lower: float, upper: float) -> float:
     return max(lower, min(upper, float(value)))
