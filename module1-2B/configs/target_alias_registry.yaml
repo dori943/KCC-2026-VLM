@@ -1,0 +1,57 @@
+﻿registry_version: "0.1"
+aliases:
+  coin:
+    - coin
+    - coins
+    - quarter
+    - penny
+    - token
+    - disk
+  mug:
+    - mug
+    - cup
+    - tumbler
+    - container
+  bottle:
+    - bottle
+    - flask
+    - canteen
+    - vial
+  shelf:
+    - shelf
+    - ledge
+    - lip
+    - overhang
+  recess:
+    - recess
+    - slot
+    - groove
+    - gap
+    - cavity
+tool_like_terms:
+  - tool
+  - gripper
+  - tweezer
+  - tweezers
+  - tongs
+  - wrench
+  - screwdriver
+  - knife
+  - spoon
+  - fork
+target_like_terms:
+  - target
+  - object
+  - item
+  - piece
+  - coin
+  - mug
+  - bottle
+plural_tokens:
+  - items
+  - objects
+  - coins
+  - both
+  - several
+  - multiple
+  - all
