@@ -19,6 +19,20 @@ class TargetPoseWorld:
 
 
 @dataclass(slots=True)
+class JointPositionWorld:
+    position: list[float]
+    calculation_basis: str
+    description: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "position": self.position,
+            "calculation_basis": self.calculation_basis,
+            "description": self.description,
+        }
+
+
+@dataclass(slots=True)
 class AssemblyStep:
     step: int
     partial_assembly_state_before: list[str]
@@ -28,6 +42,7 @@ class AssemblyStep:
     attach_region_object: str
     relative_offset_from_base: list[float]
     target_pose_world: TargetPoseWorld
+    joint_position_world: JointPositionWorld
     contact_type: str
     expected_function_after_step: str
     reason: str
@@ -42,6 +57,7 @@ class AssemblyStep:
             "attach_region_object": self.attach_region_object,
             "relative_offset_from_base": self.relative_offset_from_base,
             "target_pose_world": self.target_pose_world.to_dict(),
+            "joint_position_world": self.joint_position_world.to_dict(),
             "contact_type": self.contact_type,
             "expected_function_after_step": self.expected_function_after_step,
             "reason": self.reason,
@@ -106,17 +122,23 @@ class Verification:
 
 @dataclass(slots=True)
 class Feedback:
-    need_feedback_to_module2c: bool
+    """논문 3.1.4: 피드백은 3.1.1 (Scene Resource Parser = module2a)로 전달.
+    최대 2회 수행 후에도 실패 시 task_abandoned=True."""
+    need_feedback_to_module2a: bool
     repair_type: str
     suggested_action: str
     feedback_target: str | None = None
+    feedback_iteration: int = 0
+    task_abandoned: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "need_feedback_to_module2c": self.need_feedback_to_module2c,
-            "feedback_target": self.feedback_target,
-            "repair_type": self.repair_type,
-            "suggested_action": self.suggested_action,
+            "need_feedback_to_module2a": self.need_feedback_to_module2a,
+            "feedback_target":          self.feedback_target,
+            "repair_type":              self.repair_type,
+            "suggested_action":         self.suggested_action,
+            "feedback_iteration":       self.feedback_iteration,
+            "task_abandoned":           self.task_abandoned,
         }
 
 
@@ -128,6 +150,7 @@ class Module3Input:
     tool_constraints: dict[str, Any]
     selected_candidate: dict[str, Any]
     filter_result: dict[str, Any]
+    feedback_iteration: int = 0  # 논문 3.1.4: 최대 2회 피드백 회차 추적
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Module3Input":
@@ -138,6 +161,7 @@ class Module3Input:
             tool_constraints=data["tool_constraints"],
             selected_candidate=data["selected_candidate"],
             filter_result=data["filter_result"],
+            feedback_iteration=int(data.get("feedback_iteration", 0)),
         )
 
 

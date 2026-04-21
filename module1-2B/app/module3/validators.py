@@ -43,6 +43,7 @@ class Module3OutputValidator:
     REQUIRED_CHECK_ITEMS = {
         "alignment", "collision", "functional_end_exposed",
         "handle_region_free", "force_transfer",
+        "weak_point_mitigation", "subgoal_support", "contact_feasibility",
     }
 
     def validate(self, data: dict[str, Any]) -> ValidationResult:
@@ -55,6 +56,11 @@ class Module3OutputValidator:
         steps = data.get("assembly_steps", [])
         if not isinstance(steps, list) or len(steps) == 0:
             errors.append("assembly_steps가 비어 있습니다.")
+        for i, step in enumerate(steps):
+            if "joint_position_world" not in step:
+                errors.append(f"assembly_steps[{i}].joint_position_world 필드가 없습니다.")
+            elif "position" not in step["joint_position_world"]:
+                errors.append(f"assembly_steps[{i}].joint_position_world.position 필드가 없습니다.")
 
         checks = data.get("verification", {}).get("checks", [])
         if len(checks) < 5:
@@ -64,7 +70,12 @@ class Module3OutputValidator:
         if missing:
             warnings.append(f"verification.checks 누락 항목: {missing}")
 
-        if "need_feedback_to_module2c" not in data.get("feedback", {}):
-            errors.append("feedback.need_feedback_to_module2c 필드가 없습니다.")
+        fb = data.get("feedback", {})
+        # 논문 3.1.4 기준: need_feedback_to_module2a (구 need_feedback_to_module2c 허용)
+        if "need_feedback_to_module2a" not in fb and "need_feedback_to_module2c" not in fb:
+            errors.append("feedback.need_feedback_to_module2a 필드가 없습니다.")
+
+        if "reasoning_trace" not in data:
+            warnings.append("reasoning_trace 필드가 없습니다. 추론 과정을 확인할 수 없습니다.")
 
         return ValidationResult(valid=len(errors) == 0, errors=errors, warnings=warnings)

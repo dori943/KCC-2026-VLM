@@ -1,4 +1,12 @@
-"""Assembly pose calculator for Module 3 using GPT-4o."""
+"""Assembly pose calculator for Module 3 using GPT (step-by-step + validation retry).
+
+구조 (옵션 B):
+  Phase 1: Strategy 호출 (조립 순서/region 결정, 좌표 계산 없음)
+  Phase 2: Step별 좌표 계산 — GPT가 joint 좌표 산출
+           → 코드가 기하 검증 (AABB 기반)
+           → fail 시 최대 2회 재시도 (GPT에 에러 전달)
+  Phase 3: Final 호출 — 검증 결과 종합, final_structure, feedback
+"""
 
 from __future__ import annotations
 
@@ -8,167 +16,76 @@ from typing import Any
 
 from openai import OpenAI
 
-from app.module3.models import (
-    AssemblyStep, AssemblyStrategy, Feedback, FinalStructure,
-    Module3Input, TargetPoseWorld, Verification, VerificationCheck,
-)
+from app.module3.models import Module3Input
 
-SYSTEM_PROMPT = """너는 Module 3: 도구 조립 위치 및 pose 계산기이다.
 
-목표:
-선택된 도구 후보를 실제 사용 가능한 구조로 변환하기 위해,
-각 구성 요소의 조립 순서, 접합 위치, 상대 offset, 회전 각도, 최종 world 좌표를 단계적으로 계산하라.
+# ──────────────────────────────────────────────
+# Functional role mapping
+# ──────────────────────────────────────────────
+FUNCTION_TO_ROLE: dict[str, str] = {
+    "prying_edge":        "primary_executor",
+    "rigid_tip_contact":  "primary_executor",
+    "rigid_tip":          "primary_executor",
+    "insert":             "primary_executor",
+    "graspable_body":     "grip_assistant",
+    "clampable_span":     "grip_assistant",
+    "frictional_contact": "friction_enhancer",
+    "flat_face":          "friction_enhancer",
+    "support":            "alignment_aid",
+    "stabilize":          "alignment_aid",
+}
 
-# 입력 파일 및 활용 방법
+# 기능적 정렬 허용 거리 (m) — 이보다 멀면 fail
+ALIGNMENT_TOLERANCE_M  = 0.02
+CONTACT_TOLERANCE_M    = 0.02
+# AABB 겹침(부피) 허용 상한 — 완전 겹침 방지
+COLLISION_OVERLAP_EPS  = 1e-8
 
-[task]
-수행해야 할 작업 설명이다.
 
-[scene_objects] ← scene_info.json
+# ──────────────────────────────────────────────
+# Phase 1: Strategy prompt
+# ──────────────────────────────────────────────
+STRATEGY_SYSTEM_PROMPT = """너는 Module 3: 도구 조립 전략 계획기이다.
 
-각 물체의 기하 정보이다.
-- center_world: 물체 중심의 world 좌표
-- aabb_min / aabb_max: axis-aligned bounding box
-- principal_axis_hint: 물체의 주축 방향 힌트 (x_axis | z_axis)
-- graspable_regions: 파지 가능한 영역
-- functional_regions: 기능 수행에 적합한 영역
+목표: 선택된 도구 후보를 분석하여 조립 전략과 순서를 계획하라. 좌표 계산은 하지 않는다.
 
-[object_physical_properties] ← raw_module1_output.json
+base_object / attach_object 정의 (중요 — 절대 혼동 금지):
+- base_object  : **이미 배치되어 있는 앵커 물체** (움직이지 않음)
+- attach_object: **새로 들어와 base에 붙이는 물체** (base 방향으로 이동)
 
-각 물체의 물리속성 정보이다.
-- surface_friction: 마찰 수준 (low/medium/high)
-- estimated_mass_kg: 질량 추정값
-- rigidity: 강성 (rigid/semi-rigid/flexible)
-- inferred_functions: 추론된 기능 목록
+순서 규칙:
+- Step 1: base_object 단독 배치 (attach_object=null). base = 가장 먼저 놓을 주체(primary_executor 권장).
+- Step N: base_object는 **직전 step까지 이미 배치된 물체 중 하나** (보통 직전 step의 attach).
+  attach_object는 **아직 배치되지 않은 새 물체**.
 
-[tool_constraints] ← module2b_output.json
+예 (ruler → tweezers → sticky notes 조립):
+- Step 1: base=ruler,    attach=null
+- Step 2: base=ruler,    attach=tweezers       (ruler가 앵커, tweezers가 들어옴)
+- Step 3: base=tweezers, attach=sticky notes   (tweezers가 앵커, sticky notes가 들어옴)
 
-기능적 제약 조건이다. 각 필드를 다음과 같이 활용하라:
-- numeric_estimates → 도달 거리/진입 각도 제약으로 pose 범위 결정
-- derived_constraints → 삽입 두께/깊이 제약으로 attach_region 및 offset 결정
-- global_constraints → 모든 step에 적용되는 전역 제약
-- subgoal_constraints → 각 step의 목표 기능 달성 여부 확인
+절대 금지: Step 2에서 base=tweezers, attach=ruler 처럼 반전하는 것.
 
-[selected_candidate] ← module2d_output.json
+attach_region_base 허용 값 (아래 6개만 사용. 다른 값 발명 금지):
+- upper_surface  : 물체의 윗면 — 쌓는 경우 (가장 흔함)
+- lower_surface  : 물체의 아랫면
+- front_end      : 물체의 기능 수행 끝부분
+- rear_end       : 물체의 파지 끝부분
+- mid_body       : 물체의 중간 몸통 — Step 1 단독 배치 또는 삽입(insertion)일 때만
+- side_face      : 물체의 옆면
 
-이미 선택된 도구 후보이다.
-새로운 조합을 만들지 말고,
-반드시 used_objects와 structure_description, function_mapping을 바탕으로 조립 계획을 계산하라.
+mid_body를 남용하면 물체들이 겹쳐 collision이 발생한다.
+쌓는(stacking) 조립은 반드시 upper_surface를 사용하라.
 
-[filter_result] ← module2d_output.json
+functional_roles 참고:
+- primary_executor: task 수행 주체 (ex. prying_edge). 기능단이 노출되어야 함.
+- grip_assistant  : 파지 보조. tip이 base의 기능단 방향으로 돌출되어야 함.
+- friction_enhancer: 마찰 증강. 접촉점(기능단 근처)에 배치되어야 함.
 
-2-D 평가에서 pass된 후보의 결과이다. pose 계산 시 반드시 반영하라.
+filter_result.weak_points를 반영하여 region과 contact_type을 결정하라.
 
-- checklist: 기하/물리/상식 항목별 Yes/No 결과
-  → No 항목이 있으면 해당 부분을 보완하는 방향으로 pose 조정
-- stage_scores: geometry/physics/commonsense 점수 (0~5)
-  → geometry_score 낮음: 접합 위치/면적을 더 신중하게 계산
-  → physics_score 낮음: 무게 중심/힘 전달 경로를 더 신중하게 계산
-  → commonsense_score 낮음: task 수행 맥락을 재검토
-- weak_points: 점수가 낮은 항목
-  → stage별로 다음과 같이 pose 조정에 반영하라:
-  - weak_points.stage=geometry → 접합 위치/면적/방향 재조정
-  - weak_points.stage=physics → 무게 중심 보정, 접합부 강화 방향으로 offset 조정
-  - weak_points.stage=commonsense → functional_end 노출 재확인, task 수행 방향 재검토
+JSON만 출력. 설명문 없음.
 
-# 로봇 파지 제약
-
-Panda gripper는 rigid 물체만 파지 가능하다.
-rigidity=flexible 또는 semi-rigid인 물체는 파지 대상으로 사용할 수 없다.
-flexible/semi-rigid 물체는 보조 역할(마찰 패드, 완충재 등)로만 사용 가능하다.
-
-# AABB 부재 시 처리 규칙
-
-AABB가 [0,0,0]이거나 비어있는 경우:
-반드시 shape_category와 estimated_mass_kg 기반으로 크기를 추정하고 실제 수치로 계산하라.
-[0,0,0] 그대로 사용 금지.
-
-추정 기준:
-- elongated + mass 0.05kg → length=0.30m, width=0.03m, height=0.01m
-- elongated + mass 0.1kg  → length=0.20m, width=0.01m, height=0.01m
-- compact + mass 0.05kg   → length=0.05m, width=0.03m, height=0.03m
-- center_world가 [0,0,0]이면 테이블 위 (z=0.625m) 기준으로 배치
-- 추정값 사용 시 reason에 반드시 "AABB 추정값 사용" 명시
-
-# 카메라 및 공간 해석 규칙
-
-- 카메라 optical center: (0.55, -0.35, 0.8)
-- 카메라는 테이블을 향해 아래로 40도 기울어짐
-- 테이블 표면 z ≈ 0.625m
-- 실제 pose 계산은 반드시 scene_objects의 world 좌표와 AABB를 기반으로 수행하라.
-- 카메라 정보는 보조 prior로만 활용하라.
-
-# 핵심 제약
-
-1. 후보 구조 변경 금지
-2. 순차 조립 필수
-   - used_objects가 N개이면 반드시 N단계 이상으로 분리하라.
-   - Step 1: base_object 단독 배치 (attach_object=null)
-   - Step 2~N: 이전 단계 결과에 다음 물체를 순서대로 부착
-     예: 3개 물체 (A, B, C)
-     Step 1: A 단독 배치
-     Step 2: A + B 부착
-     Step 3: (A+B) + C 부착
-3. partial assembly 상태 반영 필수
-4. 좌표 계산 필수
-   - AABB 기반: attach_region_base가 upper_surface이면
-     offset_z = (base_aabb_max_z - base_center_z) + (attach_object_aabb_height / 2)
-   - AABB 없으면 shape_category 추정값으로 계산하고 reason에 명시
-5. orientation 계산 기준
-   - principal_axis_hint=x_axis → 물체가 x축 방향으로 놓임 → yaw=0
-   - principal_axis_hint=z_axis → 물체가 z축 방향으로 세워짐 → yaw=90
-   - filter_result.checklist "주축이 task 수행 방향에 맞게 정렬 가능한가?" No → orientation 재조정
-   - filter_result.checklist "결합 후 기능 수행 부위가 충분히 노출되는가?" No → attach_region 재조정
-6. contact_type 선택 기준
-   - point: 끝점이 물체에 접촉하는 경우 (예: 드라이버 끝이 물체에 닿을 때)
-   - surface: 면이 면에 접촉하는 경우 (예: 자 위에 클립을 올릴 때)
-   - insertion: 물체가 틈/구멍에 삽입되는 경우 (예: 핀셋을 좁은 틈에 넣을 때)
-7. attach_region 선택 기준
-   - front_end: 물체의 기능 수행 끝부분 (예: 드라이버 팁, 핀셋 끝)
-   - rear_end: 물체의 파지 끝부분 (예: 드라이버 손잡이 끝)
-   - upper_surface: 물체의 윗면 (예: 자 위에 클립 올릴 때)
-   - lower_surface: 물체의 아랫면
-   - mid_body: 물체의 중간 몸통 부분 (예: 자 중간에 클립 고정)
-   - side_face: 물체의 옆면
-8. weak_points 반영 필수
-9. handle과 functional end 분리 필수
-10. 불가능한 구조 금지
-
-# 추론 절차
-
-반드시 아래 순서대로 추론하라.
-
-Step A. selected_candidate 해석 (function_mapping 기반 역할 확인)
-Step B. filter_result 반영 (stage_scores, weak_points, checklist 확인)
-Step C. assembly strategy 수립
-Step D. step-by-step pose 계산
-Step E. final structure 정리
-Step F. verification 수행
-아래 항목을 각각 pass/fail로 판정하라:
-- alignment: 물체들이 task 수행 방향으로 올바르게 정렬됐는가
-- collision: 물체 간 비의도적 충돌이 없는가
-- functional_end_exposed: 기능 수행 부위(tip/edge)가 충분히 노출됐는가
-- handle_region_free: 로봇이 파지할 수 있는 영역이 확보됐는가
-- force_transfer: task 수행에 필요한 힘이 도구 끝까지 전달 가능한가
-- weak_point_mitigation: filter_result의 weak_points가 pose 조정에 반영됐는가
-- subgoal_support: 각 subgoal의 required_atoms를 도구 구조가 지원하는가
-- contact_feasibility: 도구가 타겟 물체와 실제로 접촉 가능한 위치에 있는가
-Step G. feedback 결정
-- fail 2개 이상 / functional_end_exposed=fail / handle_region_free=fail
-  → need_feedback_to_module2c=true, feedback_target="module2c"
-
-# 출력 규칙
-
-1. JSON만 출력하라.
-2. JSON 바깥의 설명문은 출력하지 마라.
-3. 각 수치 좌표는 float 형태로 작성하라.
-4. orientation은 반드시 [roll, pitch, yaw] degree 형식으로 작성하라.
-5. step 번호는 1부터 시작하라.
-6. verification.checks는 최소 5개 이상 포함하라.
-7. AABB 추정값 사용 시 반드시 reason에 명시하라.
-
-# 출력 형식
-
+출력 형식:
 {
   "assembly_strategy": {
     "base_object": "string",
@@ -176,52 +93,611 @@ Step G. feedback 결정
     "sequence_reason": "string",
     "filter_result_reflection": "string"
   },
-
-  "assembly_steps": [
+  "planned_sequence": [
     {
       "step": 1,
-      "partial_assembly_state_before": ["string"],
       "base_object": "string",
       "attach_object": "string | null",
-      "attach_region_base": "string",
+      "attach_region_base": "upper_surface | lower_surface | front_end | rear_end | mid_body | side_face",
       "attach_region_object": "string | null",
-      "relative_offset_from_base": [0.0, 0.0, 0.0],
-      "target_pose_world": {
-        "position": [0.0, 0.0, 0.0],
-        "orientation_rpy_deg": [0.0, 0.0, 0.0]
-      },
       "contact_type": "point | surface | insertion",
       "expected_function_after_step": "string",
-      "reason": "string"
+      "reason": "string",
+      "weak_points_applied": ["filter_result.weak_points 중 이 step 설계에 반영된 항목 id 또는 설명 (예: 'P6: sticky notes 마찰 부족 → friction_enhancer를 tip 접촉점에 배치')"]
     }
-  ],
+  ]
+}"""
 
+
+# ──────────────────────────────────────────────
+# Phase 2: Per-step coordinate calculation
+# ──────────────────────────────────────────────
+STEP_SYSTEM_PROMPT = """너는 Module 3: 단계별 접합 좌표 계산기이다.
+
+목표: current_positions(코드가 업데이트한 현재 AABB)를 기반으로 이번 step의 joint_position_world를 계산하라.
+
+# joint_position_world의 의미
+joint은 **base의 attach_region face 위의 contact point**이다. attach_object의
+해당 반대면이 이 joint에 닿는 방식으로 코드가 자동 stacking한다.
+(예: upper_surface → attach 바닥이 joint에 착지, ruler 위에 tweezers가 얹히는 형태)
+
+# attach_region_base 기본 계산식 (attach_object가 null이 아닐 때)
+- upper_surface  → joint_z = base.aabb_max_z,  joint_xy = base.center_xy
+- lower_surface  → joint_z = base.aabb_min_z,  joint_xy = base.center_xy
+- front_end      → joint_x = base.aabb_max_x,  joint_yz = base.center_yz
+- rear_end       → joint_x = base.aabb_min_x,  joint_yz = base.center_yz
+- mid_body       → joint = base.center (insertion 시만)
+- side_face      → joint_y = base.aabb_max_y,  joint_xz = base.center_xz
+- step 1 (attach_object=null) → joint = base.center (mid_body 사용)
+
+# region 선택 가이드 (role 기반)
+- attach.role=grip_assistant on primary_executor: region=upper_surface 권장 (위로 쌓음)
+- attach.role=friction_enhancer: region=upper_surface 강력 권장
+  (tip contact point 위로 마찰 패드 쌓는 형태 — 그래야 z-stacking으로 collision 회피)
+- mid_body는 진짜 삽입 구조일 때만 사용
+
+# 기능적 정렬 규칙 (role 조합에 따라 위 기본값에 shift 적용)
+1) base.role=primary_executor AND attach.role=grip_assistant:
+   → attach의 tip(functional_pole)이 base.functional_pole과 일치하도록 xy shift.
+   → 계산: shift_x = base.functional_pole.x - attach.functional_pole.x (y 동일)
+   → joint의 xy는 base.center_xy가 아니라 (base.center_xy + shift)로 설정.
+
+2) base.role=grip_assistant AND attach.role=friction_enhancer:
+   → attach를 base의 functional_pole(tip) 위치에 배치.
+   → joint.xy = base.functional_pole.xy, joint.z는 region 계산식 유지.
+
+3) base.role=primary_executor AND attach.role=friction_enhancer:
+   → attach를 base의 functional_pole(edge) 위치에 배치.
+   → joint.xy = base.functional_pole.xy, joint.z는 region 계산식 유지.
+
+4) 그 외 → 기본 계산식만 적용, shift 없음.
+
+# 기타 규칙
+- step_info의 base_object와 attach_object는 절대 변경 금지. 그대로 사용하라.
+  (반전하거나 다른 물체로 교체하면 validation fail)
+- current_positions의 값을 그대로 사용. 임의 offset 추가 금지.
+- target_pose_world.position = joint_position_world.position.
+- partial_assembly_state_before: 이미 배치된 물체 이름 배열 (문자열).
+- calculation_basis에 사용한 AABB 수치, role 조합, shift 계산을 명시하라.
+
+# 재시도 모드
+previous_attempt가 payload에 있으면, 그 좌표는 validation fail이다.
+previous_attempt.errors를 읽고 원인을 해결한 새 좌표를 산출하라.
+
+JSON만 출력. 설명문 없음.
+
+출력 형식:
+{
+  "step": 1,
+  "partial_assembly_state_before": ["ruler"],
+  "base_object": "string",
+  "attach_object": "string | null",
+  "attach_region_base": "upper_surface | lower_surface | front_end | rear_end | mid_body | side_face",
+  "attach_region_object": "string | null",
+  "relative_offset_from_base": [0.0, 0.0, 0.0],
+  "target_pose_world": {
+    "position": [0.0, 0.0, 0.0],
+    "orientation_rpy_deg": [0.0, 0.0, 0.0]
+  },
+  "joint_position_world": {
+    "position": [0.0, 0.0, 0.0],
+    "calculation_basis": "string — AABB 수치, role, shift 명시",
+    "description": "PyBullet constraint 생성 위치."
+  },
+  "contact_type": "surface",
+  "expected_function_after_step": "string",
+  "reason": "string",
+  "weak_points_applied": ["이 step의 region/offset 결정에 반영된 filter_result.weak_points 항목 (없으면 빈 배열)"]
+}"""
+
+
+# ──────────────────────────────────────────────
+# Phase 3: Final verification + feedback
+# ──────────────────────────────────────────────
+FINAL_SYSTEM_PROMPT = """너는 Module 3: 조립 결과 검증기이다.
+
+목표: 완성된 조립 단계와 코드 검증 결과를 종합하여 최종 구조, 검증, 피드백을 출력하라.
+
+payload의 geometric_validation_results는 코드가 기하 계산으로 판정한 결과이다.
+이 결과를 반드시 verification.checks에 반영하라 (코드 fail → 해당 항목 fail 필수).
+
+검증 항목 8개 (전부 pass/fail):
+- alignment              : 물체가 task 방향으로 올바르게 정렬됐는가
+- collision              : 물체 간 비의도적 충돌이 없는가 (코드 검증 우선)
+- functional_end_exposed : 기능단(tip/edge)이 충분히 노출됐는가 (코드 검증 우선)
+- handle_region_free     : 파지 영역이 확보됐는가 (코드 검증 우선)
+- force_transfer         : 힘이 도구 끝까지 전달 가능한가
+- weak_point_mitigation  : filter_result.weak_points가 반영됐는가
+- subgoal_support        : 각 subgoal의 required_atoms가 지원되는가
+- contact_feasibility    : 도구가 타겟과 실제 접촉 가능한가 (코드 검증 우선)
+
+handle_end 규칙:
+- 로봇이 파지하는 부분 (base_object 또는 구조 전체 파지 영역)
+- attach_object(보조 물체)를 handle_end로 지정 금지
+
+feedback 발동 조건 (논문 3.1.4: 피드백은 3.1.1 = module2a로 전달):
+- geometric_validation_results.any_unresolved_failure=true → need_feedback_to_module2a=true
+- 8개 검증 항목 중 하나라도 fail → need_feedback_to_module2a=true
+- 모두 pass → need_feedback_to_module2a=false, repair_type=local_pose_adjustment
+- feedback_target은 항상 "module2a" (3.1.1 Scene Resource Parser)
+
+JSON만 출력. 설명문 없음.
+
+출력 형식:
+{
   "final_structure": {
     "description": "string",
     "functional_end": "string",
     "handle_end": "string"
   },
-
   "verification": {
     "is_valid": true,
     "checks": [
-      {
-        "item": "alignment | collision | functional_end_exposed | handle_region_free | force_transfer | weak_point_mitigation | subgoal_support | contact_feasibility",
-        "result": "pass | fail",
-        "reason": "string"
-      }
+      {"item": "string", "result": "pass | fail", "reason": "string"}
     ]
   },
-
   "feedback": {
-    "need_feedback_to_module2c": false,
-    "feedback_target": "module2c | null",
+    "need_feedback_to_module2a": false,
+    "feedback_target": "module2a | null",
     "repair_type": "local_pose_adjustment | global_redesign",
     "suggested_action": "string"
+  },
+  "reasoning_trace": {
+    "step_A": "selected_candidate 해석",
+    "step_B": "filter_result 반영",
+    "step_C": "assembly strategy",
+    "step_D": "각 step 좌표 계산 수치 요약",
+    "step_E": "final_structure 결정 근거",
+    "step_F": "verification 판정 근거 (코드 검증 포함)",
+    "step_G": "feedback 결정 근거"
   }
 }"""
 
 
+# ──────────────────────────────────────────────
+# Helpers — GPT call
+# ──────────────────────────────────────────────
+def _call_gpt(
+    client: OpenAI,
+    system_prompt: str,
+    user_message: str,
+    model: str,
+    temperature: float,
+    max_tokens: int,
+) -> tuple[dict[str, Any], Any]:
+    response = client.chat.completions.create(
+        model=model,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message},
+        ],
+        response_format={"type": "json_object"},
+    )
+    raw = response.choices[0].message.content or ""
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Module 3: GPT JSON 파싱 실패: {e}\n응답: {raw[:300]}")
+    return parsed, response.usage
+
+
+# ──────────────────────────────────────────────
+# Helpers — position tracking
+# ──────────────────────────────────────────────
+# 형상 유형 → 기본 extents (m). 질량으로 스케일 조정.
+SHAPE_DEFAULT_EXTENTS: dict[str, tuple[float, float, float]] = {
+    "elongated":  (0.15,  0.01, 0.01),   # 15cm × 1cm × 1cm
+    "blocky":     (0.05,  0.05, 0.05),   # 5cm cube
+    "sheet_like": (0.08,  0.08, 0.002),  # 8cm × 8cm × 2mm
+    "cylindrical":(0.10,  0.02, 0.02),
+}
+_DEFAULT_EXTENTS = (0.05, 0.05, 0.05)
+_REFERENCE_MASS_KG = 0.1
+
+
+def _fallback_aabb_from_physical(
+    center: list[float],
+    shape_category: str,
+    estimated_mass_kg: float | None,
+) -> tuple[list[float], list[float]]:
+    """AABB 결측 시 형상 유형 + 질량 추정값으로 합성 AABB 생성 (논문 3.1.4)."""
+    ex = SHAPE_DEFAULT_EXTENTS.get(shape_category or "", _DEFAULT_EXTENTS)
+    mass = estimated_mass_kg if (estimated_mass_kg and estimated_mass_kg > 0) else _REFERENCE_MASS_KG
+    scale = (mass / _REFERENCE_MASS_KG) ** (1.0 / 3.0)
+    half = [ex[i] * scale / 2.0 for i in range(3)]
+    aabb_min = [round(center[i] - half[i], 6) for i in range(3)]
+    aabb_max = [round(center[i] + half[i], 6) for i in range(3)]
+    return aabb_min, aabb_max
+
+
+def _is_degenerate_aabb(aabb_min: list[float], aabb_max: list[float]) -> bool:
+    """AABB가 비어 있거나 퇴화된 경우 (extent = 0)."""
+    if len(aabb_min) != 3 or len(aabb_max) != 3:
+        return True
+    return all(aabb_max[i] - aabb_min[i] <= 1e-9 for i in range(3))
+
+
+def _init_positions(
+    scene_objects: list[dict[str, Any]],
+    object_physical_properties: list[dict[str, Any]] | None = None,
+) -> dict[str, dict[str, list[float]]]:
+    """AABB 초기화. 결측 시 형상·질량 기반 fallback 적용 (논문 3.1.4)."""
+    prop_map: dict[str, dict[str, Any]] = {}
+    for p in object_physical_properties or []:
+        name = p.get("name", "")
+        if name:
+            prop_map[name] = p
+
+    pos: dict[str, dict[str, list[float]]] = {}
+    for obj in scene_objects:
+        name     = obj.get("name", "")
+        center   = list(obj.get("center_world", [0.0, 0.0, 0.0]))
+        aabb_min = list(obj.get("aabb_min", [0.0, 0.0, 0.0]))
+        aabb_max = list(obj.get("aabb_max", [0.0, 0.0, 0.0]))
+
+        if _is_degenerate_aabb(aabb_min, aabb_max):
+            prop = prop_map.get(name, {})
+            aabb_min, aabb_max = _fallback_aabb_from_physical(
+                center,
+                prop.get("shape_category", ""),
+                prop.get("estimated_mass_kg"),
+            )
+
+        pos[name] = {"center": center, "aabb_min": aabb_min, "aabb_max": aabb_max}
+    return pos
+
+
+def _compute_stacking_delta(
+    attach: dict[str, list[float]],
+    joint: list[float],
+    attach_region_base: str,
+) -> list[float]:
+    """region 의미에 맞는 delta 계산.
+
+    joint는 "base의 region face 위의 접촉점"이다. attach의 해당 축 contact face
+    (반대 방향의 AABB extreme)가 joint에 닿도록 delta를 맞춘다.
+
+    - upper_surface → attach.aabb_min_z = joint.z (attach 바닥이 joint에)
+    - lower_surface → attach.aabb_max_z = joint.z
+    - front_end     → attach.aabb_min_x = joint.x (attach 뒷면이 base 앞면에)
+    - rear_end      → attach.aabb_max_x = joint.x
+    - side_face     → attach.aabb_min_y = joint.y
+    - mid_body      → attach.center = joint (insertion, 겹침 의도)
+    """
+    center = attach["center"]
+    amin   = attach["aabb_min"]
+    amax   = attach["aabb_max"]
+
+    # 기본: xy/xz/yz는 center를 joint에 맞춤
+    delta = [joint[i] - center[i] for i in range(3)]
+
+    region = (attach_region_base or "").lower()
+    if region == "upper_surface":
+        delta[2] = joint[2] - amin[2]
+    elif region == "lower_surface":
+        delta[2] = joint[2] - amax[2]
+    elif region == "front_end":
+        delta[0] = joint[0] - amin[0]
+    elif region == "rear_end":
+        delta[0] = joint[0] - amax[0]
+    elif region == "side_face":
+        delta[1] = joint[1] - amin[1]
+    # mid_body / 기본 → center = joint (변경 없음)
+
+    return [round(d, 6) for d in delta]
+
+
+def _update_positions(
+    pos: dict[str, dict[str, list[float]]],
+    step: dict[str, Any],
+) -> None:
+    """attach_object가 joint_position_world로 이동된 이후의 AABB 업데이트.
+
+    region 의미에 맞춰 contact face가 joint에 정렬되도록 stacking한다.
+    """
+    attach_name = step.get("attach_object")
+    if not attach_name or attach_name not in pos:
+        return
+    joint = step.get("joint_position_world", {}).get("position", [])
+    if len(joint) != 3:
+        return
+    region = step.get("attach_region_base", "")
+    a = pos[attach_name]
+    delta = _compute_stacking_delta(a, joint, region)
+    pos[attach_name] = {
+        "center":   [round(a["center"][i]   + delta[i], 6) for i in range(3)],
+        "aabb_min": [round(a["aabb_min"][i] + delta[i], 6) for i in range(3)],
+        "aabb_max": [round(a["aabb_max"][i] + delta[i], 6) for i in range(3)],
+    }
+
+
+def _pos_snapshot(pos: dict[str, dict[str, list[float]]]) -> dict[str, Any]:
+    return {
+        name: {
+            "center_world": data["center"],
+            "aabb_min":     data["aabb_min"],
+            "aabb_max":     data["aabb_max"],
+        }
+        for name, data in pos.items()
+    }
+
+
+# ──────────────────────────────────────────────
+# Helpers — functional analysis
+# ──────────────────────────────────────────────
+def _derive_roles(selected_candidate: dict[str, Any]) -> dict[str, str]:
+    """function_mapping에서 각 물체의 functional_role 매핑."""
+    roles: dict[str, str] = {}
+    for item in selected_candidate.get("function_mapping", []):
+        name = item.get("object", "")
+        func = item.get("function", "")
+        role = FUNCTION_TO_ROLE.get(func, "alignment_aid")
+        if name:
+            roles[name] = role
+    return roles
+
+
+def _longest_axis(aabb_min: list[float], aabb_max: list[float]) -> int:
+    """AABB에서 가장 긴 축 index (0=x, 1=y, 2=z)."""
+    extents = [aabb_max[i] - aabb_min[i] for i in range(3)]
+    return extents.index(max(extents))
+
+
+def _functional_pole(
+    pos_data: dict[str, list[float]],
+    primary_contact_profile: str,
+) -> list[float]:
+    """물체의 기능단 좌표.
+
+    - broad_flat_face → center
+    - edge / tip / 기타 → longest axis의 max 끝점 (x/y/z face center)
+    """
+    aabb_min = pos_data["aabb_min"]
+    aabb_max = pos_data["aabb_max"]
+    center   = pos_data["center"]
+
+    if primary_contact_profile == "broad_flat_face":
+        return list(center)
+
+    axis = _longest_axis(aabb_min, aabb_max)
+    pole = list(center)
+    pole[axis] = aabb_max[axis]
+    return [round(v, 6) for v in pole]
+
+
+def _build_functional_info(
+    current_positions: dict[str, dict[str, list[float]]],
+    object_physical_properties: list[dict[str, Any]],
+    roles: dict[str, str],
+) -> dict[str, dict[str, Any]]:
+    """step 프롬프트/검증에 넘길 기능 정보 테이블."""
+    profile_map = {
+        p.get("name", ""): p.get("geometry_profile", {}).get("primary_contact_profile", "")
+        for p in object_physical_properties
+    }
+    info: dict[str, dict[str, Any]] = {}
+    for name, pos in current_positions.items():
+        profile = profile_map.get(name, "")
+        info[name] = {
+            "role":                    roles.get(name, "alignment_aid"),
+            "primary_contact_profile": profile,
+            "functional_pole":         _functional_pole(pos, profile),
+        }
+    return info
+
+
+# ──────────────────────────────────────────────
+# Helpers — geometric validation
+# ──────────────────────────────────────────────
+def _aabb_overlap_volume(a: dict[str, list[float]], b: dict[str, list[float]]) -> float:
+    dims = []
+    for i in range(3):
+        lo = max(a["aabb_min"][i], b["aabb_min"][i])
+        hi = min(a["aabb_max"][i], b["aabb_max"][i])
+        d  = hi - lo
+        if d <= 0:
+            return 0.0
+        dims.append(d)
+    return dims[0] * dims[1] * dims[2]
+
+
+def _point_in_aabb(p: list[float], aabb: dict[str, list[float]]) -> bool:
+    return all(aabb["aabb_min"][i] <= p[i] <= aabb["aabb_max"][i] for i in range(3))
+
+
+def _distance(a: list[float], b: list[float]) -> float:
+    return sum((a[i] - b[i]) ** 2 for i in range(3)) ** 0.5
+
+
+def _simulate_attach_aabb(
+    attach_pos: dict[str, list[float]],
+    joint_position: list[float],
+    attach_region_base: str = "",
+) -> dict[str, list[float]]:
+    """joint 좌표로 이동시킨 후 attach_object의 AABB (region-aware stacking)."""
+    delta = _compute_stacking_delta(attach_pos, joint_position, attach_region_base)
+    return {
+        "center":   [attach_pos["center"][i]   + delta[i] for i in range(3)],
+        "aabb_min": [attach_pos["aabb_min"][i] + delta[i] for i in range(3)],
+        "aabb_max": [attach_pos["aabb_max"][i] + delta[i] for i in range(3)],
+    }
+
+
+def _validate_plan(planned_sequence: list[dict[str, Any]]) -> list[str]:
+    """Strategy의 planned_sequence 전체 의미 검증.
+
+    - step 1 attach=null
+    - step N≥2: base ∈ 이전 steps에서 배치된 물체, attach ∉ 이전 물체
+    - 각 step에 base_object 존재
+    """
+    errors: list[str] = []
+    if not planned_sequence:
+        errors.append("planned_sequence가 비어 있음.")
+        return errors
+
+    placed: list[str] = []
+    for i, plan in enumerate(planned_sequence):
+        step_num = plan.get("step", i + 1)
+        base     = plan.get("base_object", "")
+        attach   = plan.get("attach_object")
+
+        if not base:
+            errors.append(f"step {step_num}: base_object 비어 있음.")
+            continue
+
+        if step_num == 1:
+            if attach is not None:
+                errors.append(f"step 1: attach_object는 null이어야 함 (got '{attach}').")
+            placed.append(base)
+            continue
+
+        # step >= 2
+        if base not in placed:
+            errors.append(
+                f"step {step_num}: base_object='{base}'가 이전 steps에서 배치되지 않음."
+                f" placed_so_far={placed}. base는 앵커(이미 배치된 물체)여야 함."
+            )
+        if attach is None:
+            errors.append(f"step {step_num}: attach_object가 null. step 2 이상은 새 물체 필요.")
+        elif attach in placed:
+            errors.append(
+                f"step {step_num}: attach_object='{attach}'가 이미 배치됨."
+                f" placed_so_far={placed}. attach는 새 물체여야 함."
+            )
+        if base and attach and base == attach:
+            errors.append(f"step {step_num}: base와 attach가 동일 ('{base}').")
+
+        if base and base not in placed:
+            placed.append(base)
+        if attach and attach not in placed:
+            placed.append(attach)
+
+    return errors
+
+
+def _validate_step(
+    step_result: dict[str, Any],
+    plan: dict[str, Any],
+    current_positions: dict[str, dict[str, list[float]]],
+    assembled_objects: list[str],
+    roles: dict[str, str],
+    functional_info: dict[str, dict[str, Any]],
+) -> list[str]:
+    """기하 검증. 빈 배열이면 pass."""
+    errors: list[str] = []
+
+    # 0) Plan 일치 체크 — base/attach 반전 방지
+    plan_base   = plan.get("base_object", "")
+    plan_attach = plan.get("attach_object")
+    got_base    = step_result.get("base_object", "")
+    got_attach  = step_result.get("attach_object")
+    if got_base != plan_base:
+        errors.append(
+            f"plan_mismatch: base_object가 planned='{plan_base}'인데 '{got_base}'로 출력됨."
+            f" planned_sequence의 값을 그대로 사용해야 함."
+        )
+    if got_attach != plan_attach:
+        errors.append(
+            f"plan_mismatch: attach_object가 planned='{plan_attach}'인데 '{got_attach}'로 출력됨."
+            f" planned_sequence의 값을 그대로 사용해야 함."
+        )
+    if errors:
+        return errors  # 반전된 상태에선 뒤 검증 무의미
+
+    # 0b) base/attach 의미 체크 — base는 이미 배치된 앵커, attach는 새 물체
+    step_num = step_result.get("step", 0)
+    if step_num > 1:
+        if got_base and got_base not in assembled_objects:
+            errors.append(
+                f"semantics_violation: base_object='{got_base}'가 아직 배치되지 않음."
+                f" base는 이미 배치된 앵커 물체여야 함. assembled={assembled_objects}"
+            )
+        if got_attach and got_attach in assembled_objects:
+            errors.append(
+                f"semantics_violation: attach_object='{got_attach}'가 이미 배치됨."
+                f" attach는 새로 들어오는 물체여야 함. assembled={assembled_objects}"
+            )
+    if errors:
+        return errors
+
+    joint = step_result.get("joint_position_world", {}).get("position") or []
+    attach_name = step_result.get("attach_object")
+    base_name   = step_result.get("base_object", "")
+
+    # Step 1 (단독 배치) — 검증 생략
+    if not attach_name:
+        return errors
+    if len(joint) != 3:
+        errors.append(f"joint_position_world.position 형식 오류 (길이 3 필요).")
+        return errors
+    if attach_name not in current_positions:
+        errors.append(f"attach_object '{attach_name}' current_positions에 없음.")
+        return errors
+
+    # attach_object가 joint로 이동한 가상 AABB (region별 stacking 반영)
+    attach_region = step_result.get("attach_region_base", "")
+    attach_after  = _simulate_attach_aabb(current_positions[attach_name], joint, attach_region)
+
+    # 1) 충돌: 이미 배치된 모든 물체와 AABB 겹침 검사
+    for other in assembled_objects:
+        if other == attach_name:
+            continue
+        if other not in current_positions:
+            continue
+        vol = _aabb_overlap_volume(attach_after, current_positions[other])
+        if vol > COLLISION_OVERLAP_EPS:
+            errors.append(
+                f"collision: '{attach_name}' AABB가 '{other}'와 부피 {vol:.3e} 겹침."
+            )
+
+    # 2) functional_end_exposed: primary_executor의 pole이 가려졌는지
+    for name in assembled_objects + [attach_name]:
+        info = functional_info.get(name)
+        if not info or info["role"] != "primary_executor":
+            continue
+        pole = info["functional_pole"]
+        # attach가 pole을 덮는지
+        if name != attach_name and _point_in_aabb(pole, attach_after):
+            errors.append(
+                f"functional_end_exposed: primary_executor '{name}'의 pole"
+                f" {pole}이 '{attach_name}' AABB 내부로 가려짐."
+            )
+
+    # 3) 기능적 정렬 — role 조합별 체크
+    base_role   = functional_info.get(base_name,   {}).get("role")
+    attach_role = functional_info.get(attach_name, {}).get("role")
+    base_pole   = functional_info.get(base_name,   {}).get("functional_pole")
+
+    # attach 이동 후 pole
+    attach_profile = functional_info.get(attach_name, {}).get("primary_contact_profile", "")
+    attach_pole_after = _functional_pole(attach_after, attach_profile)
+
+    if base_role == "primary_executor" and attach_role == "grip_assistant" and base_pole:
+        d = _distance(attach_pole_after, base_pole)
+        if d > ALIGNMENT_TOLERANCE_M:
+            errors.append(
+                f"grip_alignment: grip_assistant '{attach_name}' tip {attach_pole_after}가"
+                f" primary_executor '{base_name}' pole {base_pole}과 {d:.4f}m 떨어짐"
+                f" (허용 {ALIGNMENT_TOLERANCE_M}m)."
+            )
+
+    if attach_role == "friction_enhancer" and base_pole:
+        d = _distance(attach_pole_after, base_pole)
+        if d > CONTACT_TOLERANCE_M:
+            errors.append(
+                f"contact_feasibility: friction_enhancer '{attach_name}' {attach_pole_after}가"
+                f" base '{base_name}' pole {base_pole}과 {d:.4f}m 떨어짐"
+                f" (허용 {CONTACT_TOLERANCE_M}m)."
+            )
+
+    return errors
+
+
+# ──────────────────────────────────────────────
+# Public entry point
+# ──────────────────────────────────────────────
 def calculate_pose(
     input_data: Module3Input,
     api_key: str | None = None,
@@ -229,56 +705,253 @@ def calculate_pose(
     temperature: float = 0.1,
     max_tokens: int = 4096,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Call GPT-4o to calculate assembly pose.
+    """Assembly pose with per-step GPT + geometric validation retry.
 
-    Returns:
-        (parsed_output_dict, trace)
+    재시도: 각 step 최대 3회 호출 (초기 1회 + 재시도 2회).
+    최종 실패 시 그대로 기록, need_feedback_to_module2a=true로 전달 (논문 3.1.4).
     """
     client = OpenAI(api_key=api_key or os.environ["OPENAI_API_KEY"])
+    total_tokens = {"prompt": 0, "completion": 0}
+    gpt_call_count = 0
 
-    user_payload = {
-        "task": input_data.task,
-        "scene_context": input_data.scene_context,
+    def _accum(usage: Any) -> None:
+        if usage:
+            total_tokens["prompt"]     += usage.prompt_tokens     or 0
+            total_tokens["completion"] += usage.completion_tokens or 0
+
+    # functional_role 매핑 (코드 계산)
+    roles = _derive_roles(input_data.selected_candidate)
+
+    base_ctx = {
+        "task":                      input_data.task,
+        "scene_context":             input_data.scene_context,
         "object_physical_properties": input_data.object_physical_properties,
-        "tool_constraints": input_data.tool_constraints,
-        "selected_candidate": input_data.selected_candidate,
-        "filter_result": input_data.filter_result,
+        "tool_constraints":          input_data.tool_constraints,
+        "selected_candidate":        input_data.selected_candidate,
+        "filter_result":             input_data.filter_result,
+        "functional_roles":          roles,
     }
 
-    user_message = (
-        "다음 입력을 분석하여 도구 조립 위치 및 pose를 계산하라.\n\n"
-        + json.dumps(user_payload, ensure_ascii=False, indent=2)
+    # ── Phase 1: Strategy (with plan validation retry) ──
+    strategy_attempts: list[dict[str, Any]] = []
+    strategy_result: dict[str, Any] = {}
+    plan_errors: list[str] = []
+    previous_strategy: dict[str, Any] | None = None
+
+    for attempt in range(3):
+        strategy_payload = dict(base_ctx)
+        if previous_strategy is not None:
+            strategy_payload["previous_attempt"] = previous_strategy
+
+        strategy_result, usage = _call_gpt(
+            client, STRATEGY_SYSTEM_PROMPT,
+            "다음 입력을 분석하여 조립 전략과 순서를 계획하라."
+            + (" 이전 시도가 validation fail이다. errors를 반드시 해결하라.\n\n"
+               if previous_strategy else "\n\n")
+            + json.dumps(strategy_payload, ensure_ascii=False, indent=2),
+            model, temperature, max_tokens,
+        )
+        _accum(usage)
+        gpt_call_count += 1
+
+        plan_errors = _validate_plan(strategy_result.get("planned_sequence", []))
+        strategy_attempts.append({
+            "attempt":          attempt + 1,
+            "planned_sequence": strategy_result.get("planned_sequence", []),
+            "errors":           plan_errors,
+            "passed":           len(plan_errors) == 0,
+        })
+        if not plan_errors:
+            break
+
+        previous_strategy = {
+            "planned_sequence": strategy_result.get("planned_sequence", []),
+            "errors":           plan_errors,
+        }
+
+    assembly_strategy = strategy_result.get("assembly_strategy", {})
+    planned_sequence  = strategy_result.get("planned_sequence", [])
+    strategy_unresolved = len(plan_errors) > 0
+
+    # ── Phase 2: Per-step with validation retry ──
+    current_positions = _init_positions(
+        input_data.scene_context.get("scene_objects", []),
+        input_data.object_physical_properties,
     )
+    all_steps:         list[dict[str, Any]]       = []
+    assembled_objects: list[str]                  = []
+    validation_log:    list[dict[str, Any]]       = []
+    any_unresolved_failure = False
 
-    response = client.chat.completions.create(
-        model=model,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_message},
-        ],
-        response_format={"type": "json_object"},
+    for plan in planned_sequence:
+        step_num    = plan["step"]
+        base_name   = plan.get("base_object", "")
+        attach_name = plan.get("attach_object")
+
+        functional_info = _build_functional_info(
+            current_positions, input_data.object_physical_properties, roles,
+        )
+
+        previous_attempt: dict[str, Any] | None = None
+        step_result:      dict[str, Any] | None = None
+        errors:           list[str]             = []
+        attempt_log:      list[dict[str, Any]]  = []
+
+        for attempt in range(3):  # 초기 + 재시도 2회
+            step_payload = {
+                "step_info":                     plan,
+                "current_positions":             _pos_snapshot(current_positions),
+                "functional_info":               functional_info,
+                "partial_assembly_state_before": list(assembled_objects),
+                "task":                          input_data.task,
+                "assembly_strategy":             assembly_strategy,
+            }
+            if previous_attempt is not None:
+                step_payload["previous_attempt"] = previous_attempt
+
+            step_result, usage = _call_gpt(
+                client, STEP_SYSTEM_PROMPT,
+                f"Step {step_num} 좌표를 계산하라. "
+                f"{'이전 시도가 validation fail이다. errors를 해결하라.' if previous_attempt else ''}\n\n"
+                + json.dumps(step_payload, ensure_ascii=False, indent=2),
+                model, temperature, max_tokens,
+            )
+            _accum(usage)
+            gpt_call_count += 1
+
+            # target_pose_world.position = attach center after stacking
+            # (joint_position_world는 contact point, target은 attach 중심 월드 좌표)
+            joint_pos = step_result.get("joint_position_world", {}).get("position")
+            if joint_pos and attach_name and attach_name in current_positions:
+                region = step_result.get("attach_region_base", "")
+                attach_after = _simulate_attach_aabb(
+                    current_positions[attach_name], joint_pos, region,
+                )
+                step_result.setdefault("target_pose_world", {})["position"] = [
+                    round(c, 6) for c in attach_after["center"]
+                ]
+
+            # functional_role 주입 (디버깅/논문 서술용)
+            step_result["functional_roles"] = {
+                "base_role":   roles.get(base_name,   "alignment_aid"),
+                "attach_role": roles.get(attach_name, None) if attach_name else None,
+            }
+
+            # 기하 검증
+            errors = _validate_step(
+                step_result, plan, current_positions, assembled_objects, roles, functional_info,
+            )
+            attempt_log.append({
+                "attempt":              attempt + 1,
+                "joint_position_world": step_result.get("joint_position_world", {}).get("position"),
+                "errors":               errors,
+                "passed":               len(errors) == 0,
+            })
+            if not errors:
+                break
+
+            previous_attempt = {
+                "joint_position_world": step_result.get("joint_position_world", {}),
+                "errors":               errors,
+            }
+
+        validation_log.append({
+            "step":              step_num,
+            "attempts":          attempt_log,
+            "final_passed":      len(errors) == 0,
+            "final_errors":      errors,
+        })
+        if errors:
+            any_unresolved_failure = True
+
+        all_steps.append(step_result)  # type: ignore[arg-type]
+        _update_positions(current_positions, step_result)  # type: ignore[arg-type]
+
+        if base_name and base_name not in assembled_objects:
+            assembled_objects.append(base_name)
+        if attach_name and attach_name not in assembled_objects:
+            assembled_objects.append(attach_name)
+
+    # ── Phase 3: Final ──
+    geometric_validation_results = {
+        "strategy_attempts":      strategy_attempts,
+        "strategy_unresolved":    strategy_unresolved,
+        "per_step":               validation_log,
+        "any_unresolved_failure": any_unresolved_failure or strategy_unresolved,
+    }
+    final_result, usage = _call_gpt(
+        client, FINAL_SYSTEM_PROMPT,
+        "완성된 조립 단계와 코드 검증 결과를 종합하여 최종 구조, 검증, 피드백을 출력하라.\n\n"
+        + json.dumps({
+            "task":                         input_data.task,
+            "assembly_strategy":            assembly_strategy,
+            "assembly_steps":               all_steps,
+            "tool_constraints":             input_data.tool_constraints,
+            "filter_result":                input_data.filter_result,
+            "selected_candidate":           input_data.selected_candidate,
+            "functional_roles":             roles,
+            "geometric_validation_results": geometric_validation_results,
+        }, ensure_ascii=False, indent=2),
+        model, temperature, max_tokens,
     )
+    _accum(usage)
+    gpt_call_count += 1
 
-    raw_text = response.choices[0].message.content or ""
-    usage = response.usage
+    # 코드가 판단한 unresolved failure는 feedback 강제
+    # 논문 3.1.4: 피드백은 3.1.1 (module2a, Scene Resource Parser)로 전달
+    feedback = final_result.get("feedback", {})
 
-    try:
-        parsed = json.loads(raw_text)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"Module 3: GPT 응답 JSON 파싱 실패: {e}\n응답: {raw_text[:300]}")
+    # 구 스키마 호환: need_feedback_to_module2c가 있으면 module2a로 이전
+    if "need_feedback_to_module2c" in feedback and "need_feedback_to_module2a" not in feedback:
+        feedback["need_feedback_to_module2a"] = feedback.pop("need_feedback_to_module2c")
 
+    # 8개 검증 중 하나라도 fail이면 피드백 발동 (논문 규정)
+    verif_checks = final_result.get("verification", {}).get("checks", [])
+    any_check_fail = any(c.get("result") == "fail" for c in verif_checks)
+
+    if any_unresolved_failure or strategy_unresolved or any_check_fail:
+        feedback["need_feedback_to_module2a"] = True
+        feedback["feedback_target"]           = "module2a"
+        if not feedback.get("repair_type"):
+            feedback["repair_type"] = "global_redesign"
+    else:
+        feedback["need_feedback_to_module2a"] = False
+        feedback["feedback_target"]           = None
+
+    # 피드백 회차 추적 + 태스크 포기 판단 (논문: 최대 2회)
+    iteration = int(getattr(input_data, "feedback_iteration", 0))
+    feedback["feedback_iteration"] = iteration
+    task_abandoned = (
+        feedback.get("need_feedback_to_module2a", False) and iteration >= 2
+    )
+    feedback["task_abandoned"] = task_abandoned
+    if task_abandoned:
+        # 이미 2회 실패 후 또 실패 → 태스크 수행 불가, 피드백 중단
+        feedback["need_feedback_to_module2a"] = False
+        feedback["feedback_target"]           = None
+
+    output = {
+        "assembly_strategy":            assembly_strategy,
+        "assembly_steps":               all_steps,
+        "final_structure":              final_result.get("final_structure", {}),
+        "verification":                 final_result.get("verification", {}),
+        "feedback":                     feedback,
+        "reasoning_trace":              final_result.get("reasoning_trace", {}),
+        "geometric_validation_results": geometric_validation_results,
+    }
     trace = {
-        "model": model,
-        "temperature": temperature,
-        "prompt_tokens": usage.prompt_tokens if usage else None,
-        "completion_tokens": usage.completion_tokens if usage else None,
-        "assembly_step_count": len(parsed.get("assembly_steps", [])),
-        "is_valid": parsed.get("verification", {}).get("is_valid", False),
-        "need_feedback": parsed.get("feedback", {}).get("need_feedback_to_module2c", False),
-        "feedback_target": parsed.get("feedback", {}).get("feedback_target"),
-        "raw_response_preview": raw_text[:500],
+        "mode":                "step_by_step_with_validation",
+        "model":               model,
+        "temperature":         temperature,
+        "prompt_tokens":       total_tokens["prompt"],
+        "completion_tokens":   total_tokens["completion"],
+        "gpt_call_count":      gpt_call_count,
+        "assembly_step_count": len(all_steps),
+        "is_valid":            output.get("verification", {}).get("is_valid", False),
+        "need_feedback":       output.get("feedback", {}).get("need_feedback_to_module2a", False),
+        "feedback_target":     output.get("feedback", {}).get("feedback_target"),
+        "any_unresolved_failure": any_unresolved_failure,
+        "validation_log":      validation_log,
+        "functional_roles":    roles,
     }
-
-    return parsed, trace
+    return output, trace

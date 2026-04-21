@@ -23,6 +23,10 @@ __pycache__/
 results/
 logs/
 
+# Task scene images (keep task preset images in repo)
+!module1-2B/cases/images/*.png
+!module1-2B/cases/images/*.jpg
+
 # 시스템 파일
 .DS_Store
 .vscode/
