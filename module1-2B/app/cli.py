@@ -89,6 +89,7 @@ def _cmd_run_experiments(args: argparse.Namespace) -> int:
         scenarios=scenarios,
         output_root=Path(args.output_root) if args.output_root else None,
         prompt_variant=args.prompt_variant,
+        task_name=getattr(args, "task_name", None),
     )
     print(json.dumps(result, indent=2))
     return 0
@@ -102,6 +103,7 @@ def _cmd_export_module2_bridge(args: argparse.Namespace) -> int:
         case_id=args.case_id,
         module1_output_path=Path(args.module1_output) if args.module1_output else None,
         output_root=Path(args.output_root) if args.output_root else None,
+        task_name=getattr(args, "task_name", None),
     )
     print(json.dumps(result, indent=2))
     return 0
@@ -133,6 +135,7 @@ def _cmd_run_module2a(args: argparse.Namespace) -> int:
         success_criteria=args.success_criteria,
         task_notes=args.task_notes,
         output_root=Path(args.output_root) if args.output_root else None,
+        task_name=getattr(args, "task_name", None),
     )
     print(json.dumps(result, indent=2))
     return 0
@@ -203,6 +206,7 @@ def _cmd_run_module2b(args: argparse.Namespace) -> int:
         case_id=args.case_id,
         output_root=Path(args.output_root) if args.output_root else None,
         variant=args.variant,
+        task_name=getattr(args, "task_name", None),
     )
     print(json.dumps(result, indent=2))
     return 0
@@ -243,6 +247,7 @@ def _cmd_export_module2b_normalized(args: argparse.Namespace) -> int:
         case_id=args.case_id,
         provider=provider,
         output_root=Path(args.output_root) if args.output_root else None,
+        task_name=getattr(args, "task_name", None),
     )
     print(json.dumps(result, indent=2))
     return 0
@@ -292,6 +297,8 @@ def _build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--scenarios", default="all", help="all or comma-separated list")
     run_parser.add_argument("--prompt-variant", default=None)
     run_parser.add_argument("--output-root", default=None)
+    run_parser.add_argument("--task-name", default=None,
+                            help="Task 폴더 이름 (outputs/<task-name>/). 미지정 시 image 파일명으로 자동.")
 
     bridge_parser = subparsers.add_parser(
         "export-module2-bridge",
@@ -302,6 +309,8 @@ def _build_parser() -> argparse.ArgumentParser:
     bridge_parser.add_argument("--case-id", default=None)
     bridge_parser.add_argument("--module1-output", default=None)
     bridge_parser.add_argument("--output-root", default=None)
+    bridge_parser.add_argument("--task-name", default=None,
+                               help="Task 폴더 이름 (outputs/<task-name>/).")
 
     module2a_parser = subparsers.add_parser(
         "run-module2a",
@@ -316,6 +325,8 @@ def _build_parser() -> argparse.ArgumentParser:
     module2a_parser.add_argument("--success-criteria", action="append", default=None)
     module2a_parser.add_argument("--task-notes", action="append", default=None)
     module2a_parser.add_argument("--output-root", default=None)
+    module2a_parser.add_argument("--task-name", default=None,
+                                 help="Task 폴더 이름 (outputs/<task-name>/).")
 
     batch_parser = subparsers.add_parser("batch", help="Run batch fixture experiments")
     batch_parser.add_argument("--cases", default="all", help="all or comma-separated case ids")
@@ -368,6 +379,8 @@ def _build_parser() -> argparse.ArgumentParser:
     run_m2b_parser.add_argument("--module2a-output", default=None)
     run_m2b_parser.add_argument("--variant", default=None)
     run_m2b_parser.add_argument("--output-root", default=None)
+    run_m2b_parser.add_argument("--task-name", default=None,
+                                help="Task 폴더 이름 (outputs/<task-name>/).")
 
     batch_m2b_parser = subparsers.add_parser(
         "batch-module2b",
@@ -397,6 +410,8 @@ def _build_parser() -> argparse.ArgumentParser:
     normalized_m2b_parser.add_argument("--module2-common", default=None)
     normalized_m2b_parser.add_argument("--module2a-output", default=None)
     normalized_m2b_parser.add_argument("--output-root", default=None)
+    normalized_m2b_parser.add_argument("--task-name", default=None,
+                                        help="Task 폴더 이름 (outputs/<task-name>/).")
 
     return parser
 

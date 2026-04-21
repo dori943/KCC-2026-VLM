@@ -9,7 +9,13 @@ from app.module2d.models import Module2DInput, Module2DOutput
 from app.module2d.providers import FileInputProvider, Module2DInputProvider
 from app.module2d.reasoners.candidate_filter import filter_candidates
 from app.module2d.validators import Module2DInputValidator, Module2DOutputValidator
-from app.utils import dump_json, ensure_dir, timestamp_id
+from app.utils import (
+    build_task_output_root,
+    derive_task_name,
+    dump_json,
+    ensure_unique_run_dir,
+    timestamp_id,
+)
 
 
 def run_module2d_pipeline(
@@ -20,12 +26,21 @@ def run_module2d_pipeline(
     api_key: str | None = None,
     model: str = "gpt-4o",
     temperature: float = 0.2,
+    task_name: str | None = None,
 ) -> dict[str, Any]:
-    """Run Module 2-D filtering and export artifacts."""
+    """Run Module 2-D filtering and export artifacts.
+
+    Output은 outputs/<task_name>/module2d_<timestamp>_<suffix>/ 구조로 저장된다.
+    """
     output_root = output_root or (Path(__file__).resolve().parents[2] / "outputs")
+    resolved_task_name = derive_task_name(
+        task_name=task_name, bundle_path=bundle_path, case_id=case_id,
+    )
+    task_root = build_task_output_root(output_root, resolved_task_name)
+
     run_id = timestamp_id()
     suffix = case_id or (Path(str(bundle_path)).stem if bundle_path else "ad_hoc")
-    run_dir = _ensure_unique_run_dir(output_root, f"module2d_{run_id}_{suffix}")
+    run_dir = ensure_unique_run_dir(task_root, f"module2d_{run_id}_{suffix}")
 
     bundle_provider = provider or FileInputProvider()
     provider_result = bundle_provider.get_bundle(bundle_path=bundle_path, case_id=case_id)
@@ -61,6 +76,7 @@ def run_module2d_pipeline(
 
     summary = {
         "run_id": run_id,
+        "task_name": resolved_task_name,
         "case_id": case_id,
         "provider": provider_result.metadata.get("provider"),
         "task": input_data.task[:80],
@@ -87,6 +103,7 @@ def run_module2d_pipeline(
         "schema_name": "module2d_run_manifest",
         "schema_version": "0.1",
         "run_id": run_id,
+        "task_name": resolved_task_name,
         "provider_metadata": provider_result.metadata,
         "model": model,
         "temperature": temperature,
@@ -111,16 +128,3 @@ def run_module2d_pipeline(
         raise ValueError("Module 2-D 출력 검증 실패: " + " | ".join(output_validation.errors[:3]))
 
     return {"run_dir": str(run_dir), "summary": summary, "manifest": manifest}
-
-
-def _ensure_unique_run_dir(output_root: Path, stem: str) -> Path:
-    from app.utils import ensure_dir
-    candidate = output_root / stem
-    if not candidate.exists():
-        return ensure_dir(candidate)
-    index = 1
-    while True:
-        fallback = output_root / f"{stem}_{index:02d}"
-        if not fallback.exists():
-            return ensure_dir(fallback)
-        index += 1

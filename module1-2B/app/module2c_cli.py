@@ -15,6 +15,8 @@ def cli() -> None:
 @cli.command("run-module2c")
 @click.option("--bundle", "bundle_path", type=click.Path(path_type=Path), default=None)
 @click.option("--case-id", default=None)
+@click.option("--task-name", "task_name", default=None,
+              help="Task 폴더 이름 (outputs/<task-name>/ 밑에 저장). 미지정 시 bundle path에서 자동 추출.")
 @click.option("--provider", "provider_name", default="file", type=click.Choice(["file", "mock", "module2b"]))
 @click.option("--output-root", type=click.Path(path_type=Path), default=None)
 @click.option("--api-key", default=None)
@@ -24,7 +26,7 @@ def cli() -> None:
 @click.option("--target-name", default="business card", show_default=True, help="타겟 물체 이름")
 @click.option("--task", "task_text", default=None, help="task 설명 (없으면 2-B output에서 자동 추출)")
 @click.option("--scene-info", "scene_info_path", type=click.Path(path_type=Path), default=None, help="파이불렛 scene_info.json 경로 (실제 AABB 좌표)")
-def run_module2c(bundle_path, case_id, provider_name, output_root, api_key, model, temperature,
+def run_module2c(bundle_path, case_id, task_name, provider_name, output_root, api_key, model, temperature,
                  image_path, target_name, task_text, scene_info_path):
     """Module 2-C 후보 생성 실행."""
     from app.module2c.providers import FileInputProvider, MockInputProvider, Module2BOutputProvider
@@ -50,9 +52,11 @@ def run_module2c(bundle_path, case_id, provider_name, output_root, api_key, mode
         api_key=api_key or os.environ.get("OPENAI_API_KEY"),
         model=model,
         temperature=temperature,
+        task_name=task_name,
     )
 
     click.echo(f"✅ Module 2-C 완료")
+    click.echo(f"   task_name      : {result['summary']['task_name']}")
     click.echo(f"   run_dir        : {result['run_dir']}")
     click.echo(f"   candidate_count: {result['summary']['candidate_count']}")
     click.echo(f"   input_valid    : {result['summary']['input_valid']}")

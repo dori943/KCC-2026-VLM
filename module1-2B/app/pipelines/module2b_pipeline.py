@@ -17,7 +17,17 @@ from app.module2b.validators import (
     Module2BInputValidator,
     Module2BOutputValidator,
 )
-from app.utils import dump_json, ensure_dir, load_json, load_yaml, project_root, timestamp_id
+from app.utils import (
+    build_task_output_root,
+    derive_task_name,
+    dump_json,
+    ensure_dir,
+    ensure_unique_run_dir,
+    load_json,
+    load_yaml,
+    project_root,
+    timestamp_id,
+)
 
 
 def run_module2b_pipeline(
@@ -28,8 +38,12 @@ def run_module2b_pipeline(
     case_id: str | None = None,
     output_root: Path | None = None,
     variant: str | None = None,
+    task_name: str | None = None,
 ) -> dict[str, Any]:
-    """Run deterministic Module 2-B env-only reasoning and export layered artifacts."""
+    """Run deterministic Module 2-B env-only reasoning and export layered artifacts.
+
+    Output은 outputs/<task_name>/module2b_<timestamp>_<suffix>/ 구조로 저장된다.
+    """
     root = project_root()
     output_root = output_root or (root / "outputs")
     run_id = timestamp_id()
@@ -44,7 +58,13 @@ def run_module2b_pipeline(
     raw_bundle = provider_result.bundle
 
     suffix = case_id or _infer_suffix(provider_result.metadata)
-    run_dir = _ensure_unique_run_dir(output_root=output_root, stem=f"module2b_{run_id}_{suffix}")
+    resolved_task_name = derive_task_name(
+        task_name=task_name,
+        bundle_path=bundle_path or provider_result.metadata.get("bundle_path"),
+        case_id=case_id,
+    )
+    task_root = build_task_output_root(output_root, resolved_task_name)
+    run_dir  = ensure_unique_run_dir(task_root, f"module2b_{run_id}_{suffix}")
 
     prompt_registry = load_yaml(root / "configs" / "prompt_registry.yaml")
     run_variants = load_yaml(root / "configs" / "module2b_run_variants.yaml")
@@ -269,6 +289,7 @@ def export_module2b_normalized_context(
     case_id: str | None = None,
     provider: Module2BBundleProvider | None = None,
     output_root: Path | None = None,
+    task_name: str | None = None,
 ) -> dict[str, Any]:
     """Export only Layer 2 normalized context from Module 2-B input."""
     root = project_root()
@@ -284,10 +305,13 @@ def export_module2b_normalized_context(
     normalized_context = normalize_module2b_bundle(provider_result.bundle)
 
     suffix = case_id or _infer_suffix(provider_result.metadata)
-    run_dir = _ensure_unique_run_dir(
-        output_root=output_root,
-        stem=f"module2b_normalized_{run_id}_{suffix}",
+    resolved_task_name = derive_task_name(
+        task_name=task_name,
+        bundle_path=bundle_path or provider_result.metadata.get("bundle_path"),
+        case_id=case_id,
     )
+    task_root = build_task_output_root(output_root, resolved_task_name)
+    run_dir = ensure_unique_run_dir(task_root, f"module2b_normalized_{run_id}_{suffix}")
     dump_json(provider_result.bundle, run_dir / "raw_input_bundle.json")
     dump_json(normalized_context.to_dict(), run_dir / "normalized_context.json")
     dump_json(
@@ -551,13 +575,3 @@ def _infer_suffix(metadata: dict[str, Any]) -> str:
     return "ad_hoc"
 
 
-def _ensure_unique_run_dir(output_root: Path, stem: str) -> Path:
-    candidate = output_root / stem
-    if not candidate.exists():
-        return ensure_dir(candidate)
-    index = 1
-    while True:
-        fallback = output_root / f"{stem}_{index:02d}"
-        if not fallback.exists():
-            return ensure_dir(fallback)
-        index += 1

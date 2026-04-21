@@ -9,7 +9,13 @@ from app.module2c.models import Module2CInput, Module2COutput
 from app.module2c.providers import FileInputProvider, Module2CInputProvider
 from app.module2c.reasoners.candidate_generator import generate_candidates
 from app.module2c.validators import Module2CInputValidator, Module2COutputValidator
-from app.utils import dump_json, ensure_dir, timestamp_id
+from app.utils import (
+    build_task_output_root,
+    derive_task_name,
+    dump_json,
+    ensure_unique_run_dir,
+    timestamp_id,
+)
 
 
 def run_module2c_pipeline(
@@ -20,11 +26,17 @@ def run_module2c_pipeline(
     api_key: str | None = None,
     model: str = "gpt-4o",
     temperature: float = 0.3,
+    task_name: str | None = None,
 ) -> dict[str, Any]:
     output_root = output_root or (Path(__file__).resolve().parents[2] / "outputs")
+    resolved_task_name = derive_task_name(
+        task_name=task_name, bundle_path=bundle_path, case_id=case_id,
+    )
+    task_root = build_task_output_root(output_root, resolved_task_name)
+
     run_id = timestamp_id()
     suffix = case_id or (Path(str(bundle_path)).stem if bundle_path else "ad_hoc")
-    run_dir = _ensure_unique_run_dir(output_root, f"module2c_{run_id}_{suffix}")
+    run_dir = ensure_unique_run_dir(task_root, f"module2c_{run_id}_{suffix}")
 
     bundle_provider = provider or FileInputProvider()
     provider_result = bundle_provider.get_bundle(bundle_path=bundle_path, case_id=case_id)
@@ -56,6 +68,7 @@ def run_module2c_pipeline(
 
     summary = {
         "run_id": run_id,
+        "task_name": resolved_task_name,
         "case_id": case_id,
         "provider": provider_result.metadata.get("provider"),
         "task": input_data.task[:80],
@@ -80,6 +93,7 @@ def run_module2c_pipeline(
         "schema_name": "module2c_run_manifest",
         "schema_version": "0.1",
         "run_id": run_id,
+        "task_name": resolved_task_name,
         "provider_metadata": provider_result.metadata,
         "model": model,
         "temperature": temperature,
@@ -108,15 +122,3 @@ def run_module2c_pipeline(
         raise ValueError("Module 2-C 출력 검증 실패: " + " | ".join(output_validation.errors[:3]))
 
     return {"run_dir": str(run_dir), "summary": summary, "manifest": manifest}
-
-
-def _ensure_unique_run_dir(output_root: Path, stem: str) -> Path:
-    candidate = output_root / stem
-    if not candidate.exists():
-        return ensure_dir(candidate)
-    index = 1
-    while True:
-        fallback = output_root / f"{stem}_{index:02d}"
-        if not fallback.exists():
-            return ensure_dir(fallback)
-        index += 1

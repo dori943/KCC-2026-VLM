@@ -9,7 +9,13 @@ from app.module3.models import Module3Input
 from app.module3.providers import FileInputProvider, Module3InputProvider
 from app.module3.reasoners.pose_calculator import calculate_pose
 from app.module3.validators import Module3InputValidator, Module3OutputValidator
-from app.utils import dump_json, ensure_dir, timestamp_id
+from app.utils import (
+    build_task_output_root,
+    derive_task_name,
+    dump_json,
+    ensure_unique_run_dir,
+    timestamp_id,
+)
 
 
 def run_module3_pipeline(
@@ -20,12 +26,21 @@ def run_module3_pipeline(
     api_key: str | None = None,
     model: str = "gpt-4o",
     temperature: float = 0.1,
+    task_name: str | None = None,
 ) -> dict[str, Any]:
-    """Run Module 3 pose calculation and export artifacts."""
+    """Run Module 3 pose calculation and export artifacts.
+
+    Output은 outputs/<task_name>/module3_<timestamp>_<suffix>/ 구조로 저장된다.
+    """
     output_root = output_root or (Path(__file__).resolve().parents[2] / "outputs")
+    resolved_task_name = derive_task_name(
+        task_name=task_name, bundle_path=bundle_path, case_id=case_id,
+    )
+    task_root = build_task_output_root(output_root, resolved_task_name)
+
     run_id = timestamp_id()
     suffix = case_id or (Path(str(bundle_path)).stem if bundle_path else "ad_hoc")
-    run_dir = _ensure_unique_run_dir(output_root, f"module3_{run_id}_{suffix}")
+    run_dir = ensure_unique_run_dir(task_root, f"module3_{run_id}_{suffix}")
 
     bundle_provider = provider or FileInputProvider()
     provider_result = bundle_provider.get_bundle(bundle_path=bundle_path, case_id=case_id)
@@ -54,13 +69,16 @@ def run_module3_pipeline(
 
     summary = {
         "run_id": run_id,
+        "task_name": resolved_task_name,
         "case_id": case_id,
         "provider": provider_result.metadata.get("provider"),
         "task": input_data.task[:80],
         "selected_candidate_id": input_data.selected_candidate.get("candidate_id"),
         "assembly_step_count": pose_trace.get("assembly_step_count"),
         "is_valid": pose_trace.get("is_valid"),
-        "need_feedback_to_module2c": pose_trace.get("need_feedback"),
+        "need_feedback_to_module2a": pose_trace.get("need_feedback"),
+        "feedback_iteration":        output_dict.get("feedback", {}).get("feedback_iteration", 0),
+        "task_abandoned":            output_dict.get("feedback", {}).get("task_abandoned", False),
         "input_valid": input_validation.valid,
         "output_valid": output_validation.valid,
         "input_warnings": input_validation.warnings,
@@ -81,6 +99,7 @@ def run_module3_pipeline(
         "schema_name": "module3_run_manifest",
         "schema_version": "0.1",
         "run_id": run_id,
+        "task_name": resolved_task_name,
         "provider_metadata": provider_result.metadata,
         "model": model,
         "temperature": temperature,
@@ -105,16 +124,3 @@ def run_module3_pipeline(
         raise ValueError("Module 3 출력 검증 실패: " + " | ".join(output_validation.errors[:3]))
 
     return {"run_dir": str(run_dir), "summary": summary, "manifest": manifest}
-
-
-def _ensure_unique_run_dir(output_root: Path, stem: str) -> Path:
-    from app.utils import ensure_dir
-    candidate = output_root / stem
-    if not candidate.exists():
-        return ensure_dir(candidate)
-    index = 1
-    while True:
-        fallback = output_root / f"{stem}_{index:02d}"
-        if not fallback.exists():
-            return ensure_dir(fallback)
-        index += 1

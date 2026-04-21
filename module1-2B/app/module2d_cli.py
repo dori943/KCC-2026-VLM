@@ -15,12 +15,14 @@ def cli() -> None:
 @cli.command("run-module2d")
 @click.option("--bundle", "bundle_path", type=click.Path(path_type=Path), default=None)
 @click.option("--case-id", default=None)
+@click.option("--task-name", "task_name", default=None,
+              help="Task 폴더 이름 (outputs/<task-name>/ 밑에 저장). 미지정 시 bundle path에서 자동 추출.")
 @click.option("--provider", "provider_name", default="file", type=click.Choice(["file", "mock", "module2c"]))
 @click.option("--output-root", type=click.Path(path_type=Path), default=None)
 @click.option("--api-key", default=None)
 @click.option("--model", default="gpt-4o", show_default=True)
 @click.option("--temperature", default=0.2, show_default=True, type=float)
-def run_module2d(bundle_path, case_id, provider_name, output_root, api_key, model, temperature):
+def run_module2d(bundle_path, case_id, task_name, provider_name, output_root, api_key, model, temperature):
     """Module 2-D 후보 필터링 실행."""
     from app.module2d.providers import FileInputProvider, MockInputProvider, Module2COutputProvider
 
@@ -39,9 +41,11 @@ def run_module2d(bundle_path, case_id, provider_name, output_root, api_key, mode
         api_key=api_key or os.environ.get("OPENAI_API_KEY"),
         model=model,
         temperature=temperature,
+        task_name=task_name,
     )
 
     click.echo(f"✅ Module 2-D 완료")
+    click.echo(f"   task_name            : {result['summary']['task_name']}")
     click.echo(f"   run_dir              : {result['run_dir']}")
     click.echo(f"   evaluated_count      : {result['summary']['evaluated_count']}")
     click.echo(f"   pass_count           : {result['summary']['pass_count']}")
