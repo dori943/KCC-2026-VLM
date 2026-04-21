@@ -29,4 +29,8 @@ logs/
 
 # 시스템 파일
 .DS_Store
-.vscode/
+.vscode/# Config and schema JSON (keep in repo)
+!module1-2B/schemas/*.json
+!module1-2B/configs/*.json
+!module1-2B/configs/**/*.json
+!module1-2B/fixtures/**/*.json
