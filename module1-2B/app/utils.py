@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,48 @@ def ensure_dir(path: Path) -> Path:
 def timestamp_id() -> str:
     """Build a filesystem-friendly timestamp string."""
     return datetime.now().strftime("%Y%m%d_%H%M%S")
+
+
+def ensure_unique_run_dir(output_root: Path, stem: str) -> Path:
+    """Create a unique run directory under output_root based on stem."""
+    candidate = output_root / stem
+    if not candidate.exists():
+        return ensure_dir(candidate)
+    index = 1
+    while True:
+        fallback = output_root / f"{stem}_{index:02d}"
+        if not fallback.exists():
+            return ensure_dir(fallback)
+        index += 1
+
+
+def derive_task_name(
+    task_name: str | None = None,
+    bundle_path: Path | None = None,
+    case_id: str | None = None,
+) -> str:
+    """Resolve a stable task name for per-task output routing."""
+    if task_name and task_name.strip():
+        return _slugify_task_name(task_name)
+    if case_id and case_id.strip():
+        return _slugify_task_name(case_id)
+    if bundle_path is not None:
+        path = Path(bundle_path)
+        if path.is_dir():
+            run_name = path.name
+            if re.match(r"^module[0-9a-z]+_[0-9]{8}_[0-9]{6}_.+$", run_name):
+                return _slugify_task_name(path.parent.name)
+            return _slugify_task_name(run_name)
+        if path.parent.name:
+            return _slugify_task_name(path.parent.name)
+        if path.stem:
+            return _slugify_task_name(path.stem)
+    return "ad_hoc"
+
+
+def build_task_output_root(output_root: Path, task_name: str) -> Path:
+    """Return outputs/<task_name> directory and ensure it exists."""
+    return ensure_dir(output_root / _slugify_task_name(task_name))
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -96,6 +139,13 @@ def to_float(value: Any, default: float = 0.0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _slugify_task_name(value: str) -> str:
+    """Normalize user/task labels into filesystem-safe folder names."""
+    cleaned = re.sub(r"[^a-zA-Z0-9._-]+", "_", value.strip())
+    cleaned = cleaned.strip("._-")
+    return cleaned or "ad_hoc"
 
 
 def _simple_yaml_load(text: str) -> Any:
