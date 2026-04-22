@@ -147,8 +147,11 @@ class Module1Validator:
             "$.scene_summary",
             errors,
         )
-        if summary.get("selection_policy") != "all visible movable tool-usable object instances":
-            errors.append("$.scene_summary.selection_policy is fixed by spec")
+        if summary.get("selection_policy") != "all visible object instances":
+            errors.append(
+                "$.scene_summary.selection_policy must be 'all visible object instances' "
+                "(tool-usable subset policy is not allowed)"
+            )
         if summary.get("ordering_rule") != "left_to_right_then_front_to_back":
             errors.append("$.scene_summary.ordering_rule is fixed by spec")
         if not isinstance(summary.get("coverage_caveats"), list):
@@ -450,10 +453,8 @@ class Module1Validator:
 
     @staticmethod
     def _validate_uncertainty_consistency(
-        obj: dict[str, Any], index: int, errors: list[str], warnings: list[str] | None = None
+        obj: dict[str, Any], index: int, errors: list[str]
     ) -> None:
-        if warnings is None:
-            warnings = []
         uncertainty = obj.get("uncertainty", {})
         components = [
             uncertainty.get("occlusion"),
@@ -468,10 +469,11 @@ class Module1Validator:
             return
         avg = round(sum(float(value) for value in components) / 6.0, 2)
         overall = round(float(uncertainty.get("overall", -1)), 2)
-        if abs(avg - overall) > 0.15:
-            warnings.append(
+        if avg != overall:
+            errors.append(
                 f"objects[{index}].uncertainty.overall={overall:.2f} must equal component mean {avg:.2f}"
             )
+
     @staticmethod
     def _validate_score_thresholds(obj: dict[str, Any], index: int, errors: list[str]) -> None:
         usable_parts = obj.get("affordance_card", {}).get("usable_parts", [])

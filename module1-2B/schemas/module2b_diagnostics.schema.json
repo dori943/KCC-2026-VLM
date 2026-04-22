@@ -1,0 +1,56 @@
+﻿{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/schemas/module2b_diagnostics.schema.json",
+  "title": "module2b_diagnostics",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_name",
+    "schema_version",
+    "run_id",
+    "rule_versions",
+    "validation_report",
+    "trace_refs",
+    "deferred_item_reasons",
+    "confidence_component_breakdown",
+    "dedup_rules"
+  ],
+  "properties": {
+    "schema_name": { "const": "module2b_diagnostics" },
+    "schema_version": { "const": "0.1" },
+    "run_id": { "type": "string" },
+    "rule_versions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target_binding", "environment", "numericization", "constraint"],
+      "properties": {
+        "target_binding": { "type": "string" },
+        "environment": { "type": "string" },
+        "numericization": { "type": "string" },
+        "constraint": { "type": "string" }
+      }
+    },
+    "validation_report": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "trace_refs": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "deferred_item_reasons": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "confidence_component_breakdown": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "dedup_rules": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

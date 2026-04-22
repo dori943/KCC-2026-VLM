@@ -1,9 +1,240 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/schemas/module2_bridge_diagnostics.schema.json",
+  "title": "module2_bridge_diagnostics",
   "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_name",
+    "schema_version",
+    "bridge_rule_version",
+    "counting_rule",
+    "assumptions",
+    "warnings",
+    "object_count",
+    "capability_unit_count",
+    "atom_histogram",
+    "risk_histogram",
+    "primitive_histogram",
+    "uncertainty_summary",
+    "atom_activation",
+    "risk_activation",
+    "skipped_objects",
+    "mapping_provenance"
+  ],
   "properties": {
-    "schema_name": {"type": "string"},
-    "schema_version": {"type": "string"}
+    "schema_name": {
+      "const": "module2_bridge_diagnostics"
+    },
+    "schema_version": {
+      "const": "0.1"
+    },
+    "bridge_rule_version": {
+      "type": "string"
+    },
+    "counting_rule": {
+      "type": "string"
+    },
+    "assumptions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "object_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "capability_unit_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "atom_histogram": {
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[a-z][a-z0-9_]*$": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "risk_histogram": {
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[a-z][a-z0-9_]*$": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "primitive_histogram": {
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[a-z][a-z0-9_]*$": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "uncertainty_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mean_overall",
+        "max_overall",
+        "high_uncertainty_object_ids"
+      ],
+      "properties": {
+        "mean_overall": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0
+        },
+        "max_overall": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0
+        },
+        "high_uncertainty_object_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "atom_activation": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/activation"
+      }
+    },
+    "risk_activation": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/activation"
+      }
+    },
+    "skipped_objects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "object_id",
+          "reason"
+        ],
+        "properties": {
+          "object_id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "mapping_provenance": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "rule_id",
+          "description"
+        ],
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "rule_id": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "vocab_registry_refs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "interaction_primitives_count",
+        "affordance_atom_count",
+        "risk_atom_count"
+      ],
+      "properties": {
+        "interaction_primitives_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "affordance_atom_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "risk_atom_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
   },
-  "required": ["schema_name", "schema_version"]
+  "$defs": {
+    "activation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "object_id",
+        "part_name",
+        "item",
+        "score",
+        "threshold",
+        "matched_rule_ids",
+        "uncertainty_overall"
+      ],
+      "properties": {
+        "object_id": {
+          "type": "string"
+        },
+        "part_name": {
+          "type": "string"
+        },
+        "item": {
+          "type": "string"
+        },
+        "score": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0
+        },
+        "threshold": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0
+        },
+        "matched_rule_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "uncertainty_overall": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0
+        }
+      }
+    }
+  }
 }

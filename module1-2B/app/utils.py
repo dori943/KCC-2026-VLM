@@ -4,72 +4,9 @@ from __future__ import annotations
 
 import csv
 import json
-import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-
-# ──────────────────────────────────────────────
-# Task-based output routing
-# ──────────────────────────────────────────────
-# 파이프라인 chain에서 task 식별자는 `module2b_<task>` 형태로 가장 안쪽에 보존됨.
-# task name이 underscore 포함 가능하도록 끝(또는 다음 `/`)까지 매칭.
-_TASK_FROM_PATH_RE = re.compile(r"module2b_([A-Za-z0-9][A-Za-z0-9\-_]*?)(?:/|$)")
-
-
-def _sanitize_task_name(raw: str) -> str:
-    """파일시스템 안전한 이름."""
-    cleaned = re.sub(r"[^A-Za-z0-9\-_]+", "_", raw).strip("_")
-    return cleaned or "default"
-
-
-def derive_task_name(
-    task_name: str | None = None,
-    bundle_path: Path | str | None = None,
-    image_path: Path | str | None = None,
-    case_id: str | None = None,
-    default: str = "default",
-) -> str:
-    """Task 폴더 이름 결정.
-
-    우선순위:
-    1. 명시된 task_name
-    2. bundle_path에서 `module2b_<task>` 자동 추출
-    3. image_path.stem (module1 진입점)
-    4. case_id
-    5. default ('default')
-    """
-    if task_name:
-        return _sanitize_task_name(task_name)
-    if bundle_path:
-        m = _TASK_FROM_PATH_RE.search(str(bundle_path))
-        if m:
-            return _sanitize_task_name(m.group(1))
-    if image_path:
-        stem = Path(str(image_path)).stem
-        if stem:
-            return _sanitize_task_name(stem)
-    if case_id:
-        return _sanitize_task_name(case_id)
-    return default
-
-
-def build_task_output_root(output_root: Path, task_name: str) -> Path:
-    """outputs/<task_name>/ 경로 생성 및 반환."""
-    return ensure_dir(output_root / task_name)
-
-
-def ensure_unique_run_dir(parent: Path, stem: str) -> Path:
-    """같은 이름의 run_dir이 있으면 _01, _02 suffix 붙여 유니크하게 생성."""
-    candidate = parent / stem
-    if not candidate.exists():
-        return ensure_dir(candidate)
-    index = 1
-    while True:
-        fallback = parent / f"{stem}_{index:02d}"
-        if not fallback.exists():
-            return ensure_dir(fallback)
-        index += 1
 
 try:  # pragma: no cover - optional dependency
     import yaml as _yaml  # type: ignore
@@ -103,7 +40,7 @@ def dump_json(data: Any, path: Path) -> None:
     """Write JSON file with stable formatting."""
     ensure_dir(path.parent)
     with path.open("w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
+        json.dump(data, f, indent=2, ensure_ascii=True)
         f.write("\n")
 
 

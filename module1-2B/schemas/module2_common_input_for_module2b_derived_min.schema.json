@@ -1,9 +1,204 @@
-{
+﻿{
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/schemas/module2_common_input_for_module2b_derived_min.schema.json",
+  "title": "module2_common_input_for_module2b_derived_min",
   "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema_name",
+    "schema_version",
+    "task_id",
+    "task_brief",
+    "scene_resources"
+  ],
   "properties": {
-    "schema_name": {"type": "string"},
-    "schema_version": {"type": "string"}
-  },
-  "required": ["schema_name", "schema_version"]
+    "schema_name": {
+      "const": "module2_common_input_for_module2b_derived_min"
+    },
+    "schema_version": {
+      "const": "0.1"
+    },
+    "task_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "task_brief": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["user_goal", "success_criteria", "task_notes"],
+      "properties": {
+        "user_goal": {
+          "type": ["string", "null"]
+        },
+        "success_criteria": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "task_notes": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "scene_resources": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["resource_summary", "resource_inventory"],
+      "properties": {
+        "resource_summary": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["affordance_histogram"],
+          "properties": {
+            "affordance_histogram": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        },
+        "resource_inventory": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "object_id",
+              "object_name",
+              "object_type_canonical",
+              "coarse_location_hint",
+              "visibility",
+              "accessibility",
+              "state",
+              "scene_relations",
+              "geometry_cues",
+              "functional_parts",
+              "target_mode_numeric_summary",
+              "uncertainty"
+            ],
+            "properties": {
+              "object_id": {
+                "type": "string",
+                "pattern": "^obj_[0-9]{2}$"
+              },
+              "object_name": { "type": "string" },
+              "object_type_canonical": { "type": "string" },
+              "coarse_location_hint": { "type": "string" },
+              "visibility": {
+                "type": "string",
+                "enum": ["full", "partial", "heavily_occluded"]
+              },
+              "accessibility": {
+                "type": "string",
+                "enum": ["clear", "partial", "occluded", "nested", "entangled"]
+              },
+              "state": {
+                "type": "object",
+                "additionalProperties": true,
+                "required": ["pose_class", "support_context"],
+                "properties": {
+                  "pose_class": { "type": "string" },
+                  "support_context": { "type": "string" }
+                }
+              },
+              "scene_relations": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "required": ["relation", "object_ref", "relation_note"],
+                  "properties": {
+                    "relation": { "type": "string" },
+                    "object_ref": {
+                      "type": ["string", "null"]
+                    },
+                    "relation_note": { "type": "string" }
+                  }
+                }
+              },
+              "geometry_cues": {
+                "type": "object",
+                "additionalProperties": true,
+                "required": [
+                  "shape_class",
+                  "aspect_ratio_hint",
+                  "size_relative",
+                  "thickness_class",
+                  "primary_contact_profile",
+                  "has_pointed_or_thin_end",
+                  "has_flat_contact_face",
+                  "has_open_cavity",
+                  "roll_risk_source"
+                ],
+                "properties": {
+                  "shape_class": { "type": "string" },
+                  "aspect_ratio_hint": { "type": "string" },
+                  "size_relative": { "type": "string" },
+                  "thickness_class": { "type": "string" },
+                  "primary_contact_profile": { "type": "string" },
+                  "has_pointed_or_thin_end": { "type": "boolean" },
+                  "has_flat_contact_face": { "type": "boolean" },
+                  "has_open_cavity": { "type": "boolean" },
+                  "roll_risk_source": { "type": "string" }
+                }
+              },
+              "functional_parts": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "required": ["part_name", "role_canonical", "contact_profile", "local_property_tags"],
+                  "properties": {
+                    "part_name": { "type": "string" },
+                    "role_canonical": { "type": "string" },
+                    "contact_profile": { "type": "string" },
+                    "local_property_tags": {
+                      "type": "array",
+                      "items": { "type": "string" }
+                    }
+                  }
+                }
+              },
+              "target_mode_numeric_summary": {
+                "type": "object",
+                "additionalProperties": true,
+                "required": [
+                  "exposure_ratio",
+                  "clearance_ratio",
+                  "usable_span_m",
+                  "local_thickness_m",
+                  "tip_radius_m",
+                  "flat_patch_m2",
+                  "approach_directions_count"
+                ],
+                "properties": {
+                  "exposure_ratio": { "type": ["number", "null"] },
+                  "clearance_ratio": { "type": ["number", "null"] },
+                  "usable_span_m": { "type": ["number", "null"] },
+                  "local_thickness_m": { "type": ["number", "null"] },
+                  "tip_radius_m": { "type": ["number", "null"] },
+                  "flat_patch_m2": { "type": ["number", "null"] },
+                  "approach_directions_count": { "type": ["integer", "null"] }
+                }
+              },
+              "uncertainty": {
+                "type": "object",
+                "additionalProperties": true,
+                "required": ["overall"],
+                "properties": {
+                  "overall": {
+                    "type": "number",
+                    "minimum": 0.0,
+                    "maximum": 1.0
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
 }
