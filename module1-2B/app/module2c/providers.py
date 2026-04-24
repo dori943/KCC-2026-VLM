@@ -273,6 +273,7 @@ def _merge_module1_into_context(
 # ─── scene_info 병합 ──────────────────────────────────────────
 
 _SCENE_NAME_MAP: dict[str, str] = {
+    # --- Case 0 (명함 시나리오, 기존) ---
     "bulldog_clip": "metal_clip",
     "paper_clip": "metal_clip",
     "binder_clip_small": "metal_clip",
@@ -284,6 +285,8 @@ _SCENE_NAME_MAP: dict[str, str] = {
     "sticky notes": "sticky_note",
     "screwdriver": "flat_screwdriver",
     "flat_head_screwdriver": "flat_screwdriver",
+    "phillips_head_screwdriver": "phillips_screwdriver",
+    "cross_screwdriver": "phillips_screwdriver",
     "cotton_swab": "cotton_swab",
     "cotton swab": "cotton_swab",
     "q_tip": "cotton_swab",
@@ -294,6 +297,58 @@ _SCENE_NAME_MAP: dict[str, str] = {
     "binder_clip": "binder_clip",
     "binder clip": "binder_clip",
     "card_holder": "card_holder",
+
+    # --- Case 1~5 (YCB 시나리오) 공백·표기 흔들림 대응 ---
+    "cracker box": "cracker_box",
+    "sugar box": "sugar_box",
+    "pudding box": "pudding_box",
+    "gelatin box": "gelatin_box",
+    "power drill": "power_drill",
+    "pitcher": "pitcher_base",
+    "pitcher base": "pitcher_base",
+    "wood block": "wood_block",
+    "wooden block": "wood_block",
+    "colored wood blocks": "wood_blocks",
+    "colored_wood_blocks": "wood_blocks",
+    "large marker": "large_marker",
+    "marker": "large_marker",
+    "small marker": "small_marker",
+    "adjustable wrench": "adjustable_wrench",
+    "wrench": "adjustable_wrench",
+    "small clamp": "small_clamp",
+    "medium clamp": "medium_clamp",
+    "large clamp": "large_clamp",
+    "extra large clamp": "extra_large_clamp",
+    "xl clamp": "extra_large_clamp",
+    "clamp": "medium_clamp",
+    "foam brick": "foam_brick",
+    "brick": "foam_brick",
+    "nine hole peg test": "peg_test",
+    "nine_hole_peg_test": "peg_test",
+    "peg test": "peg_test",
+    "rubik's cube": "rubiks_cube",
+    "rubiks cube": "rubiks_cube",
+    "cube": "rubiks_cube",
+    "timer": "timer",
+    "hammer": "hammer",
+    "chain": "chain",
+    "dice": "dice",
+    "die": "dice",
+    "marble": "marbles",
+    "marbles": "marbles",
+    "cup": "cups",
+    "cups": "cups",
+    "stacking cups": "cups",
+    "plate": "plate",
+    "bowl": "bowl",
+    "mug": "mug",
+    "coffee mug": "mug",
+    "fork": "fork",
+    "spoon": "spoon",
+    "knife": "knife",
+    "spatula": "spatula",
+    "sponge": "sponge",
+    "key": "key",
 }
 
 
@@ -314,8 +369,16 @@ def _merge_scene_info(
 
     updated = 0
     for scene_obj in scene_objects:
-        name = scene_obj.get("name", "")
-        mapped_name = _SCENE_NAME_MAP.get(name, name)
+        raw_name = scene_obj.get("name", "")
+        # 대소문자/공백 방어 + 스네이크케이스 변형도 시도
+        lowered = raw_name.strip().lower()
+        snake = lowered.replace(" ", "_").replace("-", "_")
+        mapped_name = (
+            _SCENE_NAME_MAP.get(raw_name)
+            or _SCENE_NAME_MAP.get(lowered)
+            or _SCENE_NAME_MAP.get(snake)
+            or snake
+        )
         pb_obj = pybullet_objects.get(mapped_name)
         if pb_obj:
             if pb_obj.get("aabb_min"):

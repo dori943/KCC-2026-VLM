@@ -1,0 +1,514 @@
+{
+  "objects": [
+    {
+      "id": 3,
+      "label": "cracker_box",
+      "position": {
+        "x": 1.1995,
+        "y": 0.3001,
+        "z": 0.7314
+      },
+      "orientation_euler_deg": {
+        "roll": -0.04,
+        "pitch": -0.27,
+        "yaw": -0.0
+      },
+      "size_aabb_m": {
+        "width": 0.0809,
+        "depth": 0.1722,
+        "height": 0.2219
+      },
+      "aabb_min": [
+        1.161,
+        0.214,
+        0.6217
+      ],
+      "aabb_max": [
+        1.2419,
+        0.3862,
+        0.8436
+      ],
+      "center_world": [
+        1.2015,
+        0.3001,
+        0.7327
+      ]
+    },
+    {
+      "id": 4,
+      "label": "pudding_box",
+      "position": {
+        "x": 1.2,
+        "y": 0.1001,
+        "z": 0.6451
+      },
+      "orientation_euler_deg": {
+        "roll": -0.38,
+        "pitch": -0.13,
+        "yaw": 0.0
+      },
+      "size_aabb_m": {
+        "width": 0.146,
+        "depth": 0.1371,
+        "height": 0.0481
+      },
+      "aabb_min": [
+        1.1259,
+        0.0319,
+        0.6213
+      ],
+      "aabb_max": [
+        1.272,
+        0.169,
+        0.6694
+      ],
+      "center_world": [
+        1.1989,
+        0.1005,
+        0.6454
+      ]
+    },
+    {
+      "id": 5,
+      "label": "gelatin_box",
+      "position": {
+        "x": 1.2,
+        "y": -0.0999,
+        "z": 0.6404
+      },
+      "orientation_euler_deg": {
+        "roll": -0.54,
+        "pitch": -0.01,
+        "yaw": -0.0
+      },
+      "size_aabb_m": {
+        "width": 0.0974,
+        "depth": 0.1095,
+        "height": 0.0391
+      },
+      "aabb_min": [
+        1.1512,
+        -0.155,
+        0.6214
+      ],
+      "aabb_max": [
+        1.2486,
+        -0.0455,
+        0.6605
+      ],
+      "center_world": [
+        1.1999,
+        -0.1002,
+        0.641
+      ]
+    },
+    {
+      "id": 6,
+      "label": "plate",
+      "position": {
+        "x": 1.2,
+        "y": -0.3,
+        "z": 0.6379
+      },
+      "orientation_euler_deg": {
+        "roll": 0.01,
+        "pitch": 0.09,
+        "yaw": 0.0
+      },
+      "size_aabb_m": {
+        "width": 0.2682,
+        "depth": 0.2691,
+        "height": 0.0352
+      },
+      "aabb_min": [
+        1.0643,
+        -0.4358,
+        0.6217
+      ],
+      "aabb_max": [
+        1.3325,
+        -0.1667,
+        0.657
+      ],
+      "center_world": [
+        1.1984,
+        -0.3012,
+        0.6394
+      ]
+    },
+    {
+      "id": 7,
+      "label": "bowl",
+      "position": {
+        "x": 0.9999,
+        "y": 0.2,
+        "z": 0.6533
+      },
+      "orientation_euler_deg": {
+        "roll": -0.03,
+        "pitch": -0.13,
+        "yaw": 0.01
+      },
+      "size_aabb_m": {
+        "width": 0.1696,
+        "depth": 0.1692,
+        "height": 0.0635
+      },
+      "aabb_min": [
+        0.9146,
+        0.1174,
+        0.6217
+      ],
+      "aabb_max": [
+        1.0842,
+        0.2867,
+        0.6852
+      ],
+      "center_world": [
+        0.9994,
+        0.2021,
+        0.6535
+      ]
+    },
+    {
+      "id": 8,
+      "label": "mug",
+      "position": {
+        "x": 1.0,
+        "y": -0.0,
+        "z": 0.7076
+      },
+      "orientation_euler_deg": {
+        "roll": 0.0,
+        "pitch": -0.0,
+        "yaw": 0.0
+      },
+      "size_aabb_m": {
+        "width": 0.1256,
+        "depth": 0.1018,
+        "height": 0.09
+      },
+      "aabb_min": [
+        0.9461,
+        -0.0507,
+        0.622
+      ],
+      "aabb_max": [
+        1.0717,
+        0.0511,
+        0.7119
+      ],
+      "center_world": [
+        1.0089,
+        0.0002,
+        0.667
+      ]
+    },
+    {
+      "id": 9,
+      "label": "sponge",
+      "position": {
+        "x": 1.0001,
+        "y": -0.1999,
+        "z": 0.6352
+      },
+      "orientation_euler_deg": {
+        "roll": -0.38,
+        "pitch": 0.3,
+        "yaw": -0.0
+      },
+      "size_aabb_m": {
+        "width": 0.0873,
+        "depth": 0.1203,
+        "height": 0.0282
+      },
+      "aabb_min": [
+        0.9569,
+        -0.2579,
+        0.6213
+      ],
+      "aabb_max": [
+        1.0442,
+        -0.1376,
+        0.6495
+      ],
+      "center_world": [
+        1.0006,
+        -0.1977,
+        0.6354
+      ]
+    },
+    {
+      "id": 10,
+      "label": "spatula",
+      "position": {
+        "x": 0.7001,
+        "y": 0.2999,
+        "z": 0.6414
+      },
+      "orientation_euler_deg": {
+        "roll": 0.43,
+        "pitch": 0.45,
+        "yaw": -0.14
+      },
+      "size_aabb_m": {
+        "width": 0.3142,
+        "depth": 0.1337,
+        "height": 0.0444
+      },
+      "aabb_min": [
+        0.5624,
+        0.2146,
+        0.6216
+      ],
+      "aabb_max": [
+        0.8766,
+        0.3482,
+        0.6659
+      ],
+      "center_world": [
+        0.7195,
+        0.2814,
+        0.6437
+      ]
+    },
+    {
+      "id": 11,
+      "label": "wood_block",
+      "position": {
+        "x": 0.7,
+        "y": 0.0999,
+        "z": 0.7288
+      },
+      "orientation_euler_deg": {
+        "roll": 0.07,
+        "pitch": 0.01,
+        "yaw": 0.0
+      },
+      "size_aabb_m": {
+        "width": 0.1119,
+        "depth": 0.1117,
+        "height": 0.2142
+      },
+      "aabb_min": [
+        0.6445,
+        0.0444,
+        0.6219
+      ],
+      "aabb_max": [
+        0.7564,
+        0.1561,
+        0.836
+      ],
+      "center_world": [
+        0.7004,
+        0.1003,
+        0.729
+      ]
+    },
+    {
+      "id": 12,
+      "label": "foam_brick",
+      "position": {
+        "x": 0.7,
+        "y": -0.1,
+        "z": 0.6509
+      },
+      "orientation_euler_deg": {
+        "roll": -0.05,
+        "pitch": 0.07,
+        "yaw": 0.0
+      },
+      "size_aabb_m": {
+        "width": 0.0606,
+        "depth": 0.0859,
+        "height": 0.0593
+      },
+      "aabb_min": [
+        0.6701,
+        -0.1427,
+        0.6219
+      ],
+      "aabb_max": [
+        0.7307,
+        -0.0568,
+        0.6812
+      ],
+      "center_world": [
+        0.7004,
+        -0.0997,
+        0.6515
+      ]
+    },
+    {
+      "id": 13,
+      "label": "large_marker",
+      "position": {
+        "x": 0.7001,
+        "y": -0.3,
+        "z": 0.6354
+      },
+      "orientation_euler_deg": {
+        "roll": -0.24,
+        "pitch": 0.37,
+        "yaw": -0.0
+      },
+      "size_aabb_m": {
+        "width": 0.0292,
+        "depth": 0.1291,
+        "height": 0.0276
+      },
+      "aabb_min": [
+        0.6855,
+        -0.3617,
+        0.6217
+      ],
+      "aabb_max": [
+        0.7147,
+        -0.2326,
+        0.6494
+      ],
+      "center_world": [
+        0.7001,
+        -0.2972,
+        0.6356
+      ]
+    },
+    {
+      "id": 14,
+      "label": "flat_screwdriver",
+      "position": {
+        "x": 0.4498,
+        "y": 0.1998,
+        "z": 0.6425
+      },
+      "orientation_euler_deg": {
+        "roll": 0.62,
+        "pitch": -0.7,
+        "yaw": -0.0
+      },
+      "size_aabb_m": {
+        "width": 0.1704,
+        "depth": 0.1653,
+        "height": 0.0469
+      },
+      "aabb_min": [
+        0.3289,
+        0.1515,
+        0.62
+      ],
+      "aabb_max": [
+        0.4993,
+        0.3168,
+        0.6669
+      ],
+      "center_world": [
+        0.4141,
+        0.2342,
+        0.6434
+      ]
+    },
+    {
+      "id": 15,
+      "label": "cups",
+      "position": {
+        "x": 0.4495,
+        "y": 0.0,
+        "z": 0.6552
+      },
+      "orientation_euler_deg": {
+        "roll": -0.09,
+        "pitch": -0.9,
+        "yaw": -0.0
+      },
+      "size_aabb_m": {
+        "width": 0.0662,
+        "depth": 0.0655,
+        "height": 0.0706
+      },
+      "aabb_min": [
+        0.4151,
+        -0.0354,
+        0.6214
+      ],
+      "aabb_max": [
+        0.4812,
+        0.0301,
+        0.6921
+      ],
+      "center_world": [
+        0.4482,
+        -0.0027,
+        0.6568
+      ]
+    },
+    {
+      "id": 16,
+      "label": "phillips_screwdriver",
+      "position": {
+        "x": 0.4499,
+        "y": -0.1999,
+        "z": 0.6427
+      },
+      "orientation_euler_deg": {
+        "roll": -0.48,
+        "pitch": -0.31,
+        "yaw": 0.0
+      },
+      "size_aabb_m": {
+        "width": 0.2031,
+        "depth": 0.1153,
+        "height": 0.0456
+      },
+      "aabb_min": [
+        0.303,
+        -0.2764,
+        0.6209
+      ],
+      "aabb_max": [
+        0.5061,
+        -0.161,
+        0.6664
+      ],
+      "center_world": [
+        0.4045,
+        -0.2187,
+        0.6436
+      ]
+    },
+    {
+      "id": 17,
+      "label": "rubiks_cube",
+      "position": {
+        "x": 0.4501,
+        "y": -0.3499,
+        "z": 0.6549
+      },
+      "orientation_euler_deg": {
+        "roll": -0.13,
+        "pitch": 0.1,
+        "yaw": -0.0
+      },
+      "size_aabb_m": {
+        "width": 0.0839,
+        "depth": 0.0843,
+        "height": 0.0663
+      },
+      "aabb_min": [
+        0.4082,
+        -0.3921,
+        0.6218
+      ],
+      "aabb_max": [
+        0.4921,
+        -0.3078,
+        0.6881
+      ],
+      "center_world": [
+        0.4502,
+        -0.35,
+        0.655
+      ]
+    }
+  ]
+}
