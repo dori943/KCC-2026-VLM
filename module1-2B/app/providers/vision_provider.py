@@ -277,7 +277,15 @@ class VisionProvider:
             )
 
         parsed = _extract_json_content(response_payload=payload)
-        return _normalize_module1_payload(parsed=parsed)
+        return _normalize_module1_payload(
+            parsed=parsed,
+            api_url=self.api_url,
+            api_key=self.api_key,
+            model=self.model,
+            timeout_seconds=self.timeout_seconds,
+            image_b64=image_b64,
+            mime_type=mime_type,
+        )
 
 
 def _post_json(
@@ -371,7 +379,16 @@ def _extract_json_content(response_payload: dict[str, Any]) -> dict[str, Any]:
     return parsed
 
 
-def _normalize_module1_payload(parsed: dict[str, Any]) -> dict[str, Any]:
+def _normalize_module1_payload(
+    parsed: dict[str, Any],
+    *,
+    api_url: str,
+    api_key: str,
+    model: str,
+    timeout_seconds: float,
+    image_b64: str,
+    mime_type: str,
+) -> dict[str, Any]:
     source = parsed.get("module1_raw_output_lite", parsed)
     if not isinstance(source, dict):
         source = parsed
@@ -391,7 +408,23 @@ def _normalize_module1_payload(parsed: dict[str, Any]) -> dict[str, Any]:
         if isinstance(caveat_value, list):
             caveats = [str(item) for item in caveat_value]
 
-    objects = [_build_object_entry(raw_entry=item, index=i) for i, item in enumerate(entries)]
+    object_name_overrides = _infer_missing_object_names_with_llm(
+        entries=entries,
+        api_url=api_url,
+        api_key=api_key,
+        model=model,
+        timeout_seconds=timeout_seconds,
+        image_b64=image_b64,
+        mime_type=mime_type,
+    )
+    objects = [
+        _build_object_entry(
+            raw_entry=item,
+            index=i,
+            object_name_override=object_name_overrides.get(i),
+        )
+        for i, item in enumerate(entries)
+    ]
 
     return {
         "schema_name": "module1_raw_output_lite",
@@ -420,11 +453,266 @@ def _extract_object_entries(parsed: dict[str, Any], source: dict[str, Any]) -> l
     return []
 
 
-def _build_object_entry(raw_entry: Any, index: int) -> dict[str, Any]:
+def _infer_missing_object_names_with_llm(
+    *,
+    entries: list[Any],
+    api_url: str,
+    api_key: str,
+    model: str,
+    timeout_seconds: float,
+    image_b64: str,
+    mime_type: str,
+) -> dict[int, str]:
+    pending: list[dict[str, Any]] = []
+    pending_indexes: set[int] = set()
+    for index, raw_entry in enumerate(entries):
+        candidate = _extract_raw_object_name(raw_entry=raw_entry)
+        if _is_valid_object_name(candidate):
+            continue
+        pending_indexes.add(index)
+        pending.append(_build_name_inference_context(raw_entry=raw_entry, index=index))
+
+    if not pending:
+        return {}
+
+    schema = _sanitize_response_schema(
+        {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "object_names": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "index": {"type": "integer"},
+                            "object_name": {"type": "string"},
+                        },
+                        "required": ["index", "object_name"],
+                    },
+                }
+            },
+            "required": ["object_names"],
+        }
+    )
+    system_prompt = (
+        "You assign concrete object names from an image for robotics planning. "
+        "Return strict JSON only."
+    )
+    user_prompt = (
+        "Generate object_name for each index in targets_json.\n"
+        "Rules:\n"
+        "- Output English snake_case names (1-3 words).\n"
+        "- Use concrete nouns visible in the image.\n"
+        "- Do not output placeholders like unknown/object/item/thing.\n"
+        "- Keep names short and distinctive across indexes.\n\n"
+        f"targets_json: {json.dumps(pending, ensure_ascii=True)}"
+    )
+    body = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": user_prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{mime_type};base64,{image_b64}"},
+                    },
+                ],
+            },
+        ],
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "module1_object_names",
+                "strict": True,
+                "schema": schema,
+            },
+        },
+        "temperature": 0,
+    }
+
+    parsed: dict[str, Any] = {}
+    llm_timeout = max(20.0, min(timeout_seconds, 60.0))
+    try:
+        payload = _post_json(
+            url=api_url,
+            api_key=api_key,
+            body=body,
+            timeout_seconds=llm_timeout,
+        )
+    except ValueError:
+        fallback_body = {
+            "model": model,
+            "messages": body["messages"],
+            "response_format": {"type": "json_object"},
+            "temperature": 0,
+        }
+        try:
+            payload = _post_json(
+                url=api_url,
+                api_key=api_key,
+                body=fallback_body,
+                timeout_seconds=llm_timeout,
+            )
+        except ValueError:
+            payload = {}
+
+    if payload:
+        try:
+            parsed = _extract_json_content(response_payload=payload)
+        except ValueError:
+            parsed = {}
+
+    source = parsed.get("module1_object_names", parsed)
+    inferred_overrides: dict[int, str] = {}
+    if isinstance(source, dict):
+        object_names = source.get("object_names")
+        if isinstance(object_names, list):
+            for item in object_names:
+                if not isinstance(item, dict):
+                    continue
+                raw_index = item.get("index")
+                if isinstance(raw_index, bool):
+                    continue
+                try:
+                    index_value = int(raw_index)
+                except (TypeError, ValueError):
+                    continue
+                if index_value not in pending_indexes:
+                    continue
+                normalized_name = _normalize_inferred_object_name(item.get("object_name"))
+                if normalized_name is None:
+                    continue
+                inferred_overrides[index_value] = normalized_name
+
+    # No unknown placeholders are allowed in downstream modules.
+    for index in pending_indexes:
+        inferred_overrides.setdefault(index, _fallback_object_name(index))
+
+    return inferred_overrides
+
+
+def _build_name_inference_context(raw_entry: Any, index: int) -> dict[str, Any]:
+    context: dict[str, Any] = {"index": index}
+    if isinstance(raw_entry, str):
+        text = raw_entry.strip()
+        if text:
+            context["label_hint"] = text
+        return context
+
+    if not isinstance(raw_entry, dict):
+        context["raw_type"] = type(raw_entry).__name__
+        return context
+
+    for key in (
+        "object_name",
+        "object",
+        "name",
+        "object_type",
+        "category",
+        "description",
+        "coarse_location_hint",
+        "location",
+        "position",
+        "place",
+    ):
+        value = raw_entry.get(key)
+        if isinstance(value, str) and value.strip():
+            context[key] = value.strip()
+
+    geometry = raw_entry.get("geometry_cues")
+    if isinstance(geometry, dict):
+        geometry_hint: dict[str, Any] = {}
+        for key in (
+            "shape_class",
+            "aspect_ratio_hint",
+            "primary_contact_profile",
+            "has_pointed_or_thin_end",
+            "has_flat_contact_face",
+            "has_open_cavity",
+        ):
+            if key in geometry:
+                geometry_hint[key] = geometry.get(key)
+        if geometry_hint:
+            context["geometry_cues"] = geometry_hint
+    return context
+
+
+def _extract_raw_object_name(raw_entry: Any) -> str:
     item = raw_entry if isinstance(raw_entry, dict) else {}
-    object_name = _pick_text(
-        [item.get("object_name"), item.get("object"), item.get("name"), raw_entry if isinstance(raw_entry, str) else None],
-        f"unknown_object_{index + 1}",
+    return _pick_text(
+        [
+            item.get("object_name"),
+            item.get("object"),
+            item.get("name"),
+            raw_entry if isinstance(raw_entry, str) else None,
+        ],
+        "",
+    )
+
+
+def _is_unknown_like_object_name(value: str) -> bool:
+    normalized = _normalize_profile_text(value).replace(" ", "_")
+    if not normalized:
+        return True
+    if normalized.startswith("unknown"):
+        return True
+    if re.fullmatch(r"(obj|object|item|thing)[_-]?\d*", normalized):
+        return True
+    if normalized in {"object", "item", "thing", "stuff", "entity"}:
+        return True
+    return False
+
+
+def _is_valid_object_name(value: str) -> bool:
+    if not value.strip():
+        return False
+    return not _is_unknown_like_object_name(value)
+
+
+def _normalize_inferred_object_name(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    if not value.strip():
+        return None
+    snake_case = _to_snake_case(value)
+    if not _is_valid_object_name(snake_case):
+        return None
+    return snake_case
+
+
+def _fallback_object_name(index: int) -> str:
+    return f"inferred_object_{index + 1}"
+
+
+def _resolve_object_name(
+    *,
+    raw_entry: Any,
+    index: int,
+    override: str | None,
+) -> str:
+    if override and _is_valid_object_name(override):
+        return override
+    candidate = _extract_raw_object_name(raw_entry=raw_entry)
+    if _is_valid_object_name(candidate):
+        return candidate.strip()
+    return _fallback_object_name(index)
+
+
+def _build_object_entry(
+    raw_entry: Any,
+    index: int,
+    object_name_override: str | None = None,
+) -> dict[str, Any]:
+    item = raw_entry if isinstance(raw_entry, dict) else {}
+    object_name = _resolve_object_name(
+        raw_entry=raw_entry,
+        index=index,
+        override=object_name_override,
     )
     coarse_location = _pick_text(
         [item.get("coarse_location_hint"), item.get("position"), item.get("location"), item.get("place")],
