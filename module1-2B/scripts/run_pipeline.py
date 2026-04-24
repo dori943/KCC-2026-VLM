@@ -107,6 +107,7 @@ def run_full_pipeline(
     start_from: str,
     stop_at: str,
     preloaded_dirs: dict[str, Path],
+    scene_info_path: Path | None = None,
 ) -> dict[str, Path]:
     """모듈 1~3 순차 실행. preloaded_dirs는 --start-from이 2a 이상일 때 필요."""
     start_idx = _stage_index(start_from)
@@ -180,6 +181,9 @@ def run_full_pipeline(
             module2_common_path=m2_common,
             module2a_output_path=m2a_output,
             task_name=task_name,
+            api_key=api_key,
+            model=model,
+            reasoner_mode="llm",
         )
         dirs["2b"] = Path(m2b["run_dir"])
         print(f"  → run_dir: {dirs['2b']}  ({_elapsed(t0)})")
@@ -197,7 +201,10 @@ def run_full_pipeline(
             target_name=target_name,
             task=task_description,
             api_key=api_key,
+            scene_info_path=scene_info_path,
         )
+        if scene_info_path:
+            print(f"  → scene_info: {scene_info_path}")
         t0 = time.time()
         m2c = run_module2c_pipeline(
             provider=provider_2c,
@@ -273,6 +280,8 @@ def main() -> int:
     parser.add_argument("--module2c-dir", default=None)
     parser.add_argument("--module2d-dir", default=None)
     parser.add_argument("--api-key", default=None)
+    parser.add_argument("--scene-info", default=None,
+                        help="PyBullet scene_info_case{N}.json 경로 (module2c AABB 주입용). preset의 scene_info 필드 우선.")
     args = parser.parse_args()
 
     # preset 병합 (명시 옵션이 우선)
@@ -284,9 +293,14 @@ def main() -> int:
     task_name        = args.task_name       or preset.get("name")
     target_name      = args.target_name     or preset.get("target_name", "target object")
     task_description = args.task_description or preset.get("description", "")
+    scene_info_path  = Path(args.scene_info) if args.scene_info else (
+        Path(preset["scene_info"]) if preset.get("scene_info") else None
+    )
 
     if image_path and not image_path.is_absolute():
         image_path = PROJECT_ROOT / image_path
+    if scene_info_path and not scene_info_path.is_absolute():
+        scene_info_path = (PROJECT_ROOT / scene_info_path).resolve()
 
     if task_name is None and image_path is not None:
         task_name = image_path.stem
@@ -313,6 +327,7 @@ def main() -> int:
     print(f"Description:  {task_description[:60]}{'...' if len(task_description) > 60 else ''}")
     print(f"Stages:       {args.start_from} → {args.stop_at}")
     print(f"Model:        {args.model}")
+    print(f"SceneInfo:    {scene_info_path or '(없음 — AABB 좌표 주입 건너뜀)'}")
 
     total_t0 = time.time()
     try:
@@ -327,6 +342,7 @@ def main() -> int:
             start_from=args.start_from,
             stop_at=args.stop_at,
             preloaded_dirs=preloaded_dirs,
+            scene_info_path=scene_info_path,
         )
     except Exception as e:
         print(f"\n❌ 파이프라인 실패: {e}", file=sys.stderr)

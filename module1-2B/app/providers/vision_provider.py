@@ -18,6 +18,12 @@ _CONTACT_PROFILES = ("cavity_rim", "tip", "broad_flat_face", "curved_side", "edg
 _CONTACT_PROFILE_TIE_PRIORITY = ("tip", "edge", "cavity_rim", "broad_flat_face", "curved_side")
 _CONTACT_PROFILE_WITH_UNKNOWN = _CONTACT_PROFILES + ("unknown",)
 _CONTACT_PROFILE_LLM_CACHE: dict[str, str] = {}
+_API_USAGE_TRACKER: dict[str, int] = {
+    "api_call_count": 0,
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0,
+}
 
 # Stage-1 deterministic lexical matcher (expanded dictionary).
 _CONTACT_PROFILE_KEYWORDS: dict[str, tuple[str, ...]] = {
@@ -190,6 +196,7 @@ class VisionProvider:
                 "Remove --module1-output to run direct image recognition."
             )
 
+        _reset_api_usage_tracker()
         raw_output = self._infer_from_image(image_path=image_path)
         return ProviderResult(
             raw_output=raw_output,
@@ -199,6 +206,7 @@ class VisionProvider:
                 "image_path": str(image_path),
                 "case_id": case_id,
                 "api_url": self.api_url,
+                "api_usage": _snapshot_api_usage_tracker(),
             },
         )
 
@@ -278,6 +286,7 @@ def _post_json(
     body: dict[str, Any],
     timeout_seconds: float,
 ) -> dict[str, Any]:
+    _increment_api_call_count()
     req = url_request.Request(
         url=url,
         data=json.dumps(body).encode("utf-8"),
@@ -299,7 +308,49 @@ def _post_json(
         raise ValueError(f"OpenAI API network error: {exc.reason}") from exc
     if not isinstance(payload, dict):
         raise ValueError("OpenAI API returned non-object JSON payload.")
+    _record_api_usage(payload)
     return payload
+
+
+def _reset_api_usage_tracker() -> None:
+    _API_USAGE_TRACKER["api_call_count"] = 0
+    _API_USAGE_TRACKER["prompt_tokens"] = 0
+    _API_USAGE_TRACKER["completion_tokens"] = 0
+    _API_USAGE_TRACKER["total_tokens"] = 0
+
+
+def _snapshot_api_usage_tracker() -> dict[str, int]:
+    return {
+        "api_call_count": int(_API_USAGE_TRACKER.get("api_call_count", 0)),
+        "prompt_tokens": int(_API_USAGE_TRACKER.get("prompt_tokens", 0)),
+        "completion_tokens": int(_API_USAGE_TRACKER.get("completion_tokens", 0)),
+        "total_tokens": int(_API_USAGE_TRACKER.get("total_tokens", 0)),
+    }
+
+
+def _increment_api_call_count() -> None:
+    _API_USAGE_TRACKER["api_call_count"] = int(_API_USAGE_TRACKER.get("api_call_count", 0)) + 1
+
+
+def _record_api_usage(payload: dict[str, Any]) -> None:
+    usage_raw = payload.get("usage")
+    if not isinstance(usage_raw, dict):
+        return
+    prompt_tokens = _safe_int(usage_raw.get("prompt_tokens"))
+    completion_tokens = _safe_int(usage_raw.get("completion_tokens"))
+    total_tokens = _safe_int(usage_raw.get("total_tokens"))
+    if total_tokens == 0 and (prompt_tokens or completion_tokens):
+        total_tokens = prompt_tokens + completion_tokens
+    _API_USAGE_TRACKER["prompt_tokens"] = int(_API_USAGE_TRACKER.get("prompt_tokens", 0)) + prompt_tokens
+    _API_USAGE_TRACKER["completion_tokens"] = int(_API_USAGE_TRACKER.get("completion_tokens", 0)) + completion_tokens
+    _API_USAGE_TRACKER["total_tokens"] = int(_API_USAGE_TRACKER.get("total_tokens", 0)) + total_tokens
+
+
+def _safe_int(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _extract_json_content(response_payload: dict[str, Any]) -> dict[str, Any]:
