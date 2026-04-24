@@ -12,11 +12,8 @@ from app.providers.base import Module1Provider
 from app.pybullet.proxy_generator import generate_proxy_specs
 from app.pybullet.runner import run_pybullet_experiments
 from app.utils import (
-    build_task_output_root,
-    derive_task_name,
     dump_json,
     ensure_dir,
-    ensure_unique_run_dir,
     load_json,
     load_yaml,
     project_root,
@@ -35,22 +32,13 @@ def run_module1_pipeline(
     scenarios: list[str] | None = None,
     output_root: Path | None = None,
     prompt_variant: str | None = None,
-    task_name: str | None = None,
 ) -> dict[str, Any]:
-    """Run full Module 1-only pipeline and export all artifacts.
-
-    Output은 outputs/<task_name>/run_<timestamp>_<suffix>/ 구조로 저장된다.
-    task_name 미지정 시 image_path.stem 또는 case_id로 자동 결정.
-    """
+    """Run full Module 1-only pipeline and export all artifacts."""
     root = project_root()
     output_root = output_root or (root / "outputs")
     run_id = timestamp_id()
     suffix = case_id or (image_path.stem if image_path else "ad_hoc")
-    resolved_task_name = derive_task_name(
-        task_name=task_name, image_path=image_path, case_id=case_id,
-    )
-    task_root = build_task_output_root(output_root, resolved_task_name)
-    run_dir = ensure_unique_run_dir(task_root, f"run_{run_id}_{suffix}")
+    run_dir = _ensure_unique_run_dir(output_root=output_root, stem=f"run_{run_id}_{suffix}")
 
     mapping_cfg = load_yaml(root / "configs" / "module1_to_pybullet_map.yaml")
     atom_cfg = load_yaml(root / "configs" / "module1_to_module2a_atom_rules.yaml")
@@ -212,18 +200,13 @@ def export_module2_bridge_only(
     case_id: str | None = None,
     module1_output_path: Path | None = None,
     output_root: Path | None = None,
-    task_name: str | None = None,
 ) -> dict[str, Any]:
     """Export only bridge-related artifacts without simulation runs."""
     root = project_root()
     output_root = output_root or (root / "outputs")
     run_id = timestamp_id()
     suffix = case_id or (image_path.stem if image_path else "ad_hoc")
-    resolved_task_name = derive_task_name(
-        task_name=task_name, image_path=image_path, case_id=case_id,
-    )
-    task_root = build_task_output_root(output_root, resolved_task_name)
-    run_dir = ensure_unique_run_dir(task_root, f"bridge_{run_id}_{suffix}")
+    run_dir = _ensure_unique_run_dir(output_root=output_root, stem=f"bridge_{run_id}_{suffix}")
 
     atom_cfg = load_yaml(root / "configs" / "module1_to_module2a_atom_rules.yaml")
     vocab_registry = load_json(root / "configs" / "vocab_registry.json")
@@ -282,3 +265,13 @@ def _summarize_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _ensure_unique_run_dir(output_root: Path, stem: str) -> Path:
+    candidate = output_root / stem
+    if not candidate.exists():
+        return ensure_dir(candidate)
+    index = 1
+    while True:
+        fallback = output_root / f"{stem}_{index:02d}"
+        if not fallback.exists():
+            return ensure_dir(fallback)
+        index += 1

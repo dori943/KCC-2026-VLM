@@ -122,7 +122,7 @@ def run_full_pipeline(
     # ── Module 1 ──
     if start_idx <= 0 <= stop_idx:
         step += 1
-        _banner(step, total, "Module 1 — Scene Resource Parser")
+        _banner(step, total, "Module 1 - Scene Resource Parser")
         if image_path is None:
             raise ValueError("Module 1 실행에는 --image 필요.")
         t0 = time.time()
@@ -130,15 +130,14 @@ def run_full_pipeline(
             provider=_build_provider(provider_name),
             image_path=image_path,
             case_id=None,
-            task_name=task_name,
         )
         dirs["1"] = Path(m1["run_dir"])
-        print(f"  → run_dir: {dirs['1']}  ({_elapsed(t0)})")
+        print(f"  -> run_dir: {dirs['1']}  ({_elapsed(t0)})")
 
     # ── Module 2a ──
     if start_idx <= 1 <= stop_idx:
         step += 1
-        _banner(step, total, "Module 2a — Task-to-Function Reasoner")
+        _banner(step, total, "Module 2a - Task-to-Function Reasoner")
         m1_dir = dirs.get("1") or preloaded_dirs.get("1")
         if m1_dir is None:
             raise ValueError("Module 2a는 --module1-dir 필요 (또는 module 1부터 실행).")
@@ -146,19 +145,18 @@ def run_full_pipeline(
         if not common_input.exists():
             raise FileNotFoundError(f"{common_input} 없음.")
         t0 = time.time()
-        # task_description을 user_goal로 주입 — rule-based intent 추론에 필수
+        # task_description을 user_goal로 주입 - rule-based intent 추론에 필수
         m2a = run_module2a_pipeline(
             module2_input_path=common_input,
-            task_name=task_name,
             user_goal=task_description or None,
         )
         dirs["2a"] = Path(m2a["run_dir"])
-        print(f"  → run_dir: {dirs['2a']}  ({_elapsed(t0)})")
+        print(f"  -> run_dir: {dirs['2a']}  ({_elapsed(t0)})")
 
     # ── Module 2b ──
     if start_idx <= 2 <= stop_idx:
         step += 1
-        _banner(step, total, "Module 2b — Environment Constraint Generator")
+        _banner(step, total, "Module 2b - Environment Constraint Generator")
         m2a_dir = dirs.get("2a") or preloaded_dirs.get("2a")
         if m2a_dir is None:
             raise ValueError("Module 2b는 --module2a-dir 필요.")
@@ -171,7 +169,7 @@ def run_full_pipeline(
             m1_dir = dirs.get("1") or preloaded_dirs.get("1")
             if m1_dir is None:
                 raise FileNotFoundError(
-                    f"module2_common_input.json 없음 — {m2a_dir} 또는 module1 run_dir 필요."
+                    f"module2_common_input.json 없음 - {m2a_dir} 또는 module1 run_dir 필요."
                 )
             m2_common = m1_dir / "module2_common_input_template.json"
             if not m2_common.exists():
@@ -180,15 +178,14 @@ def run_full_pipeline(
         m2b = run_module2b_pipeline(
             module2_common_path=m2_common,
             module2a_output_path=m2a_output,
-            task_name=task_name,
         )
         dirs["2b"] = Path(m2b["run_dir"])
-        print(f"  → run_dir: {dirs['2b']}  ({_elapsed(t0)})")
+        print(f"  -> run_dir: {dirs['2b']}  ({_elapsed(t0)})")
 
     # ── Module 2c ──
     if start_idx <= 3 <= stop_idx:
         step += 1
-        _banner(step, total, "Module 2c — Tool Candidate Generator")
+        _banner(step, total, "Module 2c - Tool Candidate Generator")
         m2b_dir = dirs.get("2b") or preloaded_dirs.get("2b")
         if m2b_dir is None:
             raise ValueError("Module 2c는 --module2b-dir 필요.")
@@ -211,12 +208,12 @@ def run_full_pipeline(
             task_name=task_name,
         )
         dirs["2c"] = Path(m2c["run_dir"])
-        print(f"  → run_dir: {dirs['2c']}  (candidates={m2c['summary']['candidate_count']}, {_elapsed(t0)})")
+        print(f"  -> run_dir: {dirs['2c']}  (candidates={m2c['summary']['candidate_count']}, {_elapsed(t0)})")
 
     # ── Module 2d ──
     if start_idx <= 4 <= stop_idx:
         step += 1
-        _banner(step, total, "Module 2d — Candidate Filter")
+        _banner(step, total, "Module 2d - Candidate Filter")
         m2c_dir = dirs.get("2c") or preloaded_dirs.get("2c")
         if m2c_dir is None:
             raise ValueError("Module 2d는 --module2c-dir 필요.")
@@ -231,12 +228,12 @@ def run_full_pipeline(
         )
         dirs["2d"] = Path(m2d["run_dir"])
         s = m2d["summary"]
-        print(f"  → run_dir: {dirs['2d']}  (selected={s['selected_candidate_id']}, {_elapsed(t0)})")
+        print(f"  -> run_dir: {dirs['2d']}  (selected={s['selected_candidate_id']}, {_elapsed(t0)})")
 
     # ── Module 3 ──
     if start_idx <= 5 <= stop_idx:
         step += 1
-        _banner(step, total, "Module 3 — Tool Assembly Generator")
+        _banner(step, total, "Module 3 - Tool Assembly Generator")
         m2d_dir = dirs.get("2d") or preloaded_dirs.get("2d")
         if m2d_dir is None:
             raise ValueError("Module 3는 --module2d-dir 필요.")
@@ -251,7 +248,7 @@ def run_full_pipeline(
         )
         dirs["3"] = Path(m3["run_dir"])
         s = m3["summary"]
-        print(f"  → run_dir: {dirs['3']}")
+        print(f"  -> run_dir: {dirs['3']}")
         print(f"     is_valid={s['is_valid']}, "
               f"need_feedback_to_2a={s['need_feedback_to_module2a']}, "
               f"iteration={s['feedback_iteration']}, "
@@ -316,13 +313,13 @@ def main() -> int:
             preloaded_dirs[stage] = Path(arg)
 
     if image_path is not None and not image_path.exists():
-        print(f"⚠  이미지 없음: {image_path} — start-from=1이면 실패합니다.", file=sys.stderr)
+        print(f"[WARN] 이미지 없음: {image_path} - start-from=1이면 실패합니다.", file=sys.stderr)
 
     print(f"Task:         {task_name}")
     print(f"Image:        {image_path}")
     print(f"Target:       {target_name}")
     print(f"Description:  {task_description[:60]}{'...' if len(task_description) > 60 else ''}")
-    print(f"Stages:       {args.start_from} → {args.stop_at}")
+    print(f"Stages:       {args.start_from} -> {args.stop_at}")
     print(f"Model:        {args.model}")
     print(f"SceneInfo:    {scene_info_path or '(없음 — AABB 좌표 주입 건너뜀)'}")
 
@@ -342,11 +339,11 @@ def main() -> int:
             scene_info_path=scene_info_path,
         )
     except Exception as e:
-        print(f"\n❌ 파이프라인 실패: {e}", file=sys.stderr)
+        print(f"\n[ERROR] 파이프라인 실패: {e}", file=sys.stderr)
         return 1
 
     print(f"\n{'=' * 70}")
-    print(f"  ✅ 파이프라인 완료 (총 {_elapsed(total_t0)})")
+    print(f"  [OK] 파이프라인 완료 (총 {_elapsed(total_t0)})")
     print(f"{'=' * 70}")
     for stage, path in sorted(dirs.items(), key=lambda x: STAGES.index(x[0])):
         print(f"  [{stage}] {path}")

@@ -9,68 +9,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-# ──────────────────────────────────────────────
-# Task-based output routing
-# ──────────────────────────────────────────────
-# 파이프라인 chain에서 task 식별자는 `module2b_<task>` 형태로 가장 안쪽에 보존됨.
-# task name이 underscore 포함 가능하도록 끝(또는 다음 `/`)까지 매칭.
-_TASK_FROM_PATH_RE = re.compile(r"module2b_([A-Za-z0-9][A-Za-z0-9\-_]*?)(?:/|$)")
-
-
-def _sanitize_task_name(raw: str) -> str:
-    """파일시스템 안전한 이름."""
-    cleaned = re.sub(r"[^A-Za-z0-9\-_]+", "_", raw).strip("_")
-    return cleaned or "default"
-
-
-def derive_task_name(
-    task_name: str | None = None,
-    bundle_path: Path | str | None = None,
-    image_path: Path | str | None = None,
-    case_id: str | None = None,
-    default: str = "default",
-) -> str:
-    """Task 폴더 이름 결정.
-
-    우선순위:
-    1. 명시된 task_name
-    2. bundle_path에서 `module2b_<task>` 자동 추출
-    3. image_path.stem (module1 진입점)
-    4. case_id
-    5. default ('default')
-    """
-    if task_name:
-        return _sanitize_task_name(task_name)
-    if bundle_path:
-        m = _TASK_FROM_PATH_RE.search(str(bundle_path))
-        if m:
-            return _sanitize_task_name(m.group(1))
-    if image_path:
-        stem = Path(str(image_path)).stem
-        if stem:
-            return _sanitize_task_name(stem)
-    if case_id:
-        return _sanitize_task_name(case_id)
-    return default
-
-
-def build_task_output_root(output_root: Path, task_name: str) -> Path:
-    """outputs/<task_name>/ 경로 생성 및 반환."""
-    return ensure_dir(output_root / task_name)
-
-
-def ensure_unique_run_dir(parent: Path, stem: str) -> Path:
-    """같은 이름의 run_dir이 있으면 _01, _02 suffix 붙여 유니크하게 생성."""
-    candidate = parent / stem
-    if not candidate.exists():
-        return ensure_dir(candidate)
-    index = 1
-    while True:
-        fallback = parent / f"{stem}_{index:02d}"
-        if not fallback.exists():
-            return ensure_dir(fallback)
-        index += 1
-
 try:  # pragma: no cover - optional dependency
     import yaml as _yaml  # type: ignore
 except ImportError:  # pragma: no cover - optional dependency
@@ -93,6 +31,48 @@ def timestamp_id() -> str:
     return datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
+def ensure_unique_run_dir(output_root: Path, stem: str) -> Path:
+    """Create a unique run directory under output_root based on stem."""
+    candidate = output_root / stem
+    if not candidate.exists():
+        return ensure_dir(candidate)
+    index = 1
+    while True:
+        fallback = output_root / f"{stem}_{index:02d}"
+        if not fallback.exists():
+            return ensure_dir(fallback)
+        index += 1
+
+
+def derive_task_name(
+    task_name: str | None = None,
+    bundle_path: Path | None = None,
+    case_id: str | None = None,
+) -> str:
+    """Resolve a stable task name for per-task output routing."""
+    if task_name and task_name.strip():
+        return _slugify_task_name(task_name)
+    if case_id and case_id.strip():
+        return _slugify_task_name(case_id)
+    if bundle_path is not None:
+        path = Path(bundle_path)
+        if path.is_dir():
+            run_name = path.name
+            if re.match(r"^module[0-9a-z]+_[0-9]{8}_[0-9]{6}_.+$", run_name):
+                return _slugify_task_name(path.parent.name)
+            return _slugify_task_name(run_name)
+        if path.parent.name:
+            return _slugify_task_name(path.parent.name)
+        if path.stem:
+            return _slugify_task_name(path.stem)
+    return "ad_hoc"
+
+
+def build_task_output_root(output_root: Path, task_name: str) -> Path:
+    """Return outputs/<task_name> directory and ensure it exists."""
+    return ensure_dir(output_root / _slugify_task_name(task_name))
+
+
 def load_json(path: Path) -> dict[str, Any]:
     """Load JSON file as dictionary."""
     with path.open("r", encoding="utf-8-sig") as f:
@@ -103,7 +83,7 @@ def dump_json(data: Any, path: Path) -> None:
     """Write JSON file with stable formatting."""
     ensure_dir(path.parent)
     with path.open("w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
+        json.dump(data, f, indent=2, ensure_ascii=True)
         f.write("\n")
 
 
@@ -159,6 +139,13 @@ def to_float(value: Any, default: float = 0.0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _slugify_task_name(value: str) -> str:
+    """Normalize user/task labels into filesystem-safe folder names."""
+    cleaned = re.sub(r"[^a-zA-Z0-9._-]+", "_", value.strip())
+    cleaned = cleaned.strip("._-")
+    return cleaned or "ad_hoc"
 
 
 def _simple_yaml_load(text: str) -> Any:

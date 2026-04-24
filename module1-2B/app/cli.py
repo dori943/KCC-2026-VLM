@@ -9,6 +9,7 @@ from typing import Any
 
 from app.module2b.providers import FileBundleProvider as Module2BFileBundleProvider
 from app.module2b.providers import MockBundleProvider as Module2BMockBundleProvider
+from app.module2b.providers import VisionBundleProvider as Module2BVisionBundleProvider
 from app.pipelines.module2b_pipeline import export_module2b_normalized_context, run_module2b_pipeline
 from app.providers.file_provider import FileProvider
 from app.providers.mock_provider import MockProvider
@@ -89,7 +90,6 @@ def _cmd_run_experiments(args: argparse.Namespace) -> int:
         scenarios=scenarios,
         output_root=Path(args.output_root) if args.output_root else None,
         prompt_variant=args.prompt_variant,
-        task_name=getattr(args, "task_name", None),
     )
     print(json.dumps(result, indent=2))
     return 0
@@ -103,7 +103,6 @@ def _cmd_export_module2_bridge(args: argparse.Namespace) -> int:
         case_id=args.case_id,
         module1_output_path=Path(args.module1_output) if args.module1_output else None,
         output_root=Path(args.output_root) if args.output_root else None,
-        task_name=getattr(args, "task_name", None),
     )
     print(json.dumps(result, indent=2))
     return 0
@@ -124,18 +123,25 @@ def _cmd_batch(args: argparse.Namespace) -> int:
 
 
 def _cmd_run_module2a(args: argparse.Namespace) -> int:
-    provider = None if args.module2_input else _build_provider(args.provider)
+    if args.module2_input:
+        raise ValueError(
+            "run-module2a always uses OpenAI vision input. Remove --module2-input and pass --image."
+        )
+    if args.module1_output:
+        raise ValueError(
+            "run-module2a always uses OpenAI vision input. Remove --module1-output."
+        )
+    provider = VisionProvider()
     result = run_module2a_pipeline(
-        module2_input_path=Path(args.module2_input) if args.module2_input else None,
+        module2_input_path=None,
         provider=provider,
         image_path=Path(args.image) if args.image else None,
         case_id=args.case_id,
-        module1_output_path=Path(args.module1_output) if args.module1_output else None,
+        module1_output_path=None,
         user_goal=args.user_goal,
         success_criteria=args.success_criteria,
         task_notes=args.task_notes,
         output_root=Path(args.output_root) if args.output_root else None,
-        task_name=getattr(args, "task_name", None),
     )
     print(json.dumps(result, indent=2))
     return 0
@@ -197,16 +203,28 @@ def _cmd_validate_module2b_input(args: argparse.Namespace) -> int:
 
 
 def _cmd_run_module2b(args: argparse.Namespace) -> int:
-    provider = _build_module2b_provider(args.provider)
+    if args.bundle or args.module2_common or args.module2a_output:
+        raise ValueError(
+            "run-module2b always uses OpenAI vision input. Remove --bundle/--module2-common/--module2a-output."
+        )
+    if args.module1_output:
+        raise ValueError(
+            "run-module2b always uses OpenAI vision input. Remove --module1-output."
+        )
+    provider = Module2BVisionBundleProvider()
     result = run_module2b_pipeline(
         provider=provider,
-        bundle_path=Path(args.bundle) if args.bundle else None,
-        module2_common_path=Path(args.module2_common) if args.module2_common else None,
-        module2a_output_path=Path(args.module2a_output) if args.module2a_output else None,
+        bundle_path=None,
+        module2_common_path=None,
+        module2a_output_path=None,
         case_id=args.case_id,
+        image_path=Path(args.image) if args.image else None,
+        module1_output_path=None,
+        user_goal=args.user_goal,
+        success_criteria=args.success_criteria,
+        task_notes=args.task_notes,
         output_root=Path(args.output_root) if args.output_root else None,
         variant=args.variant,
-        task_name=getattr(args, "task_name", None),
     )
     print(json.dumps(result, indent=2))
     return 0
@@ -239,15 +257,27 @@ def _cmd_compare_module2b_runs(args: argparse.Namespace) -> int:
 
 
 def _cmd_export_module2b_normalized(args: argparse.Namespace) -> int:
-    provider = _build_module2b_provider(args.provider)
+    if args.bundle or args.module2_common or args.module2a_output:
+        raise ValueError(
+            "export-module2b-normalized always uses OpenAI vision input. Remove --bundle/--module2-common/--module2a-output."
+        )
+    if args.module1_output:
+        raise ValueError(
+            "export-module2b-normalized always uses OpenAI vision input. Remove --module1-output."
+        )
+    provider = Module2BVisionBundleProvider()
     result = export_module2b_normalized_context(
-        bundle_path=Path(args.bundle) if args.bundle else None,
-        module2_common_path=Path(args.module2_common) if args.module2_common else None,
-        module2a_output_path=Path(args.module2a_output) if args.module2a_output else None,
+        bundle_path=None,
+        module2_common_path=None,
+        module2a_output_path=None,
         case_id=args.case_id,
         provider=provider,
+        image_path=Path(args.image) if args.image else None,
+        module1_output_path=None,
+        user_goal=args.user_goal,
+        success_criteria=args.success_criteria,
+        task_notes=args.task_notes,
         output_root=Path(args.output_root) if args.output_root else None,
-        task_name=getattr(args, "task_name", None),
     )
     print(json.dumps(result, indent=2))
     return 0
@@ -268,6 +298,8 @@ def _build_module2b_provider(name: str):
         return Module2BMockBundleProvider(fixtures_root=project_root() / "fixtures")
     if name == "file":
         return Module2BFileBundleProvider()
+    if name == "vision":
+        return Module2BVisionBundleProvider()
     raise ValueError(f"Unknown Module 2-B provider: {name}")
 
 
@@ -297,8 +329,6 @@ def _build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--scenarios", default="all", help="all or comma-separated list")
     run_parser.add_argument("--prompt-variant", default=None)
     run_parser.add_argument("--output-root", default=None)
-    run_parser.add_argument("--task-name", default=None,
-                            help="Task 폴더 이름 (outputs/<task-name>/). 미지정 시 image 파일명으로 자동.")
 
     bridge_parser = subparsers.add_parser(
         "export-module2-bridge",
@@ -309,24 +339,20 @@ def _build_parser() -> argparse.ArgumentParser:
     bridge_parser.add_argument("--case-id", default=None)
     bridge_parser.add_argument("--module1-output", default=None)
     bridge_parser.add_argument("--output-root", default=None)
-    bridge_parser.add_argument("--task-name", default=None,
-                               help="Task 폴더 이름 (outputs/<task-name>/).")
 
     module2a_parser = subparsers.add_parser(
         "run-module2a",
-        help="Generate Module 2-A output from module2_common_input or Module 1 bridge",
+        help="Generate Module 2-A output from image via OpenAI vision",
     )
     module2a_parser.add_argument("--module2-input", default=None)
-    module2a_parser.add_argument("--provider", default="file", choices=["file", "mock", "vision"])
-    module2a_parser.add_argument("--image", default=None)
+    module2a_parser.add_argument("--provider", default="vision", choices=["vision"])
+    module2a_parser.add_argument("--image", required=True)
     module2a_parser.add_argument("--case-id", default=None)
     module2a_parser.add_argument("--module1-output", default=None)
     module2a_parser.add_argument("--user-goal", default=None)
     module2a_parser.add_argument("--success-criteria", action="append", default=None)
     module2a_parser.add_argument("--task-notes", action="append", default=None)
     module2a_parser.add_argument("--output-root", default=None)
-    module2a_parser.add_argument("--task-name", default=None,
-                                 help="Task 폴더 이름 (outputs/<task-name>/).")
 
     batch_parser = subparsers.add_parser("batch", help="Run batch fixture experiments")
     batch_parser.add_argument("--cases", default="all", help="all or comma-separated case ids")
@@ -372,15 +398,18 @@ def _build_parser() -> argparse.ArgumentParser:
         "run-module2b",
         help="Run deterministic Module 2-B env-only reasoning",
     )
-    run_m2b_parser.add_argument("--provider", default="file", choices=["file", "mock"])
+    run_m2b_parser.add_argument("--provider", default="vision", choices=["vision"])
     run_m2b_parser.add_argument("--case-id", default=None)
     run_m2b_parser.add_argument("--bundle", default=None)
     run_m2b_parser.add_argument("--module2-common", default=None)
     run_m2b_parser.add_argument("--module2a-output", default=None)
+    run_m2b_parser.add_argument("--image", required=True)
+    run_m2b_parser.add_argument("--module1-output", default=None)
+    run_m2b_parser.add_argument("--user-goal", default=None)
+    run_m2b_parser.add_argument("--success-criteria", action="append", default=None)
+    run_m2b_parser.add_argument("--task-notes", action="append", default=None)
     run_m2b_parser.add_argument("--variant", default=None)
     run_m2b_parser.add_argument("--output-root", default=None)
-    run_m2b_parser.add_argument("--task-name", default=None,
-                                help="Task 폴더 이름 (outputs/<task-name>/).")
 
     batch_m2b_parser = subparsers.add_parser(
         "batch-module2b",
@@ -404,14 +433,17 @@ def _build_parser() -> argparse.ArgumentParser:
         "export-module2b-normalized",
         help="Export Layer 2 normalized context only",
     )
-    normalized_m2b_parser.add_argument("--provider", default="file", choices=["file", "mock"])
+    normalized_m2b_parser.add_argument("--provider", default="vision", choices=["vision"])
     normalized_m2b_parser.add_argument("--case-id", default=None)
     normalized_m2b_parser.add_argument("--bundle", default=None)
     normalized_m2b_parser.add_argument("--module2-common", default=None)
     normalized_m2b_parser.add_argument("--module2a-output", default=None)
+    normalized_m2b_parser.add_argument("--image", required=True)
+    normalized_m2b_parser.add_argument("--module1-output", default=None)
+    normalized_m2b_parser.add_argument("--user-goal", default=None)
+    normalized_m2b_parser.add_argument("--success-criteria", action="append", default=None)
+    normalized_m2b_parser.add_argument("--task-notes", action="append", default=None)
     normalized_m2b_parser.add_argument("--output-root", default=None)
-    normalized_m2b_parser.add_argument("--task-name", default=None,
-                                        help="Task 폴더 이름 (outputs/<task-name>/).")
 
     return parser
 

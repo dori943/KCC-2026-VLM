@@ -1,15 +1,96 @@
 {
-  "registry_version": "1.0.0",
+  "registry_version": "0.1",
+  "module1": {
+    "seed_interaction_primitives": [
+      "push",
+      "pull",
+      "drag",
+      "lift",
+      "grasp",
+      "pinch",
+      "clamp",
+      "support",
+      "brace",
+      "stabilize",
+      "press",
+      "poke",
+      "tap",
+      "hook",
+      "wedge",
+      "pry",
+      "sweep",
+      "scrape",
+      "scoop",
+      "contain",
+      "pour",
+      "funnel",
+      "align",
+      "guide",
+      "insert",
+      "thread",
+      "bridge",
+      "stack",
+      "cover",
+      "anchor",
+      "fasten",
+      "clip",
+      "hang",
+      "roll",
+      "spin"
+    ]
+  },
   "module2a": {
-  "interaction_primitives": {
-  "push": 1, "pull": 2, "drag": 3, "lift": 4, "grasp": 5,
-  "pinch": 6, "clamp": 7, "support": 8, "brace": 9, "stabilize": 10,
-  "press": 11, "poke": 12, "tap": 13, "hook": 14, "wedge": 15,
-  "pry": 16, "sweep": 17, "scrape": 18, "scoop": 19, "contain": 20,
-  "pour": 21, "funnel": 22, "align": 23, "guide": 24, "insert": 25,
-  "thread": 26, "bridge": 27, "stack": 28, "cover": 29, "anchor": 30,
-  "fasten": 31, "clip": 32, "hang": 33, "roll": 34, "spin": 35
-},
+    "interaction_primitives": {
+      "reach": 1,
+      "approach": 2,
+      "orient": 3,
+      "probe": 4,
+      "contact": 5,
+      "push": 6,
+      "pull": 7,
+      "drag": 8,
+      "slide": 9,
+      "lift": 10,
+      "lower": 11,
+      "hold": 12,
+      "release": 13,
+      "place": 14,
+      "align": 15,
+      "guide": 16,
+      "press": 17,
+      "tap": 18,
+      "squeeze": 19,
+      "grasp": 20,
+      "pinch": 21,
+      "clamp": 22,
+      "hook": 23,
+      "wedge": 24,
+      "pry": 25,
+      "insert": 26,
+      "thread": 27,
+      "twist": 28,
+      "rotate": 29,
+      "separate": 30,
+      "scrape": 31,
+      "sweep": 32,
+      "scoop": 33,
+      "contain": 34,
+      "pour": 35,
+      "funnel": 36,
+      "cover": 37,
+      "block": 38,
+      "support": 39,
+      "brace": 40,
+      "stabilize": 41,
+      "stack": 42,
+      "hang": 43,
+      "roll": 44,
+      "spin": 45,
+      "fasten": 46,
+      "clip": 47,
+      "anchor": 48,
+      "bridge": 49
+    },
     "affordance_atoms": {
       "rigid_tip_contact": 101,
       "thin_insertable": 102,
@@ -41,6 +122,168 @@
       "slip_prone": 203,
       "placement_unstable": 204,
       "sharp_contact_risk": 205
+    }
+  },
+  "module2b": {
+    "target_mode": [
+      "single",
+      "multiple",
+      "implicit",
+      "ambiguous",
+      "none"
+    ],
+    "binding_status": [
+      "resolved",
+      "partially_resolved",
+      "ambiguous",
+      "deferred"
+    ],
+    "topology_tags": [
+      "container_neck",
+      "recess_wall",
+      "partial_opening",
+      "deep_recess",
+      "through_opening",
+      "narrow_gap",
+      "constraining_surface_pair",
+      "confined_channel",
+      "under_overhang",
+      "occluding_edge",
+      "container_cavity",
+      "support_surface",
+      "contact_plane",
+      "obstacle"
+    ],
+    "relevant_structure_roles": [
+      "container_neck",
+      "recess_wall",
+      "partial_opening",
+      "deep_recess",
+      "through_opening",
+      "narrow_gap",
+      "constraining_surface_pair",
+      "confined_channel",
+      "under_overhang",
+      "occluding_edge",
+      "container_cavity",
+      "support_surface",
+      "contact_plane",
+      "obstacle"
+    ],
+    "access_path_profile": {
+      "entry_mode": [
+        "top_entry",
+        "side_entry",
+        "angled_entry",
+        "front_entry"
+      ],
+      "rotation_clearance": [
+        "sufficient",
+        "limited",
+        "severely_limited"
+      ],
+      "confinement_level": [
+        1,
+        2,
+        3
+      ]
+    },
+    "numeric_estimates": {
+      "parameter_name": [
+        "opening_width",
+        "opening_height",
+        "neck_inner_diameter",
+        "recess_depth",
+        "reachable_depth",
+        "lateral_clearance",
+        "vertical_clearance",
+        "available_entry_angle_deg",
+        "target_exposed_edge_length",
+        "support_surface_span"
+      ],
+      "unit": [
+        "m",
+        "deg",
+        "level_1_to_5"
+      ],
+      "bound_type": [
+        "range",
+        "upper_bound",
+        "lower_bound"
+      ],
+      "estimate_basis": [
+        "observed",
+        "estimated_from_anchor",
+        "relative_geometry",
+        "task_text_prior"
+      ]
+    },
+    "derived_constraints": {
+      "category": [
+        "geometric",
+        "mechanical",
+        "surface_interaction",
+        "stability_access"
+      ],
+      "parameter_name": [
+        "min_effective_reach",
+        "max_tool_body_width",
+        "max_cross_section_width",
+        "max_tip_thickness",
+        "max_tip_diameter",
+        "min_insert_depth",
+        "min_contact_span",
+        "min_tip_force_transmission_level",
+        "min_global_stiffness_level",
+        "max_allowed_compliance_level",
+        "min_surface_friction_level",
+        "preferred_contact_friction_level",
+        "min_placement_stability_level",
+        "max_required_entry_angle_deg",
+        "max_allowed_roll_instability_level"
+      ],
+      "applies_to": [
+        "tool_profile",
+        "approach_path",
+        "placement_strategy"
+      ],
+      "hardness": [
+        "hard",
+        "soft"
+      ],
+      "priority": [
+        "high",
+        "medium",
+        "low"
+      ],
+      "unit": [
+        "m",
+        "deg",
+        "level_1_to_5"
+      ]
+    },
+    "module3_handoff": {
+      "handoff_status": [
+        "ready",
+        "partial",
+        "blocked"
+      ],
+      "constraint_units_policy": [
+        "metric_strict",
+        "mixed_metric_and_ordinal",
+        "ordinal_preferred"
+      ],
+      "pending_merge_sources": [
+        "material_reasoner",
+        "damage_reasoner",
+        "state_reasoner"
+      ],
+      "omitted_constraint_families": [
+        "risk_limit",
+        "target_material_state",
+        "damage_sensitivity",
+        "contact_style_preference"
+      ]
     }
   }
 }

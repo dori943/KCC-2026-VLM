@@ -1,4 +1,12 @@
-{
+﻿{
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "type": "object"
+  "$id": "https://example.local/schemas/module2b_input_bundle.schema.json",
+  "title": "module2b_input_bundle",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["module2_common_input", "module2a_output"],
+  "properties": {
+    "module2_common_input": { "type": "object" },
+    "module2a_output": { "type": "object" }
+  }
 }

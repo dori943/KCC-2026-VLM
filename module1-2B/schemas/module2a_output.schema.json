@@ -1,11 +1,307 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "module2a_output.schema.json",
+  "title": "Module2AOutput",
   "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_name",
+    "schema_version",
+    "stage",
+    "task_model",
+    "subgoals",
+    "task_level_requirement_summary",
+    "scene_resource_readout",
+    "pybullet_bridge"
+  ],
   "properties": {
-    "schema_name": {"type": "string"},
-    "schema_version": {"type": "string"},
-    "subgoals": {"type": "array"},
-    "task_level_requirement_summary": {"type": "object"}
+    "schema_name": { "const": "module2a_output" },
+    "schema_version": { "const": "0.2" },
+    "stage": { "const": "task_decomposition_and_function_requirement_extraction" },
+    "task_model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "task_restatement",
+        "primary_success_condition",
+        "secondary_success_conditions",
+        "decomposition_principle",
+        "assumptions",
+        "deferred_items"
+      ],
+      "properties": {
+        "task_restatement": { "type": "string" },
+        "primary_success_condition": { "type": "string" },
+        "secondary_success_conditions": { "type": "array", "items": { "type": "string" } },
+        "decomposition_principle": { "type": "string" },
+        "assumptions": { "type": "array", "items": { "type": "string" } },
+        "deferred_items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "needs_target_binding_later",
+            "needs_environment_constraint_binding_later",
+            "notes"
+          ],
+          "properties": {
+            "needs_target_binding_later": { "type": "boolean" },
+            "needs_environment_constraint_binding_later": { "type": "boolean" },
+            "notes": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      }
+    },
+    "subgoals": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "subgoal_id",
+          "subgoal_name",
+          "objective",
+          "success_condition",
+          "depends_on",
+          "required_interaction_primitives",
+          "function_requirements",
+          "physical_rationale",
+          "resource_feasibility_hint",
+          "failure_risks",
+          "pybullet_bridge"
+        ],
+        "properties": {
+          "subgoal_id": { "type": "string", "pattern": "^sg_[0-9]{2}$" },
+          "subgoal_name": { "type": "string" },
+          "objective": { "type": "string" },
+          "success_condition": { "type": "string" },
+          "depends_on": { "type": "array", "items": { "type": "string", "pattern": "^sg_[0-9]{2}$" }, "uniqueItems": true },
+          "required_interaction_primitives": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+          "function_requirements": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["required_atoms", "preferred_atoms", "risk_atoms_to_avoid"],
+            "properties": {
+              "required_atoms": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+              "preferred_atoms": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+              "risk_atoms_to_avoid": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+            }
+          },
+          "physical_rationale": { "type": "string" },
+          "resource_feasibility_hint": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["coverage_status", "supporting_atoms_seen_in_scene", "gap_atoms"],
+            "properties": {
+              "coverage_status": {
+                "type": "string",
+                "enum": ["blocked", "very_weak", "weak", "usable", "strong", "robust"]
+              },
+              "supporting_atoms_seen_in_scene": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+              "gap_atoms": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+            }
+          },
+          "failure_risks": { "type": "array", "items": { "type": "string" } },
+          "pybullet_bridge": { "$ref": "#/$defs/subgoal_bridge" }
+        }
+      }
+    },
+    "task_level_requirement_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "required_atoms_union",
+        "preferred_atoms_union",
+        "risk_atoms_to_avoid_union",
+        "required_interaction_primitives_union",
+        "resource_gap_hypotheses",
+        "overall_resource_sufficiency",
+        "pybullet_bridge"
+      ],
+      "properties": {
+        "required_atoms_union": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "preferred_atoms_union": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "risk_atoms_to_avoid_union": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "required_interaction_primitives_union": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "resource_gap_hypotheses": { "type": "array", "items": { "type": "string" } },
+        "overall_resource_sufficiency": {
+          "type": "string",
+          "enum": ["insufficient", "very_limited", "partial", "usable", "strong", "sufficient"]
+        },
+        "pybullet_bridge": { "$ref": "#/$defs/task_summary_bridge" }
+      }
+    },
+    "scene_resource_readout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "available_affordance_atoms",
+        "high_risk_capability_areas",
+        "high_uncertainty_capability_areas",
+        "pybullet_bridge"
+      ],
+      "properties": {
+        "available_affordance_atoms": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["atom", "availability", "pybullet_bridge"],
+            "properties": {
+              "atom": { "type": "string" },
+              "availability": {
+                "type": "string",
+                "enum": ["none", "trace", "sparse", "present", "strong", "abundant"]
+              },
+              "pybullet_bridge": { "$ref": "#/$defs/atom_readout_bridge" }
+            }
+          }
+        },
+        "high_risk_capability_areas": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "high_uncertainty_capability_areas": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "pybullet_bridge": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["available_atom_codes", "available_atom_count", "high_risk_area_count", "high_uncertainty_area_count"],
+          "properties": {
+            "available_atom_codes": { "$ref": "#/$defs/non_negative_int_array_unique" },
+            "available_atom_count": { "type": "integer", "minimum": 0 },
+            "high_risk_area_count": { "type": "integer", "minimum": 0 },
+            "high_uncertainty_area_count": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "pybullet_bridge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format_version",
+        "subgoal_count",
+        "needs_target_binding_later_flag",
+        "needs_environment_constraint_binding_later_flag",
+        "task_target_is_tool_flag",
+        "task_target_is_state_change_object_flag"
+      ],
+      "properties": {
+        "format_version": { "type": "integer" },
+        "subgoal_count": { "type": "integer", "minimum": 0 },
+        "needs_target_binding_later_flag": { "$ref": "#/$defs/flag_int" },
+        "needs_environment_constraint_binding_later_flag": { "$ref": "#/$defs/flag_int" },
+        "task_target_is_tool_flag": { "$ref": "#/$defs/flag_int" },
+        "task_target_is_state_change_object_flag": { "$ref": "#/$defs/flag_int" }
+      }
+    }
   },
-  "required": ["schema_name", "schema_version", "subgoals"]
+  "$defs": {
+    "flag_int": {
+      "type": "integer",
+      "enum": [0, 1]
+    },
+    "non_negative_int_array": {
+      "type": "array",
+      "items": { "type": "integer", "minimum": 0 }
+    },
+    "non_negative_int_array_unique": {
+      "type": "array",
+      "items": { "type": "integer", "minimum": 0 },
+      "uniqueItems": true
+    },
+    "subgoal_bridge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "subgoal_index",
+        "depends_on_indices",
+        "required_interaction_primitive_codes",
+        "required_atom_codes",
+        "preferred_atom_codes",
+        "risk_atom_codes_to_avoid",
+        "supporting_atom_codes_seen_in_scene",
+        "gap_atom_codes",
+        "coverage_status_code",
+        "uncertainty_score",
+        "required_interaction_primitive_count",
+        "required_atom_count",
+        "preferred_atom_count",
+        "risk_atom_count",
+        "required_atom_missing_count",
+        "has_blocking_gap_flag"
+      ],
+      "properties": {
+        "subgoal_index": { "type": "integer", "minimum": 1 },
+        "depends_on_indices": { "$ref": "#/$defs/non_negative_int_array" },
+        "required_interaction_primitive_codes": { "$ref": "#/$defs/non_negative_int_array" },
+        "required_atom_codes": { "$ref": "#/$defs/non_negative_int_array" },
+        "preferred_atom_codes": { "$ref": "#/$defs/non_negative_int_array" },
+        "risk_atom_codes_to_avoid": { "$ref": "#/$defs/non_negative_int_array" },
+        "supporting_atom_codes_seen_in_scene": { "$ref": "#/$defs/non_negative_int_array" },
+        "gap_atom_codes": { "$ref": "#/$defs/non_negative_int_array" },
+        "coverage_status_code": { "type": "integer", "minimum": 0, "maximum": 5 },
+        "uncertainty_score": { "type": "integer", "minimum": 0, "maximum": 5 },
+        "required_interaction_primitive_count": { "type": "integer", "minimum": 0 },
+        "required_atom_count": { "type": "integer", "minimum": 0 },
+        "preferred_atom_count": { "type": "integer", "minimum": 0 },
+        "risk_atom_count": { "type": "integer", "minimum": 0 },
+        "required_atom_missing_count": { "type": "integer", "minimum": 0 },
+        "has_blocking_gap_flag": { "$ref": "#/$defs/flag_int" }
+      }
+    },
+    "task_summary_bridge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "required_atoms_union_codes",
+        "preferred_atoms_union_codes",
+        "risk_atoms_to_avoid_union_codes",
+        "required_interaction_primitives_union_codes",
+        "resource_gap_atom_codes",
+        "overall_resource_sufficiency_code",
+        "overall_uncertainty_score",
+        "required_atoms_union_count",
+        "preferred_atoms_union_count",
+        "risk_atoms_to_avoid_union_count",
+        "required_interaction_primitives_union_count",
+        "blocked_subgoal_count",
+        "weak_or_worse_subgoal_count",
+        "usable_or_better_subgoal_count"
+      ],
+      "properties": {
+        "required_atoms_union_codes": { "$ref": "#/$defs/non_negative_int_array_unique" },
+        "preferred_atoms_union_codes": { "$ref": "#/$defs/non_negative_int_array_unique" },
+        "risk_atoms_to_avoid_union_codes": { "$ref": "#/$defs/non_negative_int_array_unique" },
+        "required_interaction_primitives_union_codes": { "$ref": "#/$defs/non_negative_int_array_unique" },
+        "resource_gap_atom_codes": { "$ref": "#/$defs/non_negative_int_array_unique" },
+        "overall_resource_sufficiency_code": { "type": "integer", "minimum": 0, "maximum": 5 },
+        "overall_uncertainty_score": { "type": "integer", "minimum": 0, "maximum": 5 },
+        "required_atoms_union_count": { "type": "integer", "minimum": 0 },
+        "preferred_atoms_union_count": { "type": "integer", "minimum": 0 },
+        "risk_atoms_to_avoid_union_count": { "type": "integer", "minimum": 0 },
+        "required_interaction_primitives_union_count": { "type": "integer", "minimum": 0 },
+        "blocked_subgoal_count": { "type": "integer", "minimum": 0 },
+        "weak_or_worse_subgoal_count": { "type": "integer", "minimum": 0 },
+        "usable_or_better_subgoal_count": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "atom_readout_bridge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "atom_code",
+        "scene_count",
+        "raw_availability_code",
+        "uncertainty_score",
+        "uncertainty_penalty",
+        "availability_code"
+      ],
+      "properties": {
+        "atom_code": { "type": "integer", "minimum": 0 },
+        "scene_count": { "type": "integer", "minimum": 0 },
+        "raw_availability_code": { "type": "integer", "minimum": 0, "maximum": 5 },
+        "uncertainty_score": { "type": "integer", "minimum": 0, "maximum": 5 },
+        "uncertainty_penalty": { "type": "integer", "minimum": 0, "maximum": 2 },
+        "availability_code": { "type": "integer", "minimum": 0, "maximum": 5 }
+      }
+    }
+  }
 }

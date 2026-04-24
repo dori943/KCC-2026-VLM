@@ -1,11 +1,106 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/schemas/module2_common_input_template_derived_min.schema.json",
+  "title": "module2_common_input_template_derived_min",
   "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_name",
+    "schema_version",
+    "task_brief",
+    "scene_resources"
+  ],
   "properties": {
-    "schema_name": {"type": "string"},
-    "schema_version": {"type": "string"},
-    "task_brief": {"type": "object"},
-    "scene_resources": {"type": "object"}
-  },
-  "required": ["schema_name", "schema_version"]
+    "schema_name": {
+      "const": "module2_common_input_template_derived_min"
+    },
+    "schema_version": {
+      "const": "0.1"
+    },
+    "task_brief": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "user_goal",
+        "success_criteria",
+        "task_notes"
+      ],
+      "properties": {
+        "user_goal": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "success_criteria": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "task_notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "scene_resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "resource_summary",
+        "resource_inventory"
+      ],
+      "properties": {
+        "resource_summary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "affordance_histogram"
+          ],
+          "properties": {
+            "affordance_histogram": {
+              "type": "object",
+              "additionalProperties": false,
+              "patternProperties": {
+                "^[a-z][a-z0-9_]*$": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            },
+            "risk_histogram": {
+              "type": "object",
+              "additionalProperties": false,
+              "patternProperties": {
+                "^[a-z][a-z0-9_]*$": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            },
+            "primitive_histogram": {
+              "type": "object",
+              "additionalProperties": false,
+              "patternProperties": {
+                "^[a-z][a-z0-9_]*$": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          }
+        },
+        "resource_inventory": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      }
+    }
+  }
 }

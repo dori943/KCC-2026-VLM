@@ -1,11 +1,884 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/schemas/module1_raw_output_lite.schema.json",
+  "title": "module1_raw_output_lite",
   "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_name",
+    "schema_version",
+    "scene_summary",
+    "objects"
+  ],
   "properties": {
-    "schema_name": {"type": "string"},
-    "schema_version": {"type": "string"},
-    "scene_summary": {"type": "object"},
-    "objects": {"type": "array"}
+    "schema_name": {
+      "const": "module1_raw_output_lite"
+    },
+    "schema_version": {
+      "const": "0.4"
+    },
+    "scene_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "selection_policy",
+        "ordering_rule",
+        "notes",
+        "coverage_caveats"
+      ],
+      "properties": {
+        "selection_policy": {
+          "const": "all visible object instances"
+        },
+        "ordering_rule": {
+          "const": "left_to_right_then_front_to_back"
+        },
+        "notes": {
+          "type": "string"
+        },
+        "coverage_caveats": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "objects": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/object"
+      }
+    }
   },
-  "required": ["schema_name", "schema_version", "objects"]
+  "$defs": {
+    "probability_0_1": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0
+    },
+    "nullable_probability_0_1": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0.0,
+      "maximum": 1.0
+    },
+    "snake_case_keyed_scores": {
+      "type": "object",
+      "minProperties": 0,
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[a-z][a-z0-9_]*$": {
+          "$ref": "#/$defs/probability_0_1"
+        }
+      }
+    },
+    "physical_property_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "label",
+        "confidence",
+        "evidence"
+      ],
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "confidence": {
+          "$ref": "#/$defs/probability_0_1"
+        },
+        "evidence": {
+          "type": "string"
+        }
+      }
+    },
+    "target_mode_numeric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "point_score",
+        "edge_score",
+        "face_score",
+        "rim_score",
+        "cavity_score",
+        "axis_score",
+        "hook_gap_score",
+        "exposure_ratio",
+        "clearance_ratio",
+        "usable_span_m",
+        "local_thickness_m",
+        "tip_radius_m",
+        "flat_patch_m2",
+        "approach_directions_count"
+      ],
+      "properties": {
+        "point_score": {
+          "$ref": "#/$defs/nullable_probability_0_1"
+        },
+        "edge_score": {
+          "$ref": "#/$defs/nullable_probability_0_1"
+        },
+        "face_score": {
+          "$ref": "#/$defs/nullable_probability_0_1"
+        },
+        "rim_score": {
+          "$ref": "#/$defs/nullable_probability_0_1"
+        },
+        "cavity_score": {
+          "$ref": "#/$defs/nullable_probability_0_1"
+        },
+        "axis_score": {
+          "$ref": "#/$defs/nullable_probability_0_1"
+        },
+        "hook_gap_score": {
+          "$ref": "#/$defs/nullable_probability_0_1"
+        },
+        "exposure_ratio": {
+          "$ref": "#/$defs/nullable_probability_0_1"
+        },
+        "clearance_ratio": {
+          "$ref": "#/$defs/nullable_probability_0_1"
+        },
+        "usable_span_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0.0
+        },
+        "local_thickness_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0.0
+        },
+        "tip_radius_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0.0
+        },
+        "flat_patch_m2": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0.0
+        },
+        "approach_directions_count": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    },
+    "object": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "object_id",
+        "object_name",
+        "object_type_canonical",
+        "grouped",
+        "quantity_estimate",
+        "coarse_location_hint",
+        "visibility",
+        "accessibility",
+        "state",
+        "scene_relations",
+        "observed_vs_inferred",
+        "geometry_cues",
+        "scale_anchor_status",
+        "material_hypotheses",
+        "functional_parts",
+        "affordance_card",
+        "physical_properties",
+        "uncertainty"
+      ],
+      "properties": {
+        "object_id": {
+          "type": "string",
+          "pattern": "^obj_[0-9]{2,}$"
+        },
+        "object_name": {
+          "type": "string"
+        },
+        "object_type_canonical": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "grouped": {
+          "type": "boolean"
+        },
+        "quantity_estimate": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "coarse_location_hint": {
+          "type": "string"
+        },
+        "visibility": {
+          "type": "string",
+          "enum": [
+            "full",
+            "partial",
+            "heavily_occluded"
+          ]
+        },
+        "accessibility": {
+          "type": "string",
+          "enum": [
+            "clear",
+            "partial",
+            "occluded",
+            "entangled",
+            "nested"
+          ]
+        },
+        "state": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "pose_class",
+            "orientation_note",
+            "support_context"
+          ],
+          "properties": {
+            "pose_class": {
+              "type": "string",
+              "enum": [
+                "lying",
+                "upright",
+                "leaning",
+                "stacked",
+                "inside_container",
+                "unknown"
+              ]
+            },
+            "orientation_note": {
+              "type": "string"
+            },
+            "support_context": {
+              "type": "string",
+              "enum": [
+                "on_surface",
+                "in_container",
+                "against_object",
+                "held_by_group",
+                "unknown"
+              ]
+            }
+          }
+        },
+        "scene_relations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "relation",
+              "object_ref",
+              "relation_note"
+            ],
+            "properties": {
+              "relation": {
+                "type": "string",
+                "enum": [
+                  "on_surface",
+                  "inside",
+                  "partially_inside",
+                  "against",
+                  "leaning_on",
+                  "adjacent_to",
+                  "touching",
+                  "overlapping",
+                  "stacked_on",
+                  "clipped_to",
+                  "between_surfaces"
+                ]
+              },
+              "object_ref": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "relation_note": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "observed_vs_inferred": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "observed_cues",
+            "inferred_aspects",
+            "assumed_aspects"
+          ],
+          "properties": {
+            "observed_cues": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "inferred_aspects": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "assumed_aspects": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "geometry_cues": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "shape_class",
+            "aspect_ratio_hint",
+            "size_relative",
+            "thickness_class",
+            "primary_contact_profile",
+            "has_pointed_or_thin_end",
+            "has_flat_contact_face",
+            "has_open_cavity",
+            "roll_risk_source"
+          ],
+          "properties": {
+            "shape_class": {
+              "type": "string"
+            },
+            "aspect_ratio_hint": {
+              "type": "string",
+              "enum": [
+                "compact",
+                "elongated",
+                "sheet_like",
+                "blocky",
+                "unknown"
+              ]
+            },
+            "size_relative": {
+              "type": "string"
+            },
+            "thickness_class": {
+              "type": "string"
+            },
+            "primary_contact_profile": {
+              "type": "string",
+              "enum": [
+                "tip",
+                "edge",
+                "broad_flat_face",
+                "curved_side",
+                "cavity_rim",
+                "mixed",
+                "unknown"
+              ]
+            },
+            "has_pointed_or_thin_end": {
+              "type": "boolean"
+            },
+            "has_flat_contact_face": {
+              "type": "boolean"
+            },
+            "has_open_cavity": {
+              "type": "boolean"
+            },
+            "roll_risk_source": {
+              "type": "string",
+              "enum": [
+                "none",
+                "curved_side",
+                "round_cross_section",
+                "joint_instability",
+                "unknown"
+              ]
+            }
+          }
+        },
+        "scale_anchor_status": {
+          "type": "string",
+          "enum": [
+            "anchored",
+            "weak_prior",
+            "unknown"
+          ]
+        },
+        "material_hypotheses": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "material",
+              "probability"
+            ],
+            "properties": {
+              "material": {
+                "type": "string"
+              },
+              "probability": {
+                "$ref": "#/$defs/probability_0_1"
+              }
+            }
+          }
+        },
+        "functional_parts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "part_name",
+              "role",
+              "role_canonical",
+              "contact_profile",
+              "local_material",
+              "local_property_note",
+              "local_property_tags"
+            ],
+            "properties": {
+              "part_name": {
+                "type": "string"
+              },
+              "role": {
+                "type": "string"
+              },
+              "role_canonical": {
+                "type": "string",
+                "enum": [
+                  "rigid_tip",
+                  "thin_edge",
+                  "flat_face",
+                  "support_base",
+                  "hook_region",
+                  "container_cavity",
+                  "compliant_pad",
+                  "grip_body",
+                  "hinge_joint",
+                  "unknown"
+                ]
+              },
+              "contact_profile": {
+                "type": "string",
+                "enum": [
+                  "tip",
+                  "edge",
+                  "broad_flat_face",
+                  "curved_side",
+                  "cavity_rim",
+                  "mixed",
+                  "unknown"
+                ]
+              },
+              "local_material": {
+                "type": "string"
+              },
+              "local_property_note": {
+                "type": "string"
+              },
+              "local_property_tags": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "affordance_card": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "object_name",
+            "observed_visual_features",
+            "inferred_physical_properties",
+            "usable_parts",
+            "connection_modes",
+            "weaknesses_or_risks",
+            "uncertain_points",
+            "confidence"
+          ],
+          "properties": {
+            "object_name": {
+              "type": "string"
+            },
+            "observed_visual_features": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "inferred_physical_properties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "usable_parts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "part_name",
+                  "affordance_scores",
+                  "interaction_primitives",
+                  "target_mode_numeric"
+                ],
+                "properties": {
+                  "part_name": {
+                    "type": "string"
+                  },
+                  "affordance_scores": {
+                    "$ref": "#/$defs/snake_case_keyed_scores"
+                  },
+                  "interaction_primitives": {
+                    "$ref": "#/$defs/snake_case_keyed_scores"
+                  },
+                  "target_mode_numeric": {
+                    "$ref": "#/$defs/target_mode_numeric"
+                  }
+                }
+              }
+            },
+            "connection_modes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "mode",
+                  "score",
+                  "note"
+                ],
+                "properties": {
+                  "mode": {
+                    "type": "string"
+                  },
+                  "score": {
+                    "$ref": "#/$defs/probability_0_1"
+                  },
+                  "note": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "weaknesses_or_risks": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "uncertain_points": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "confidence": {
+              "$ref": "#/$defs/probability_0_1"
+            }
+          }
+        },
+        "physical_properties": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "stiffness",
+            "deformability",
+            "surface_friction",
+            "slip_tendency",
+            "mass_category",
+            "density_category",
+            "restitution",
+            "fragility",
+            "press_response_type",
+            "tip_force_transmission",
+            "load_bearing",
+            "failure_mode"
+          ],
+          "properties": {
+            "stiffness": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/physical_property_entry"
+                },
+                {
+                  "properties": {
+                    "label": {
+                      "enum": [
+                        "low",
+                        "medium",
+                        "high"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "deformability": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/physical_property_entry"
+                },
+                {
+                  "properties": {
+                    "label": {
+                      "enum": [
+                        "low",
+                        "medium",
+                        "high"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "surface_friction": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/physical_property_entry"
+                },
+                {
+                  "properties": {
+                    "label": {
+                      "enum": [
+                        "low",
+                        "medium",
+                        "high"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "slip_tendency": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/physical_property_entry"
+                },
+                {
+                  "properties": {
+                    "label": {
+                      "enum": [
+                        "low",
+                        "medium",
+                        "high"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "mass_category": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/physical_property_entry"
+                },
+                {
+                  "properties": {
+                    "label": {
+                      "enum": [
+                        "very_light",
+                        "light",
+                        "medium",
+                        "heavy"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "density_category": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/physical_property_entry"
+                },
+                {
+                  "properties": {
+                    "label": {
+                      "enum": [
+                        "very_low",
+                        "low",
+                        "medium",
+                        "high"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "restitution": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/physical_property_entry"
+                },
+                {
+                  "properties": {
+                    "label": {
+                      "enum": [
+                        "low",
+                        "medium",
+                        "high"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "fragility": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/physical_property_entry"
+                },
+                {
+                  "properties": {
+                    "label": {
+                      "enum": [
+                        "low",
+                        "medium",
+                        "high"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "press_response_type": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/physical_property_entry"
+                },
+                {
+                  "properties": {
+                    "label": {
+                      "enum": [
+                        "negligible_deformation",
+                        "elastic_deformation",
+                        "plastic_deformation",
+                        "compressible"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "tip_force_transmission": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/physical_property_entry"
+                },
+                {
+                  "properties": {
+                    "label": {
+                      "enum": [
+                        "low",
+                        "medium",
+                        "high"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "load_bearing": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/physical_property_entry"
+                },
+                {
+                  "properties": {
+                    "label": {
+                      "enum": [
+                        "low",
+                        "medium",
+                        "high"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "failure_mode": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/physical_property_entry"
+                },
+                {
+                  "properties": {
+                    "label": {
+                      "enum": [
+                        "none_likely",
+                        "bend",
+                        "compress",
+                        "dent",
+                        "crack",
+                        "shatter",
+                        "buckle",
+                        "slip"
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "uncertainty": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "overall",
+            "occlusion",
+            "scale",
+            "material",
+            "mass",
+            "dynamics",
+            "part_structure"
+          ],
+          "properties": {
+            "overall": {
+              "$ref": "#/$defs/probability_0_1"
+            },
+            "occlusion": {
+              "$ref": "#/$defs/probability_0_1"
+            },
+            "scale": {
+              "$ref": "#/$defs/probability_0_1"
+            },
+            "material": {
+              "$ref": "#/$defs/probability_0_1"
+            },
+            "mass": {
+              "$ref": "#/$defs/probability_0_1"
+            },
+            "dynamics": {
+              "$ref": "#/$defs/probability_0_1"
+            },
+            "part_structure": {
+              "$ref": "#/$defs/probability_0_1"
+            }
+          }
+        }
+      }
+    }
+  }
 }
