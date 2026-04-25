@@ -124,8 +124,13 @@ subgoal_constraints에 위 목록에 없는 atom이 있으면 그 의미를 추�
    - 긴 물체 + 후킹 구조 결합 → 갈고리 도구
 
 5. 다양한 물체를 활용하라. 동일 후보 내에서 같은 물체를 중복 사용하지 마라.
-6. 2개 조합과 3개 이상 조합을 골고루 포함하라.
-   3개 이상 조합을 최소 2개 포함하라.
+6. **[강제 규칙] 6개 후보 중 최소 2개는 반드시 3개 이상의 물체 조합이어야 한다.**
+   - 2개 조합만 6개 만들면 규칙 위반이다.
+   - 권장 분포: 2개 조합 3~4개, 3개 이상 조합 2~3개.
+   - 3개 이상 조합 예시:
+     * "긴 막대 + 클램프 + 마찰 패드" → 미끄럼 방지 집게 막대
+     * "받침대 + 정렬 가이드 + 작동 팁" → 정렬 보조 도구
+     * "갈고리 + 연장 막대 + 무게추" → 안정화 갈고리
 7. 6개 후보 중 최소 1개는 기존 도구와 전혀 닮지 않은
    비직관적이지만 물리적으로 타당한 형태여야 한다.
 
@@ -145,49 +150,68 @@ subgoal_constraints에 위 목록에 없는 atom이 있으면 그 의미를 추�
 
 1. JSON만 출력하라.
 2. candidate_tools는 6개 이상 포함하라.
-3. used_objects는 물체 이름(name)으로 표기하라. object_id 사용 금지.
-4. JSON 바깥의 설명문은 출력하지 마라.
+3. **[강제] 6개 중 최소 2개는 used_objects 길이가 3 이상이어야 한다.**
+   used_objects 길이가 모두 2인 출력은 규칙 위반이다.
+4. used_objects는 물체 이름(name)으로 표기하라. object_id 사용 금지.
+5. JSON 바깥의 설명문은 출력하지 마라.
 
 [출력 형식]
+
+아래는 형식 예시이다. 2개 조합과 3개 조합이 섞인 모습을 그대로 따라 작성하라.
 
 {
   "candidate_tools": [
     {
-      "candidate_id": "...",
-      "used_objects": ["...", "..."],
+      "candidate_id": "tool_01",
+      "used_objects": ["object_a", "object_b"],
       "structure_description": "...",
       "function_mapping": [
         {
-          "object": "...",
+          "object": "object_a",
+          "function": "...",
+          "related_physics": "..."
+        },
+        {
+          "object": "object_b",
           "function": "...",
           "related_physics": "..."
         }
       ],
       "subgoal_coverage": [
-      // 반드시 모든 subgoal_id 포함
-        {
-          "subgoal_id": "sg_01",
-          "covered": true,
-          "method": "..."
-        },
-        {
-            "subgoal_id": "sg_02",  
-            "covered": true,
-            "method": "..."
-        }
+        { "subgoal_id": "sg_01", "covered": true, "method": "..." },
+        { "subgoal_id": "sg_02", "covered": true, "method": "..." }
       ],
       "failure_modes": [
+        { "subgoal_id": "sg_01", "failure_type": "...", "cause": "...", "related_constraint": "..." }
+      ]
+    },
+    {
+      "candidate_id": "tool_02",
+      "used_objects": ["object_c", "object_d", "object_e"],
+      "structure_description": "3개 물체 조합 예시. 예: object_c가 작동 팁, object_d가 연장 막대, object_e가 안정화 받침.",
+      "function_mapping": [
         {
-          "subgoal_id": "sg_01",
-          "failure_type": "...",
-          "cause": "...",
-          "related_constraint": "..."
-        },        {
-          "subgoal_id": "sg_02",
-          "failure_type": "...",
-          "cause": "...",
-          "related_constraint": "..."
+          "object": "object_c",
+          "function": "...",
+          "related_physics": "..."
+        },
+        {
+          "object": "object_d",
+          "function": "...",
+          "related_physics": "..."
+        },
+        {
+          "object": "object_e",
+          "function": "...",
+          "related_physics": "..."
         }
+      ],
+      "subgoal_coverage": [
+        { "subgoal_id": "sg_01", "covered": true, "method": "..." },
+        { "subgoal_id": "sg_02", "covered": true, "method": "..." }
+      ],
+      "failure_modes": [
+        { "subgoal_id": "sg_02", "failure_type": "...", "cause": "...", "related_constraint": "..." }
       ]
     }
   ]
