@@ -7,9 +7,18 @@ from typing import Any
 
 from app.bridges.module1_to_module2a import build_module2_bridge_package
 from app.models.module1_normalizer import normalize_module1_raw
-from app.module2a.reasoner import generate_module2a_output
+from app.module2a.llm_reasoner import generate_module2a_output_with_llm
 from app.providers.base import Module1Provider
-from app.utils import dump_json, ensure_dir, load_json, load_yaml, project_root, timestamp_id
+from app.utils import (
+    build_task_output_root,
+    derive_task_name,
+    dump_json,
+    ensure_unique_run_dir,
+    load_json,
+    load_yaml,
+    project_root,
+    timestamp_id,
+)
 from app.validators.module1_validator import Module1Validator
 from app.validators.schema_validator import validate_with_schema
 
@@ -23,6 +32,7 @@ def run_module2a_pipeline(
     user_goal: str | None = None,
     success_criteria: list[str] | None = None,
     task_notes: list[str] | None = None,
+    reasoner_mode: str = "llm",
     output_root: Path | None = None,
 ) -> dict[str, Any]:
     """Generate Module 2-A output from module2_common_input or Module 1 bridge."""
@@ -66,7 +76,7 @@ def run_module2a_pipeline(
             module1_output_path=module1_output_path,
         )
         raw_module1_output = provider_result.raw_output
-        provider_metadata = provider_result.metadata
+        provider_metadata = dict(provider_result.metadata)
         validation = Module1Validator().validate(raw_module1_output)
         if not validation.valid:
             raise ValueError(
@@ -90,10 +100,12 @@ def run_module2a_pipeline(
         success_criteria=success_criteria,
         task_notes=task_notes,
     )
-    module2_output = generate_module2a_output(
+    module2_output, module2a_reasoner_metadata = _generate_module2a_output(
         module2_common_input=module2_common_input,
         vocab_registry=vocab_registry,
+        reasoner_mode=reasoner_mode,
     )
+    provider_metadata["module2a_reasoner"] = module2a_reasoner_metadata
 
     module2_output_errors = validate_with_schema(
         payload=module2_output,
@@ -107,7 +119,10 @@ def run_module2a_pipeline(
         "provider_metadata": provider_metadata,
         "prompt_variant": prompt_registry["defaults"]["active_module2a_variant"],
         "versions": {
-            "module2a_output_schema": f"{module2_output['schema_name']}@{module2_output['schema_version']}",
+            "module2a_output_schema": (
+                f"{module2_output.get('schema_name', 'module2a_output')}"
+                f"@{module2_output.get('schema_version', 'unknown')}"
+            ),
             "module2a_prompt_variant": prompt_registry["defaults"]["active_module2a_variant"],
             "vocab_registry_version": vocab_registry["registry_version"],
         },
@@ -156,6 +171,22 @@ def run_module2a_pipeline(
         },
         "manifest": manifest,
     }
+
+
+def _generate_module2a_output(
+    module2_common_input: dict[str, Any],
+    vocab_registry: dict[str, Any],
+    reasoner_mode: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    if reasoner_mode != "llm":
+        raise ValueError(
+            "Unsupported Module 2-A reasoner mode: "
+            f"{reasoner_mode}. This build supports only: llm."
+        )
+    return generate_module2a_output_with_llm(
+        module2_common_input=module2_common_input,
+        vocab_registry=vocab_registry,
+    )
 
 
 def _inject_task_overrides(

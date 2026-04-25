@@ -225,6 +225,10 @@ def _cmd_run_module2b(args: argparse.Namespace) -> int:
         task_notes=args.task_notes,
         output_root=Path(args.output_root) if args.output_root else None,
         variant=args.variant,
+        task_name=getattr(args, "task_name", None),
+        api_key=getattr(args, "api_key", None),
+        model=getattr(args, "model", "gpt-4.1-mini"),
+        reasoner_mode="llm",
     )
     print(json.dumps(result, indent=2))
     return 0
@@ -396,7 +400,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     run_m2b_parser = subparsers.add_parser(
         "run-module2b",
-        help="Run deterministic Module 2-B env-only reasoning",
+        help="Run LLM-only Module 2-B env-only reasoning",
     )
     run_m2b_parser.add_argument("--provider", default="vision", choices=["vision"])
     run_m2b_parser.add_argument("--case-id", default=None)
@@ -409,6 +413,8 @@ def _build_parser() -> argparse.ArgumentParser:
     run_m2b_parser.add_argument("--success-criteria", action="append", default=None)
     run_m2b_parser.add_argument("--task-notes", action="append", default=None)
     run_m2b_parser.add_argument("--variant", default=None)
+    run_m2b_parser.add_argument("--model", default="gpt-4.1-mini")
+    run_m2b_parser.add_argument("--api-key", default=None)
     run_m2b_parser.add_argument("--output-root", default=None)
 
     batch_m2b_parser = subparsers.add_parser(

@@ -1,23 +1,24 @@
-﻿"""Module 2-B env-only pipeline orchestration and artifact export."""
+"""Module 2-B LLM-only pipeline orchestration and artifact export."""
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
 
+from app.module2b.llm_reasoner import generate_module2b_output_with_llm
 from app.module2b.normalizer import normalize_module2b_bundle
 from app.module2b.providers import FileBundleProvider, Module2BBundleProvider
-from app.module2b.reasoners.constraint_generator import generate_constraints
-from app.module2b.reasoners.environment_binding import run_environment_binding
-from app.module2b.reasoners.handoff_builder import build_module3_handoff
-from app.module2b.reasoners.numeric_estimator import derive_numeric_estimates
-from app.module2b.reasoners.target_binding import run_target_binding
-from app.module2b.utils import dedupe_keep_order, stable_round
-from app.module2b.validators import (
-    Module2BInputValidator,
-    Module2BOutputValidator,
+from app.module2b.validators import Module2BInputValidator, Module2BOutputValidator
+from app.utils import (
+    build_task_output_root,
+    derive_task_name,
+    dump_json,
+    ensure_unique_run_dir,
+    load_json,
+    load_yaml,
+    project_root,
+    timestamp_id,
 )
-from app.utils import dump_json, ensure_dir, load_json, load_yaml, project_root, timestamp_id
 
 
 def run_module2b_pipeline(
@@ -33,8 +34,19 @@ def run_module2b_pipeline(
     task_notes: list[str] | None = None,
     output_root: Path | None = None,
     variant: str | None = None,
+    task_name: str | None = None,
+    api_key: str | None = None,
+    model: str = "gpt-4.1-mini",
+    reasoner_mode: str = "llm",
 ) -> dict[str, Any]:
-    """Run deterministic Module 2-B env-only reasoning and export layered artifacts."""
+    """Run Module 2-B with LLM-only reasoning and export layered artifacts."""
+    if reasoner_mode != "llm":
+        raise ValueError(
+            "Unsupported Module 2-B reasoner mode: "
+            f"{reasoner_mode}. This build supports only: llm."
+        )
+
+
     root = project_root()
     output_root = output_root or (root / "outputs")
     run_id = timestamp_id()
@@ -54,93 +66,27 @@ def run_module2b_pipeline(
     raw_bundle = provider_result.bundle
 
     suffix = case_id or _infer_suffix(provider_result.metadata)
-    run_dir = _ensure_unique_run_dir(output_root=output_root, stem=f"module2b_{run_id}_{suffix}")
+    resolved_task_name = derive_task_name(
+        task_name=task_name,
+        bundle_path=bundle_path or provider_result.metadata.get("bundle_path"),
+        case_id=case_id,
+    )
+    task_root = build_task_output_root(output_root, resolved_task_name)
+    run_dir = ensure_unique_run_dir(task_root, f"module2b_{run_id}_{suffix}")
 
     prompt_registry = load_yaml(root / "configs" / "prompt_registry.yaml")
-    run_variants = load_yaml(root / "configs" / "module2b_run_variants.yaml")
-    alias_registry = load_yaml(root / "configs" / "target_alias_registry.yaml")
     vocab_registry = load_json(root / "configs" / "vocab_registry.json")
-
-    selected_variant = variant or run_variants["default_variant"]
-    variant_cfg = run_variants["variants"][selected_variant]
-
-    target_rules = load_yaml(root / variant_cfg["target_binding_rules"])
-    environment_rules = load_yaml(root / variant_cfg["environment_rules"])
-    numeric_rules = load_yaml(root / variant_cfg["numericization_rules"])
-    constraint_rules = load_yaml(root / variant_cfg["constraint_rules"])
 
     input_validator = Module2BInputValidator(root=root)
     input_validation = input_validator.validate(raw_bundle)
-
     normalized_context = normalize_module2b_bundle(raw_bundle)
 
-    target_binding, target_trace = run_target_binding(
-        context=normalized_context,
-        rules_cfg=target_rules,
-        alias_registry=alias_registry,
+    module2b_output, llm_trace = generate_module2b_output_with_llm(
+        raw_bundle=raw_bundle,
+        normalized_context=normalized_context,
+        api_key=api_key,
+        model=model,
     )
-
-    environment_result, environment_trace = run_environment_binding(
-        context=normalized_context,
-        target_binding=target_binding,
-        rules_cfg=environment_rules,
-    )
-
-    _link_target_context_refs(target_binding=target_binding, environment_result=environment_result)
-
-    measurements, numeric_trace, numeric_omissions = derive_numeric_estimates(
-        context=normalized_context,
-        target_binding=target_binding,
-        environment_result=environment_result,
-        rules_cfg=numeric_rules,
-    )
-
-    constraints, constraint_trace = generate_constraints(
-        context=normalized_context,
-        target_binding=target_binding,
-        environment_result=environment_result,
-        measurements=measurements,
-        rules_cfg=constraint_rules,
-    )
-
-    deferred_items = _build_deferred_items(
-        target_binding=target_binding,
-        environment_result=environment_result,
-        numeric_omissions=numeric_omissions,
-        measurements=measurements,
-    )
-
-    confidence_summary, confidence_breakdown = _build_confidence_summary(
-        target_binding=target_binding,
-        environment_result=environment_result,
-        constraints=constraints,
-        deferred_items=deferred_items,
-    )
-
-    module3_handoff, handoff_preview = build_module3_handoff(
-        target_binding=target_binding,
-        measurements=measurements,
-        derived_constraints=constraints,
-        pending_merge_sources=["material_reasoner"],
-    )
-
-    module2b_output = {
-        "schema_name": "module2b_output_env_only",
-        "schema_version": "0.1",
-        "stage": "target_object_and_environment_constraints_env_only",
-        "task_id": normalized_context.task_id,
-        "target_binding": target_binding,
-        "environment_context": {
-            "topology_tags": environment_result["topology_tags"],
-            "relevant_structures": environment_result["relevant_structures"],
-            "access_path_profile": environment_result["access_path_profile"],
-            "numeric_estimates": measurements,
-        },
-        "derived_constraints": constraints,
-        "module3_handoff": module3_handoff,
-        "deferred_items": deferred_items,
-        "confidence_summary": confidence_summary,
-    }
 
     output_validator = Module2BOutputValidator(root=root)
     output_validation = output_validator.validate(
@@ -148,6 +94,13 @@ def run_module2b_pipeline(
         inventory_ids=normalized_context.object_id_order,
         subgoal_ids=[subgoal.subgoal_id for subgoal in normalized_context.subgoals],
     )
+
+    target_trace = _build_target_binding_trace(module2b_output)
+    environment_trace = _build_environment_trace(module2b_output)
+    numeric_trace = _build_numeric_trace(module2b_output)
+    constraint_trace = _build_constraint_trace(module2b_output)
+    handoff_preview = _build_handoff_preview(module2b_output)
+    confidence_breakdown = _build_confidence_breakdown(module2b_output)
 
     validation_report = {
         "schema_name": "module2b_validation_report",
@@ -160,11 +113,12 @@ def run_module2b_pipeline(
         "schema_name": "module2b_diagnostics",
         "schema_version": "0.1",
         "run_id": run_id,
-        "rule_versions": {
-            "target_binding": target_rules.get("rule_version", "unknown"),
-            "environment": environment_rules.get("rule_version", "unknown"),
-            "numericization": numeric_rules.get("rule_version", "unknown"),
-            "constraint": constraint_rules.get("rule_version", "unknown"),
+        "reasoner_mode": reasoner_mode,
+        "llm_reasoner": {
+            "mode": llm_trace.get("mode"),
+            "model": llm_trace.get("model"),
+            "api_url": llm_trace.get("api_url"),
+            "api_usage": llm_trace.get("api_usage"),
         },
         "validation_report": validation_report,
         "trace_refs": {
@@ -173,37 +127,37 @@ def run_module2b_pipeline(
             "numeric_estimates_trace": "numeric_estimates_trace.json",
             "derived_constraints_trace": "derived_constraints_trace.json",
         },
-        "deferred_item_reasons": dedupe_keep_order(
-            [
-                item["reason"]
-                for key in deferred_items.keys()
-                for item in deferred_items[key]
-            ]
-        ),
+        "deferred_item_reasons": _collect_deferred_reasons(module2b_output),
         "confidence_component_breakdown": confidence_breakdown,
-        "dedup_rules": [
-            "target candidates: score desc + inventory order tie-break",
-            "environment structures: first evidence order + structure role priority",
-            "measurements: (environment_structure_id, parameter_name, bound_type)",
-            "constraints: (subgoal_order, priority, category, parameter_name, applies_to)",
-        ],
     }
+
+    target_binding = module2b_output.get("target_binding", {})
+    env_context = module2b_output.get("environment_context", {})
+    derived = module2b_output.get("derived_constraints", {})
+    module3_handoff = module2b_output.get("module3_handoff", {})
+    usage = llm_trace.get("api_usage", {})
 
     summary = {
         "run_id": run_id,
         "task_id": normalized_context.task_id,
         "provider": provider_result.metadata.get("provider"),
         "case_id": provider_result.metadata.get("case_id"),
-        "target_mode": target_binding["target_mode"],
-        "binding_status": target_binding["binding_status"],
-        "environment_structure_count": len(environment_result["relevant_structures"]),
-        "numeric_estimate_count": len(measurements),
-        "constraint_count": len(constraints["constraint_catalog"]),
-        "handoff_status": module3_handoff["handoff_status"],
+        "reasoner_mode": reasoner_mode,
+        "target_mode": target_binding.get("target_mode"),
+        "binding_status": target_binding.get("binding_status"),
+        "environment_structure_count": len(env_context.get("relevant_structures", [])),
+        "numeric_estimate_count": len(env_context.get("numeric_estimates", [])),
+        "constraint_count": len(derived.get("constraint_catalog", [])),
+        "handoff_status": module3_handoff.get("handoff_status"),
+        "api_call_count": int(usage.get("api_call_count", 0) or 0),
+        "prompt_tokens": int(usage.get("prompt_tokens", 0) or 0),
+        "completion_tokens": int(usage.get("completion_tokens", 0) or 0),
+        "total_tokens": int(usage.get("total_tokens", 0) or 0),
         "input_valid": input_validation.valid,
         "output_valid": output_validation.valid,
     }
 
+    selected_variant = variant or "llm_only_v1"
     manifest = {
         "schema_name": "module2b_run_manifest",
         "schema_version": "0.1",
@@ -211,6 +165,13 @@ def run_module2b_pipeline(
         "provider_metadata": provider_result.metadata,
         "prompt_variant": prompt_registry["defaults"]["active_module2b_variant"],
         "run_variant": selected_variant,
+        "reasoner_mode": reasoner_mode,
+        "module2b_reasoner": {
+            "mode": llm_trace.get("mode"),
+            "model": llm_trace.get("model"),
+            "api_url": llm_trace.get("api_url"),
+            "api_usage": llm_trace.get("api_usage"),
+        },
         "versions": {
             "module2b_output_schema": "module2b_output_env_only@0.1",
             "module2_common_schema": "module2_common_input_for_module2b_derived_min@0.1",
@@ -236,6 +197,7 @@ def run_module2b_pipeline(
             "module3_handoff_preview": "module3_handoff_preview.json",
             "module2b_diagnostics": "module2b_diagnostics.json",
             "summary": "summary.json",
+            "module2b_llm_trace": "module2b_llm_trace.json",
         },
     }
 
@@ -250,6 +212,7 @@ def run_module2b_pipeline(
     dump_json(handoff_preview, run_dir / "module3_handoff_preview.json")
     dump_json(diagnostics, run_dir / "module2b_diagnostics.json")
     dump_json(summary, run_dir / "summary.json")
+    dump_json(llm_trace, run_dir / "module2b_llm_trace.json")
     dump_json(manifest, run_dir / "run_manifest.json")
 
     if not input_validation.valid:
@@ -354,150 +317,150 @@ def compare_module2b_outputs(
     }
 
 
-def _link_target_context_refs(target_binding: dict[str, Any], environment_result: dict[str, Any]) -> None:
-    target_ids = {
-        item.get("object_id")
-        for item in target_binding.get("primary_targets", [])
-        if isinstance(item, dict)
-    }
-    context_refs: list[str] = []
-
-    for structure in environment_result.get("relevant_structures", []):
-        related_ids = set(structure.get("related_object_ids", []))
-        if target_ids & related_ids:
-            context_refs.append(structure["environment_structure_id"])
-
-    context_refs = dedupe_keep_order(context_refs)
-    target_binding["context_refs"] = context_refs
-    for target in target_binding.get("primary_targets", []):
-        target["context_refs"] = list(context_refs)
-
-
-def _build_deferred_items(
-    target_binding: dict[str, Any],
-    environment_result: dict[str, Any],
-    numeric_omissions: list[dict[str, Any]],
-    measurements: list[dict[str, Any]],
-) -> dict[str, list[dict[str, Any]]]:
-    unresolved_target_ambiguities: list[dict[str, Any]] = []
-    unresolved_environment_ambiguities: list[dict[str, Any]] = []
-    needs_user_or_scale_anchor: list[dict[str, Any]] = []
-
-    for reason in target_binding.get("deferred_reasons", []):
-        unresolved_target_ambiguities.append(
-            {
-                "item": "target_binding",
-                "reason": reason,
-                "source_refs": [target_binding["binding_id"]],
-            }
-        )
-
-    if not environment_result.get("relevant_structures"):
-        unresolved_environment_ambiguities.append(
-            {
-                "item": "environment_structure",
-                "reason": "no_environment_structure_synthesized",
-                "source_refs": [target_binding["binding_id"]],
-            }
-        )
-
-    low_conf_structures = [
-        item
-        for item in environment_result.get("relevant_structures", [])
-        if float(item.get("confidence", 0.0)) < 0.45
+def _build_target_binding_trace(module2b_output: dict[str, Any]) -> dict[str, Any]:
+    target_binding = module2b_output.get("target_binding", {})
+    candidate_ids = target_binding.get("candidate_ids_ranked", [])
+    if not isinstance(candidate_ids, list):
+        candidate_ids = []
+    candidate_scoring = [
+        {
+            "object_id": str(object_id),
+            "final_score": round(max(0.0, 1.0 - 0.1 * idx), 4),
+            "reason": "llm_ranked_candidate",
+        }
+        for idx, object_id in enumerate(candidate_ids)
     ]
-    if low_conf_structures:
-        unresolved_environment_ambiguities.append(
-            {
-                "item": "environment_structure",
-                "reason": "low_confidence_environment_structure",
-                "source_refs": dedupe_keep_order(
-                    [item["environment_structure_id"] for item in low_conf_structures]
-                ),
-            }
-        )
+    selected_object_id = None
+    primary_targets = target_binding.get("primary_targets", [])
+    if isinstance(primary_targets, list) and primary_targets:
+        head = primary_targets[0]
+        if isinstance(head, dict):
+            selected_object_id = head.get("object_id")
+    if selected_object_id is None and candidate_ids:
+        selected_object_id = candidate_ids[0]
 
-    for measurement in measurements:
-        unit = measurement.get("unit")
-        basis = measurement.get("estimate_basis")
-        if unit == "level_1_to_5" or basis == "task_text_prior":
-            needs_user_or_scale_anchor.append(
-                {
-                    "item": measurement["parameter_name"],
-                    "reason": "weak_scale_anchor",
-                    "source_refs": [measurement["measurement_id"]],
-                }
-            )
-
+    top_score = candidate_scoring[0]["final_score"] if candidate_scoring else 0.0
+    second_score = candidate_scoring[1]["final_score"] if len(candidate_scoring) > 1 else 0.0
     return {
-        "unresolved_target_ambiguities": unresolved_target_ambiguities,
-        "unresolved_environment_ambiguities": unresolved_environment_ambiguities,
-        "not_numericized_items": numeric_omissions,
-        "needs_user_or_scale_anchor": needs_user_or_scale_anchor,
+        "mode": "llm_only",
+        "candidate_scoring": candidate_scoring,
+        "resolution": {
+            "selected_object_id": selected_object_id,
+            "top_score": top_score,
+            "second_score": second_score,
+            "thresholds": {"strong_margin_min": 0.15},
+        },
+        "binding_status": target_binding.get("binding_status"),
     }
 
 
-def _build_confidence_summary(
-    target_binding: dict[str, Any],
-    environment_result: dict[str, Any],
-    constraints: dict[str, Any],
-    deferred_items: dict[str, list[dict[str, Any]]],
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    target_conf = float(target_binding.get("confidence", 0.0))
+def _build_environment_trace(module2b_output: dict[str, Any]) -> dict[str, Any]:
+    env_context = module2b_output.get("environment_context", {})
+    return {
+        "mode": "llm_only",
+        "topology_tags": env_context.get("topology_tags", []),
+        "relevant_structures": env_context.get("relevant_structures", []),
+        "access_path_profile": env_context.get("access_path_profile", {}),
+    }
 
-    env_conf_components = [
-        float(item.get("confidence", 0.0))
-        for item in environment_result.get("relevant_structures", [])
+
+def _build_numeric_trace(module2b_output: dict[str, Any]) -> dict[str, Any]:
+    env_context = module2b_output.get("environment_context", {})
+    deferred = module2b_output.get("deferred_items", {})
+    omissions = deferred.get("not_numericized_items", [])
+    return {
+        "mode": "llm_only",
+        "measurements": env_context.get("numeric_estimates", []),
+        "omissions": omissions if isinstance(omissions, list) else [],
+    }
+
+
+def _build_constraint_trace(module2b_output: dict[str, Any]) -> dict[str, Any]:
+    derived = module2b_output.get("derived_constraints", {})
+    return {
+        "mode": "llm_only",
+        "constraint_catalog": derived.get("constraint_catalog", []),
+        "global_constraint_ids": derived.get("global_constraint_ids", []),
+        "subgoal_bindings": derived.get("subgoal_bindings", []),
+    }
+
+
+def _build_handoff_preview(module2b_output: dict[str, Any]) -> dict[str, Any]:
+    handoff = module2b_output.get("module3_handoff", {})
+    handoff_ids = handoff.get("handoff_constraint_ids", [])
+    if not isinstance(handoff_ids, list):
+        handoff_ids = []
+    return {
+        "schema_name": "module3_handoff_preview",
+        "schema_version": "0.1",
+        "handoff_status": handoff.get("handoff_status"),
+        "target_binding_id": handoff.get("target_binding_id"),
+        "handoff_constraint_ids": handoff_ids,
+        "handoff_constraint_count": len(handoff_ids),
+        "constraint_units_policy": handoff.get("constraint_units_policy"),
+        "pending_merge_sources": handoff.get("pending_merge_sources", []),
+        "omitted_constraint_families": [],
+    }
+
+
+def _build_confidence_breakdown(module2b_output: dict[str, Any]) -> dict[str, Any]:
+    target_binding = module2b_output.get("target_binding", {})
+    env_context = module2b_output.get("environment_context", {})
+    derived = module2b_output.get("derived_constraints", {})
+
+    target_conf = _safe_float(target_binding.get("confidence"), 0.0)
+    env_components = [
+        _safe_float(item.get("confidence"), 0.0)
+        for item in env_context.get("relevant_structures", [])
+        if isinstance(item, dict)
     ] + [
-        float(item.get("confidence", 0.0))
-        for item in environment_result.get("topology_tags", [])
+        _safe_float(item.get("confidence"), 0.0)
+        for item in env_context.get("topology_tags", [])
+        if isinstance(item, dict)
     ]
-    env_conf = (
-        sum(env_conf_components) / float(len(env_conf_components))
-        if env_conf_components
+    constraint_components = [
+        _safe_float(item.get("confidence"), 0.0)
+        for item in derived.get("constraint_catalog", [])
+        if isinstance(item, dict)
+    ]
+
+    env_mean = (sum(env_components) / len(env_components)) if env_components else 0.0
+    constraint_mean = (
+        (sum(constraint_components) / len(constraint_components))
+        if constraint_components
         else 0.0
     )
-
-    constraint_conf_components = [
-        float(item.get("confidence", 0.0))
-        for item in constraints.get("constraint_catalog", [])
-    ]
-    constraint_conf = (
-        sum(constraint_conf_components) / float(len(constraint_conf_components))
-        if constraint_conf_components
-        else 0.0
-    )
-
-    high_impact_uncertainties = dedupe_keep_order(
-        [
-            item["reason"]
-            for key in deferred_items.keys()
-            for item in deferred_items[key]
-        ]
-    )
-
-    summary = {
-        "target_binding_confidence": stable_round(target_conf, 4),
-        "environment_binding_confidence": stable_round(env_conf, 4),
-        "constraint_set_confidence": stable_round(constraint_conf, 4),
-        "high_impact_uncertainties": high_impact_uncertainties,
-    }
-
-    breakdown = {
+    return {
         "target_binding": {
-            "final": stable_round(target_conf, 4),
+            "final": round(target_conf, 4),
             "source": "target_binding.confidence",
         },
         "environment_binding": {
-            "components": [stable_round(item, 4) for item in env_conf_components],
-            "mean": stable_round(env_conf, 4),
+            "components": [round(value, 4) for value in env_components],
+            "mean": round(env_mean, 4),
         },
         "constraint_set": {
-            "components": [stable_round(item, 4) for item in constraint_conf_components],
-            "mean": stable_round(constraint_conf, 4),
+            "components": [round(value, 4) for value in constraint_components],
+            "mean": round(constraint_mean, 4),
         },
     }
-    return summary, breakdown
+
+
+def _collect_deferred_reasons(module2b_output: dict[str, Any]) -> list[str]:
+    deferred = module2b_output.get("deferred_items", {})
+    if not isinstance(deferred, dict):
+        return []
+    reasons: list[str] = []
+    for value in deferred.values():
+        if not isinstance(value, list):
+            continue
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            reason = item.get("reason")
+            if isinstance(reason, str) and reason:
+                reasons.append(reason)
+    return _unique_keep_order(reasons)
 
 
 def _load_module2b_output(path: Path) -> dict[str, Any]:
@@ -571,13 +534,19 @@ def _infer_suffix(metadata: dict[str, Any]) -> str:
     return "ad_hoc"
 
 
-def _ensure_unique_run_dir(output_root: Path, stem: str) -> Path:
-    candidate = output_root / stem
-    if not candidate.exists():
-        return ensure_dir(candidate)
-    index = 1
-    while True:
-        fallback = output_root / f"{stem}_{index:02d}"
-        if not fallback.exists():
-            return ensure_dir(fallback)
-        index += 1
+def _unique_keep_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        out.append(value)
+    return out
+
+
+def _safe_float(value: Any, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default

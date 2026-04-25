@@ -56,11 +56,11 @@ from app.utils import load_yaml
 STAGES = ["1", "2a", "2b", "2c", "2d", "3"]
 
 
-def _build_provider(name: str):
+def _build_provider(name: str, api_key: str, model: str):
     """Module 1 provider 빌드."""
     if name == "vision":
         from app.providers.vision_provider import VisionProvider
-        return VisionProvider()
+        return VisionProvider(api_key=api_key, model=model)
     if name == "mock":
         from app.providers.mock_provider import MockProvider
         return MockProvider()
@@ -127,7 +127,7 @@ def run_full_pipeline(
             raise ValueError("Module 1 실행에는 --image 필요.")
         t0 = time.time()
         m1 = run_module1_pipeline(
-            provider=_build_provider(provider_name),
+            provider=_build_provider(provider_name, api_key=api_key, model=model),
             image_path=image_path,
             case_id=None,
         )
@@ -178,6 +178,10 @@ def run_full_pipeline(
         m2b = run_module2b_pipeline(
             module2_common_path=m2_common,
             module2a_output_path=m2a_output,
+            task_name=task_name,
+            api_key=api_key,
+            model=model,
+            reasoner_mode="llm",
         )
         dirs["2b"] = Path(m2b["run_dir"])
         print(f"  -> run_dir: {dirs['2b']}  ({_elapsed(t0)})")

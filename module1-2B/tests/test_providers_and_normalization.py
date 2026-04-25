@@ -13,6 +13,7 @@ from app.providers.base import ProviderResult
 from app.providers.file_provider import FileProvider
 from app.providers.mock_provider import MockProvider
 from app.providers.vision_provider import VisionProvider
+from app.providers import vision_provider
 from app.module2b.providers import FileBundleProvider
 from app.utils import load_json, load_yaml, project_root
 
@@ -184,3 +185,36 @@ def test_module2b_file_bundle_provider_adapts_module2_template(
         module2_common_path.unlink()
     if module2a_output_path.exists():
         module2a_output_path.unlink()
+
+
+def test_build_object_entry_replaces_unknown_placeholder_name():
+    entry = vision_provider._build_object_entry(  # noqa: SLF001
+        raw_entry={"object_name": "unknown_object_1", "position": "center"},
+        index=0,
+    )
+    assert entry["object_name"] == "inferred_object_1"
+    assert entry["object_type_canonical"] == "inferred_object_1"
+
+
+def test_infer_missing_object_names_with_llm_filters_unknown_like_labels(monkeypatch):
+    def _fake_post_json(*, url, api_key, body, timeout_seconds):  # noqa: ARG001
+        payload = {
+            "object_names": [
+                {"index": 0, "object_name": "unknown_object_1"},
+                {"index": 1, "object_name": "metal_hook"},
+            ]
+        }
+        return {"choices": [{"message": {"content": json.dumps(payload)}}]}
+
+    monkeypatch.setattr(vision_provider, "_post_json", _fake_post_json)
+    overrides = vision_provider._infer_missing_object_names_with_llm(  # noqa: SLF001
+        entries=[{"name": ""}, {"name": ""}],
+        api_url="https://api.openai.com/v1/chat/completions",
+        api_key="test-key",
+        model="gpt-4.1-mini",
+        timeout_seconds=30.0,
+        image_b64="ZmFrZQ==",
+        mime_type="image/png",
+    )
+    assert overrides[0] == "inferred_object_1"
+    assert overrides[1] == "metal_hook"
