@@ -82,11 +82,7 @@ class Module2BInputValidator:
 
         duplicates = _duplicates(object_ids)
         if duplicates:
-<<<<<<< HEAD
             errors.append("Duplicate object_id values: " + ", ".join(sorted(duplicates)))
-=======
-            warnings.append("Duplicate object_id values: " + ", ".join(sorted(duplicates)))
->>>>>>> origin/subin/module2c-3-pipeline
 
         object_id_set = set(object_ids)
         for idx, obj in enumerate(inventory):

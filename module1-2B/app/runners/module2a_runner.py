@@ -9,21 +9,7 @@ from app.bridges.module1_to_module2a import build_module2_bridge_package
 from app.models.module1_normalizer import normalize_module1_raw
 from app.module2a.reasoner import generate_module2a_output
 from app.providers.base import Module1Provider
-<<<<<<< HEAD
 from app.utils import dump_json, ensure_dir, load_json, load_yaml, project_root, timestamp_id
-=======
-from app.utils import (
-    build_task_output_root,
-    derive_task_name,
-    dump_json,
-    ensure_dir,
-    ensure_unique_run_dir,
-    load_json,
-    load_yaml,
-    project_root,
-    timestamp_id,
-)
->>>>>>> origin/subin/module2c-3-pipeline
 from app.validators.module1_validator import Module1Validator
 from app.validators.schema_validator import validate_with_schema
 
@@ -38,17 +24,8 @@ def run_module2a_pipeline(
     success_criteria: list[str] | None = None,
     task_notes: list[str] | None = None,
     output_root: Path | None = None,
-<<<<<<< HEAD
 ) -> dict[str, Any]:
     """Generate Module 2-A output from module2_common_input or Module 1 bridge."""
-=======
-    task_name: str | None = None,
-) -> dict[str, Any]:
-    """Generate Module 2-A output from module2_common_input or Module 1 bridge.
-
-    Output은 outputs/<task_name>/module2a_<timestamp>_<suffix>/ 구조로 저장된다.
-    """
->>>>>>> origin/subin/module2c-3-pipeline
     root = project_root()
     output_root = output_root or (root / "outputs")
     run_id = timestamp_id()
@@ -59,21 +36,10 @@ def run_module2a_pipeline(
         or (module2_input_path.stem if module2_input_path else None)
         or "ad_hoc"
     )
-<<<<<<< HEAD
     run_dir = _ensure_unique_run_dir(
         output_root=output_root,
         stem=f"module2a_{run_id}_{suffix}",
     )
-=======
-    resolved_task_name = derive_task_name(
-        task_name=task_name,
-        bundle_path=module2_input_path or module1_output_path,
-        image_path=image_path,
-        case_id=case_id,
-    )
-    task_root = build_task_output_root(output_root, resolved_task_name)
-    run_dir = ensure_unique_run_dir(task_root, f"module2a_{run_id}_{suffix}")
->>>>>>> origin/subin/module2c-3-pipeline
 
     vocab_registry = load_json(root / "configs" / "vocab_registry.json")
     prompt_registry = load_yaml(root / "configs" / "prompt_registry.yaml")
@@ -211,7 +177,6 @@ def _inject_task_overrides(
         task_brief["task_notes"] = [item for item in task_notes if item]
 
 
-<<<<<<< HEAD
 def _ensure_unique_run_dir(output_root: Path, stem: str) -> Path:
     candidate = output_root / stem
     if not candidate.exists():
@@ -222,5 +187,3 @@ def _ensure_unique_run_dir(output_root: Path, stem: str) -> Path:
         if not fallback.exists():
             return ensure_dir(fallback)
         index += 1
-=======
->>>>>>> origin/subin/module2c-3-pipeline

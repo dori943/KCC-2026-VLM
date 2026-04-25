@@ -1,9 +1,6 @@
-<<<<<<< HEAD
 # 보안 파일 제외
 .env
 
-=======
->>>>>>> origin/subin/module2c-3-pipeline
 # 가상환경 (용량이 제일 크고 파일이 많음)
 .venv/
 .venv-1/
@@ -19,7 +16,6 @@ __pycache__/
 *.onnx
 *.weights
 *.pb
-<<<<<<< HEAD
 data/
 affordance-r1/
 VL-Grasp/
@@ -32,20 +28,14 @@ data.zip
 *.xml
 *.urdf
 
-
-# 결과물 및 로그
-=======
-
 # 결과물 및 로그
 *.png
 *.jpg
 *.jpeg
->>>>>>> origin/subin/module2c-3-pipeline
 *.mp4
 results/
 logs/
 
-<<<<<<< HEAD
 # 시스템 파일
 .DS_Store
 .vscode/
@@ -68,16 +58,3 @@ data/object2urdf/examples/ycb/
 # Sim artifacts
 scene_capture.png
 affordance_visualization.png
-=======
-# Task scene images (keep task preset images in repo)
-!module1-2B/cases/images/*.png
-!module1-2B/cases/images/*.jpg
-
-# 시스템 파일
-.DS_Store
-.vscode/# Config and schema JSON (keep in repo)
-!module1-2B/schemas/*.json
-!module1-2B/configs/*.json
-!module1-2B/configs/**/*.json
-!module1-2B/fixtures/**/*.json
->>>>>>> origin/subin/module2c-3-pipeline

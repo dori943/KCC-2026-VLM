@@ -109,43 +109,6 @@ OBJECT_GRASP_PROFILE_TABLE = {
         "close_steps": 250,
         "grasp_clearance": 0.0030,
     },
-    # ── module3_output.json 물체 프로파일 ───────────────────────────────────
-    "ruler": {
-        "gripper_force": 160,
-        "hold_force": 320,
-        "hold_force_max": 520,
-        "tighten_step": 0.0016,
-        "slip_distance_margin": 0.045,
-        "close_steps": 210,
-        "approach_height": 0.16,
-        "grasp_clearance": 0.0025,
-        "lift_height": 0.10,
-        "grasp_z_ratio": 0.50,   # 얇고 평평 → 무게중심 낮음
-    },
-    "tweezers": {
-        "gripper_force": 150,
-        "hold_force": 300,
-        "hold_force_max": 480,
-        "tighten_step": 0.0014,
-        "slip_distance_margin": 0.040,
-        "close_steps": 200,
-        "approach_height": 0.15,
-        "grasp_clearance": 0.0020,
-        "lift_height": 0.10,
-        "grasp_z_ratio": 0.55,
-    },
-    "sticky notes": {
-        "gripper_force": 140,
-        "hold_force": 280,
-        "hold_force_max": 460,
-        "tighten_step": 0.0012,
-        "slip_distance_margin": 0.040,
-        "close_steps": 190,
-        "approach_height": 0.14,
-        "grasp_clearance": 0.0020,
-        "lift_height": 0.09,
-        "grasp_z_ratio": 0.45,
-    },
 }
 
 # ── 카메라 파라미터 ───────────────────────────────────────────────────────────
