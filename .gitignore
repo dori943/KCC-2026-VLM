@@ -41,7 +41,6 @@ data.zip
 *.jpg
 *.jpeg
 >>>>>>> origin/subin/module2c-3-pipeline
-*.json
 *.mp4
 results/
 logs/
