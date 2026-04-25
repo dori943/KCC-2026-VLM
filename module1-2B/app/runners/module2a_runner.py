@@ -13,6 +13,7 @@ from app.utils import (
     build_task_output_root,
     derive_task_name,
     dump_json,
+    ensure_dir,
     ensure_unique_run_dir,
     load_json,
     load_yaml,

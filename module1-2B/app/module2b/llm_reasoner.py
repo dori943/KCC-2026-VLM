@@ -24,9 +24,58 @@ _ALLOWED_PARAMETER_UNITS: dict[str, tuple[str, ...]] = {
     "target_exposed_edge_length": ("m", "level_1_to_5"),
     "support_surface_span": ("m", "level_1_to_5"),
 }
+# constraint_catalog.parameter_name 은 numeric_estimates.parameter_name 과
+# 완전히 다른 enum (도구/접근/배치 요구사항). 별도 매핑 필요.
+_ALLOWED_CONSTRAINT_PARAMETER_UNITS: dict[str, tuple[str, ...]] = {
+    "min_effective_reach": ("m", "level_1_to_5"),
+    "max_tool_body_width": ("m", "level_1_to_5"),
+    "max_cross_section_width": ("m", "level_1_to_5"),
+    "max_tip_thickness": ("m", "level_1_to_5"),
+    "max_tip_diameter": ("m", "level_1_to_5"),
+    "min_insert_depth": ("m", "level_1_to_5"),
+    "min_contact_span": ("m", "level_1_to_5"),
+    "min_tip_force_transmission_level": ("level_1_to_5",),
+    "min_global_stiffness_level": ("level_1_to_5",),
+    "max_allowed_compliance_level": ("level_1_to_5",),
+    "min_surface_friction_level": ("level_1_to_5",),
+    "preferred_contact_friction_level": ("level_1_to_5",),
+    "min_placement_stability_level": ("level_1_to_5",),
+    "max_required_entry_angle_deg": ("deg",),
+    "max_allowed_roll_instability_level": ("level_1_to_5",),
+}
+_ALLOWED_HANDOFF_STATUS = {"ready", "partial", "blocked"}
+_ALLOWED_CONSTRAINT_UNITS_POLICY = {
+    "metric_strict", "mixed_metric_and_ordinal", "ordinal_preferred",
+}
+_ALLOWED_OMITTED_FAMILIES = {
+    "risk_limit", "target_material_state",
+    "damage_sensitivity", "contact_style_preference",
+}
 _ALLOWED_BOUND_TYPES = {"range", "upper_bound", "lower_bound"}
 _ALLOWED_PRIORITIES = {"high", "medium", "low"}
 _ALLOWED_HARDNESS = {"hard", "soft"}
+_ALLOWED_CONSTRAINT_CATEGORIES = {
+    "geometric",
+    "mechanical",
+    "surface_interaction",
+    "stability_access",
+}
+_ALLOWED_CONSTRAINT_APPLIES_TO = {
+    "tool_profile",
+    "approach_path",
+    "placement_strategy",
+}
+_ALLOWED_TOPOLOGY_LABELS = {
+    "container_neck", "recess_wall", "partial_opening", "deep_recess",
+    "through_opening", "narrow_gap", "constraining_surface_pair",
+    "confined_channel", "under_overhang", "occluding_edge",
+    "container_cavity", "support_surface", "contact_plane", "obstacle",
+}
+_ALLOWED_ENTRY_MODES = {"top_entry", "side_entry", "angled_entry", "front_entry"}
+_ALLOWED_ROTATION_CLEARANCE = {"sufficient", "limited", "severely_limited"}
+_ALLOWED_ESTIMATE_BASIS = {
+    "observed", "estimated_from_anchor", "relative_geometry", "task_text_prior",
+}
 
 
 def generate_module2b_output_with_llm(
@@ -214,6 +263,14 @@ def _normalize_module2b_payload(
     inventory_ids = _unique_keep_order(
         [str(item).strip() for item in context_dict.get("object_id_order", []) if str(item).strip()]
     )
+    # object_id -> object_name 매핑 (primary_targets 의 object_name 채우기용)
+    id_to_name: dict[str, str] = {}
+    for inv_item in context_dict.get("inventory", []) or []:
+        if isinstance(inv_item, dict):
+            oid = str(inv_item.get("object_id", "")).strip()
+            oname = str(inv_item.get("object_name", "")).strip()
+            if oid and oname:
+                id_to_name[oid] = oname
     subgoal_ids = _unique_keep_order(
         [
             str(item.get("subgoal_id", "")).strip()
@@ -228,6 +285,7 @@ def _normalize_module2b_payload(
     target_binding = _normalize_target_binding(
         raw=target_binding_raw,
         inventory_ids=inventory_ids,
+        id_to_name=id_to_name,
     )
 
     env_raw = payload.get("environment_context")
@@ -235,6 +293,7 @@ def _normalize_module2b_payload(
         env_raw = {}
     topology_tags = _normalize_topology_tags(
         raw_items=env_raw.get("topology_tags"),
+        inventory_ids=inventory_ids,
     )
     relevant_structures = _normalize_relevant_structures(
         raw_items=env_raw.get("relevant_structures"),
@@ -324,11 +383,32 @@ def _normalize_module2b_payload(
 def _normalize_target_binding(
     raw: dict[str, Any],
     inventory_ids: list[str],
+    id_to_name: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    binding_id = _safe_str(raw.get("binding_id"), "tb_01")
+    id_to_name = id_to_name or {}
+    # binding_id 는 schema 가 ^tb_[0-9]{2}$ 패턴 강제 → 결정적 채번
+    binding_id = "tb_01"
     candidate_ids_ranked = _sanitize_id_list(raw.get("candidate_ids_ranked"), inventory_ids)
     if not candidate_ids_ranked:
         candidate_ids_ranked = list(inventory_ids)
+
+    def _build_target(object_id: str, item: dict[str, Any] | None) -> dict[str, Any]:
+        item = item or {}
+        raw_evidence = item.get("evidence_keys")
+        evidence_keys: list[str] = []
+        seen: set[str] = set()
+        if isinstance(raw_evidence, list):
+            for k in raw_evidence:
+                if isinstance(k, str) and k and k not in seen:
+                    evidence_keys.append(k)
+                    seen.add(k)
+        return {
+            "object_id": object_id,
+            "object_name": id_to_name.get(object_id) or object_id,
+            "confidence": _clamp01(_safe_float(item.get("confidence"), 0.6)),
+            "evidence_keys": evidence_keys,
+            "context_refs": [],
+        }
 
     primary_targets: list[dict[str, Any]] = []
     raw_targets = raw.get("primary_targets")
@@ -339,61 +419,62 @@ def _normalize_target_binding(
             object_id = _safe_str(item.get("object_id"), "")
             if object_id not in inventory_ids:
                 continue
-            primary_targets.append(
-                {
-                    "object_id": object_id,
-                    "selection_rationale": _safe_str(
-                        item.get("selection_rationale"),
-                        "Selected by Module2B LLM reasoning.",
-                    ),
-                    "confidence": _clamp01(_safe_float(item.get("confidence"), 0.6)),
-                    "context_refs": [],
-                }
-            )
+            primary_targets.append(_build_target(object_id, item))
     if not primary_targets and candidate_ids_ranked:
-        primary_targets = [
-            {
-                "object_id": candidate_ids_ranked[0],
-                "selection_rationale": "Top-ranked candidate from Module2B LLM output.",
-                "confidence": 0.6,
-                "context_refs": [],
-            }
-        ]
+        primary_targets = [_build_target(candidate_ids_ranked[0], None)]
 
     if not candidate_ids_ranked and primary_targets:
         candidate_ids_ranked = [primary_targets[0]["object_id"]]
 
-    target_mode_default = "single_object" if len(primary_targets) <= 1 else "multi_object"
-    binding_status_default = "resolved" if primary_targets else "ambiguous"
+    # target_mode 와 binding_status enum 검증
+    target_mode = _safe_str(raw.get("target_mode"), "")
+    valid_modes = {"single", "multiple", "implicit", "ambiguous", "none"}
+    if target_mode not in valid_modes:
+        target_mode = "single" if len(primary_targets) <= 1 else "multiple"
+
+    binding_status = _safe_str(raw.get("binding_status"), "")
+    valid_statuses = {"resolved", "partially_resolved", "ambiguous", "deferred"}
+    if binding_status not in valid_statuses:
+        binding_status = "resolved" if primary_targets else "ambiguous"
+
     return {
         "binding_id": binding_id,
-        "target_mode": _safe_str(raw.get("target_mode"), target_mode_default),
-        "binding_status": _safe_str(raw.get("binding_status"), binding_status_default),
-        "confidence": _clamp01(_safe_float(raw.get("confidence"), 0.6)),
+        "target_mode": target_mode,
+        "binding_status": binding_status,
         "primary_targets": primary_targets,
         "candidate_ids_ranked": candidate_ids_ranked,
-        "deferred_reasons": _normalize_string_list(raw.get("deferred_reasons")),
         "context_refs": _normalize_string_list(raw.get("context_refs")),
+        "deferred_reasons": _normalize_string_list(raw.get("deferred_reasons")),
+        "confidence": _clamp01(_safe_float(raw.get("confidence"), 0.6)),
     }
 
 
-def _normalize_topology_tags(raw_items: Any) -> list[dict[str, Any]]:
+def _normalize_topology_tags(
+    raw_items: Any,
+    inventory_ids: list[str] | None = None,
+) -> list[dict[str, Any]]:
     tags: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
     items = raw_items if isinstance(raw_items, list) else []
+    inventory_ids = inventory_ids or []
+    fallback_ref = inventory_ids[0] if inventory_ids else None
     for idx, item in enumerate(items, start=1):
         if not isinstance(item, dict):
             continue
-        tag_id = _safe_str(item.get("tag_id"), f"tag_{idx:02d}")
-        if tag_id in seen_ids:
-            tag_id = f"{tag_id}_{idx:02d}"
+        tag_id = f"tag_{idx:02d}"
         seen_ids.add(tag_id)
+        label = _safe_str(item.get("label"), "")
+        if label not in _ALLOWED_TOPOLOGY_LABELS:
+            label = "obstacle"
+        # source_refs 는 known_ref 집합(inventory/tag/env/m/c/sg/tb)에 속해야 함.
+        # 가장 안전한 valid ref: 자기 자신의 tag_id (known_refs 에 포함됨).
+        tag_source = [tag_id] if not fallback_ref else [fallback_ref]
         tags.append(
             {
                 "tag_id": tag_id,
-                "label": _safe_str(item.get("label"), f"topology_tag_{idx:02d}"),
+                "label": label,
                 "confidence": _clamp01(_safe_float(item.get("confidence"), 0.5)),
-                "source_refs": [],
+                "source_refs": tag_source,
             }
         )
     return tags
@@ -410,38 +491,61 @@ def _normalize_relevant_structures(
     for idx, item in enumerate(items, start=1):
         if not isinstance(item, dict):
             continue
-        structure_id = _safe_str(
-            item.get("environment_structure_id"),
-            f"es_{idx:02d}",
-        )
-        if structure_id in seen_ids:
-            structure_id = f"{structure_id}_{idx:02d}"
+        structure_id = f"env_{idx:02d}"
         seen_ids.add(structure_id)
 
         related_ids = _sanitize_id_list(item.get("related_object_ids"), inventory_ids)
         if not related_ids and fallback_related_id and fallback_related_id in inventory_ids:
             related_ids = [fallback_related_id]
 
+        role = _safe_str(item.get("structure_role"), "")
+        if role not in _ALLOWED_TOPOLOGY_LABELS:
+            role = "obstacle"
+
+        # topology_tags 는 라벨 enum 의 부분집합이어야 함
+        raw_tags = item.get("topology_tags") if isinstance(item.get("topology_tags"), list) else []
+        valid_tags: list[str] = []
+        seen_tags: set[str] = set()
+        for t in raw_tags:
+            if isinstance(t, str) and t in _ALLOWED_TOPOLOGY_LABELS and t not in seen_tags:
+                valid_tags.append(t)
+                seen_tags.add(t)
+        if not valid_tags:
+            valid_tags = [role]
+
+        evidence = item.get("evidence") if isinstance(item.get("evidence"), list) else []
+        evidence = [str(e) for e in evidence if isinstance(e, str)]
+
+        # source_refs: related_object_ids 가 있으면 첫 번째, 없으면 inventory[0],
+        # 그것도 없으면 자기 자신의 structure_id (known_refs 에 포함됨).
+        if related_ids:
+            structure_source = [related_ids[0]]
+        elif inventory_ids:
+            structure_source = [inventory_ids[0]]
+        else:
+            structure_source = [structure_id]
         structures.append(
             {
                 "environment_structure_id": structure_id,
-                "structure_role": _safe_str(item.get("structure_role"), "access_channel"),
-                "description": _safe_str(item.get("description"), ""),
+                "structure_role": role,
+                "topology_tags": valid_tags,
                 "related_object_ids": related_ids,
+                "evidence": evidence,
+                "source_refs": structure_source,
                 "confidence": _clamp01(_safe_float(item.get("confidence"), 0.5)),
-                "source_refs": [],
             }
         )
 
     if not structures and fallback_related_id and fallback_related_id in inventory_ids:
         structures = [
             {
-                "environment_structure_id": "es_01",
-                "structure_role": "access_channel",
-                "description": "Default environment structure inferred from target vicinity.",
+                "environment_structure_id": "env_01",
+                "structure_role": "obstacle",
+                "topology_tags": ["obstacle"],
                 "related_object_ids": [fallback_related_id],
+                "evidence": ["Default environment structure inferred from target vicinity."],
+                "source_refs": [fallback_related_id],
                 "confidence": 0.5,
-                "source_refs": [],
             }
         ]
     return structures
@@ -449,12 +553,32 @@ def _normalize_relevant_structures(
 
 def _normalize_access_path_profile(raw: Any) -> dict[str, Any]:
     profile = raw if isinstance(raw, dict) else {}
+
+    entry_mode = _safe_str(profile.get("entry_mode"), "")
+    if entry_mode not in _ALLOWED_ENTRY_MODES:
+        entry_mode = "top_entry"
+
+    rotation_clearance = _safe_str(profile.get("rotation_clearance"), "")
+    if rotation_clearance not in _ALLOWED_ROTATION_CLEARANCE:
+        rotation_clearance = "limited"
+
+    # confinement_level 은 정수 enum [1, 2, 3]
+    raw_conf = profile.get("confinement_level")
+    try:
+        conf_int = int(raw_conf)
+    except (TypeError, ValueError):
+        conf_int = 2
+    if conf_int not in (1, 2, 3):
+        conf_int = 2
+
     return {
-        "entry_mode": _safe_str(profile.get("entry_mode"), "direct"),
-        "confinement_level": _safe_str(profile.get("confinement_level"), "medium"),
+        "entry_mode": entry_mode,
+        "rotation_clearance": rotation_clearance,
+        "requires_pass_through_opening": bool(profile.get("requires_pass_through_opening", False)),
         "requires_deep_reach": bool(profile.get("requires_deep_reach", False)),
-        "collision_risk": _safe_str(profile.get("collision_risk"), "unknown"),
-        "occlusion_level": _safe_str(profile.get("occlusion_level"), "unknown"),
+        "available_support_surface": bool(profile.get("available_support_surface", False)),
+        "slip_hazard_present": bool(profile.get("slip_hazard_present", False)),
+        "confinement_level": conf_int,
     }
 
 
@@ -469,9 +593,7 @@ def _normalize_numeric_estimates(
     for idx, item in enumerate(items, start=1):
         if not isinstance(item, dict):
             continue
-        measurement_id = _safe_str(item.get("measurement_id"), f"me_{idx:02d}")
-        if measurement_id in seen_ids:
-            measurement_id = f"{measurement_id}_{idx:02d}"
+        measurement_id = f"m_{idx:02d}"
         seen_ids.add(measurement_id)
 
         parameter_name = _safe_str(item.get("parameter_name"), "opening_width")
@@ -510,38 +632,48 @@ def _normalize_numeric_estimates(
                 lower_value = upper_value if upper_value is not None else default_value
             upper_value = None
 
+        estimate_basis = _safe_str(item.get("estimate_basis"), "")
+        if estimate_basis not in _ALLOWED_ESTIMATE_BASIS:
+            estimate_basis = "task_text_prior"
+
+        related = _sanitize_id_list(
+            item.get("related_environment_structure_ids"),
+            structure_ids,
+        )
+        if not related and structure_ids:
+            related = [structure_ids[0]]
+
+        # source_refs: 관련 env_structure_id 사용 (없으면 measurement_id 자기참조)
+        meas_source = related[:1] if related else [measurement_id]
         estimates.append(
             {
                 "measurement_id": measurement_id,
                 "parameter_name": parameter_name,
+                "unit": unit,
                 "bound_type": bound_type,
                 "lower_value": lower_value,
                 "upper_value": upper_value,
-                "unit": unit,
-                "estimate_basis": _safe_str(item.get("estimate_basis"), "llm_inference"),
+                "estimate_basis": estimate_basis,
+                "related_environment_structure_ids": related,
+                "source_refs": meas_source,
                 "confidence": _clamp01(_safe_float(item.get("confidence"), 0.5)),
-                "related_environment_structure_ids": _sanitize_id_list(
-                    item.get("related_environment_structure_ids"),
-                    structure_ids,
-                ),
-                "source_refs": [],
             }
         )
 
     if not estimates:
-        default_related = [structure_ids[0]] if structure_ids else []
+        default_related = [structure_ids[0]] if structure_ids else ["env_01"]
         estimates = [
             {
-                "measurement_id": "me_01",
+                "measurement_id": "m_01",
                 "parameter_name": "opening_width",
+                "unit": "level_1_to_5",
                 "bound_type": "upper_bound",
                 "lower_value": None,
                 "upper_value": 3.0,
-                "unit": "level_1_to_5",
-                "estimate_basis": "llm_inference",
-                "confidence": 0.5,
+                "estimate_basis": "task_text_prior",
                 "related_environment_structure_ids": default_related,
-                "source_refs": [],
+                "source_refs": default_related[:1],
+                "confidence": 0.5,
             }
         ]
     return estimates
@@ -568,9 +700,9 @@ def _normalize_constraint_catalog(
     for idx, item in enumerate(items, start=1):
         if not isinstance(item, dict):
             continue
-        constraint_id = _safe_str(item.get("constraint_id"), f"ct_{idx:02d}")
-        if constraint_id in seen_ids:
-            constraint_id = f"{constraint_id}_{idx:02d}"
+        # constraint_id 는 schema 가 ^c_[0-9]{2}$ 패턴을 강제하므로 LLM 출력은
+        # 무시하고 코드가 결정적으로 c_01, c_02 ... 로 채번한다.
+        constraint_id = f"c_{idx:02d}"
         seen_ids.add(constraint_id)
 
         constraint_subgoal_ids = _sanitize_id_list(item.get("subgoal_ids"), subgoal_ids)
@@ -589,17 +721,13 @@ def _normalize_constraint_catalog(
             if constraint_measurement_ids
             else (measurement_lookup.get(default_measurement_id) if default_measurement_id else None)
         )
+        # constraint_catalog.parameter_name 은 측정값 enum 이 아닌
+        # constraint enum 을 사용해야 한다.
         parameter_name = _safe_str(item.get("parameter_name"), "")
-        if parameter_name not in _ALLOWED_PARAMETER_UNITS:
-            parameter_name = (
-                _safe_str(primary_measurement.get("parameter_name"), "opening_width")
-                if isinstance(primary_measurement, dict)
-                else "opening_width"
-            )
-        if parameter_name not in _ALLOWED_PARAMETER_UNITS:
-            parameter_name = "opening_width"
+        if parameter_name not in _ALLOWED_CONSTRAINT_PARAMETER_UNITS:
+            parameter_name = "min_effective_reach"
 
-        allowed_units = _ALLOWED_PARAMETER_UNITS[parameter_name]
+        allowed_units = _ALLOWED_CONSTRAINT_PARAMETER_UNITS[parameter_name]
         unit = _safe_str(item.get("unit"), "")
         if unit not in allowed_units:
             if isinstance(primary_measurement, dict):
@@ -650,45 +778,109 @@ def _normalize_constraint_catalog(
         if hardness not in _ALLOWED_HARDNESS:
             hardness = "hard"
 
+        category = _safe_str(item.get("category"), "")
+        if category not in _ALLOWED_CONSTRAINT_CATEGORIES:
+            # parameter_name 으로부터 카테고리를 추정 (덜 임의적인 default)
+            if parameter_name in {
+                "min_effective_reach", "max_tool_body_width",
+                "max_cross_section_width", "max_tip_thickness",
+                "max_tip_diameter", "min_insert_depth",
+                "min_contact_span", "max_required_entry_angle_deg",
+            }:
+                category = "geometric"
+            elif parameter_name in {
+                "min_tip_force_transmission_level",
+                "min_global_stiffness_level",
+                "max_allowed_compliance_level",
+            }:
+                category = "mechanical"
+            elif parameter_name in {
+                "min_surface_friction_level",
+                "preferred_contact_friction_level",
+            }:
+                category = "surface_interaction"
+            elif parameter_name in {
+                "min_placement_stability_level",
+                "max_allowed_roll_instability_level",
+            }:
+                category = "stability_access"
+            else:
+                category = "geometric"
+
+        applies_to = _safe_str(item.get("applies_to"), "")
+        if applies_to not in _ALLOWED_CONSTRAINT_APPLIES_TO:
+            # parameter_name 으로부터 applies_to 를 추정
+            if parameter_name in {
+                "min_placement_stability_level",
+                "max_allowed_roll_instability_level",
+            }:
+                applies_to = "placement_strategy"
+            elif parameter_name in {
+                "max_required_entry_angle_deg",
+                "min_effective_reach",
+            }:
+                applies_to = "approach_path"
+            else:
+                applies_to = "tool_profile"
+
         constraints.append(
             {
                 "constraint_id": constraint_id,
                 "subgoal_ids": constraint_subgoal_ids,
                 "priority": priority,
                 "hardness": hardness,
-                "category": _safe_str(item.get("category"), "environment"),
+                "category": category,
                 "parameter_name": parameter_name,
                 "bound_type": bound_type,
                 "lower_value": lower_value,
                 "upper_value": upper_value,
                 "unit": unit,
-                "applies_to": _safe_str(item.get("applies_to"), "global"),
+                "applies_to": applies_to,
                 "target_binding_ids": [binding_id],
                 "measurement_ids": constraint_measurement_ids,
                 "confidence": _clamp01(_safe_float(item.get("confidence"), 0.5)),
-                "source_refs": [],
+                # source_refs: 측정 id 우선, 없으면 subgoal id, 없으면 binding_id
+                "source_refs": (
+                    constraint_measurement_ids[:1]
+                    if constraint_measurement_ids
+                    else (constraint_subgoal_ids[:1] if constraint_subgoal_ids else [binding_id])
+                ),
             }
         )
 
     if not constraints:
         default_measurement = numeric_estimates[0] if numeric_estimates else {}
+        # constraint enum 으로 default 잡기 (측정값 enum 아님)
+        default_param = "min_effective_reach"
+        default_unit = _preferred_unit(_ALLOWED_CONSTRAINT_PARAMETER_UNITS[default_param])
+        default_bound = "upper_bound"
+        default_meas_ids = (
+            [default_measurement.get("measurement_id")]
+            if default_measurement.get("measurement_id")
+            else []
+        )
+        fallback_source = (
+            default_meas_ids[:1]
+            if default_meas_ids
+            else (subgoal_ids[:1] if subgoal_ids else [binding_id])
+        )
         constraints = [
             {
-                "constraint_id": "ct_01",
+                "constraint_id": "c_01",
                 "subgoal_ids": list(subgoal_ids),
                 "priority": "medium",
                 "hardness": "hard",
-                "category": "environment",
-                "parameter_name": _safe_str(default_measurement.get("parameter_name"), "opening_width"),
-                "bound_type": _safe_str(default_measurement.get("bound_type"), "upper_bound"),
-                "lower_value": default_measurement.get("lower_value"),
-                "upper_value": default_measurement.get("upper_value"),
-                "unit": _safe_str(default_measurement.get("unit"), "level_1_to_5"),
-                "applies_to": "global",
+                "category": "geometric",
+                "parameter_name": default_param,
+                "bound_type": default_bound,
+                "lower_value": None,
+                "upper_value": 3.0,
+                "unit": default_unit,
+                "applies_to": "tool_profile",
                 "target_binding_ids": [binding_id],
-                "measurement_ids": [default_measurement.get("measurement_id")] if default_measurement.get("measurement_id") else [],
+                "measurement_ids": default_meas_ids,
                 "confidence": 0.5,
-                "source_refs": [],
+                "source_refs": fallback_source,
             }
         ]
     return constraints
@@ -756,12 +948,34 @@ def _normalize_module3_handoff(
     if not pending_merge_sources:
         pending_merge_sources = ["material_reasoner"]
 
+    handoff_status = _safe_str(payload.get("handoff_status"), "")
+    if handoff_status not in _ALLOWED_HANDOFF_STATUS:
+        handoff_status = "ready"
+
+    units_policy = _safe_str(payload.get("constraint_units_policy"), "")
+    if units_policy not in _ALLOWED_CONSTRAINT_UNITS_POLICY:
+        units_policy = "mixed_metric_and_ordinal"
+
+    raw_omitted = payload.get("omitted_constraint_families")
+    omitted: list[str] = []
+    seen_omitted: set[str] = set()
+    if isinstance(raw_omitted, list):
+        for fam in raw_omitted:
+            if isinstance(fam, str) and fam in _ALLOWED_OMITTED_FAMILIES and fam not in seen_omitted:
+                omitted.append(fam)
+                seen_omitted.add(fam)
+
+    raw_notes = payload.get("notes")
+    notes = [str(n) for n in raw_notes if isinstance(n, str)] if isinstance(raw_notes, list) else []
+
+    # binding_id 는 schema 에 없는 필드라 제거.
     return {
-        "handoff_status": _safe_str(payload.get("handoff_status"), "ready"),
-        "target_binding_id": binding_id,
+        "handoff_status": handoff_status,
+        "constraint_units_policy": units_policy,
         "handoff_constraint_ids": handoff_constraint_ids,
-        "constraint_units_policy": _safe_str(payload.get("constraint_units_policy"), "mixed"),
         "pending_merge_sources": pending_merge_sources,
+        "omitted_constraint_families": omitted,
+        "notes": notes,
     }
 
 
