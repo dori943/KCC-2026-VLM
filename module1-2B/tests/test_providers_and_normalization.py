@@ -2,18 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-<<<<<<< HEAD
 import pytest
 
 from app.models.module1_normalizer import normalize_module1_raw
 from app.providers.file_provider import FileProvider
 from app.providers.mock_provider import MockProvider
 from app.providers.vision_provider import VisionProvider
-=======
-from app.models.module1_normalizer import normalize_module1_raw
-from app.providers.file_provider import FileProvider
-from app.providers.mock_provider import MockProvider
->>>>>>> origin/subin/module2c-3-pipeline
 from app.utils import project_root
 
 
@@ -39,7 +33,6 @@ def test_normalization_preserves_traceability(fixture_raw_outputs):
     assert normalized.objects[0].raw_object_id == "obj_01"
     assert normalized.objects[0].provenance["raw_path"] == "objects[0]"
     assert normalized.objects[0].usable_parts[0].part_name == "cavity"
-<<<<<<< HEAD
 
 
 def test_vision_provider_requires_image(monkeypatch):
@@ -60,5 +53,3 @@ def test_vision_provider_requires_api_key(repo_root: Path, monkeypatch):
     finally:
         if image_path.exists():
             image_path.unlink()
-=======
->>>>>>> origin/subin/module2c-3-pipeline

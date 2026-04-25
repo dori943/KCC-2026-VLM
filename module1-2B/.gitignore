@@ -9,10 +9,3 @@ pytest-cache-files-*
 outputs/scratch/
 outputs/**/__pycache__/
 outputs/**/*.pyc
-<<<<<<< HEAD
-=======
-outputs/
-outputs_archive/
-outputs_backup.zip
-outputs_old_backup.zip
->>>>>>> origin/subin/module2c-3-pipeline

@@ -56,60 +56,6 @@ YCB_OBJECT_SPECS = [
     ("flat_screwdriver", "044_flat_screwdriver.urdf", [0.45, -0.35, 0.82]),
 ]
 
-def _load_module3_object_labels(json_path: str) -> list[str]:
-    """
-    module3_output.json에서 사용된 물체 이름 목록을 파싱해 반환.
-    base_object / attach_object 모두 수집하며 순서를 유지한다.
-    """
-    import json as _json
-    try:
-        raw = _json.loads(open(json_path, encoding="utf-8").read())
-        seen, labels = set(), []
-        for step in raw.get("assembly_steps", []):
-            for key in ("base_object", "attach_object"):
-                val = step.get(key)
-                if val and val not in seen:
-                    seen.add(val)
-                    labels.append(val)
-        print(f"[Boot] module3 object labels: {labels}")
-        return labels
-    except Exception as exc:
-        print(f"[Boot][WARN] could not parse module3_output.json ({exc}); using fallback YCB spec.")
-        return []
-
-
-def _build_ycb_object_specs(json_path: str) -> list[tuple]:
-    """
-    module3_output.json 물체 목록을 기반으로 YCB_OBJECT_SPECS를 동적 생성.
-    JSON에 없는 물체나 매핑이 없는 경우 경고 후 건너뜀.
-    """
-    labels = _load_module3_object_labels(json_path)
-    if not labels:
-        # fallback: 기존 YCB 전체 로드
-        return [
-            ("chips_can",     "001_chips_can.urdf",     [0.80, -0.15, 0.82]),
-            ("apple",         "013_apple.urdf",          [0.55, -0.25, 0.82]),
-            ("cracker_box",   "003_cracker_box.urdf",   [0.70,  0.10, 0.82]),
-            ("mug",           "025_mug.urdf",            [0.62, -0.05, 0.82]),
-            ("mustard_bottle","006_mustard_bottle.urdf", [0.47, -0.12, 0.82]),
-            ("large_clamp",   "051_large_clamp.urdf",   [0.76,  0.22, 0.82]),
-        ]
-    specs = []
-    for raw_label in labels:
-        entry = MODULE3_LABEL_TO_YCB.get(raw_label)
-        if entry is None:
-            print(f"[Boot][WARN] '{raw_label}' is not in MODULE3_LABEL_TO_YCB — skipping load.")
-            continue
-        specs.append(entry)
-    return specs
-
-
-# JSON 경로를 미리 결정 (main() 호출 전에도 사용)
-_MODULE3_JSON_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "module3_task1_output.json")
-
-# 동적으로 결정된 YCB_OBJECT_SPECS
-YCB_OBJECT_SPECS: list[tuple] = _build_ycb_object_specs(_MODULE3_JSON_PATH)
-
 MODULE1_FALLBACK_MAP = {
     "clamp_ranges": {
         "lateral_friction": [0.05, 2.0],

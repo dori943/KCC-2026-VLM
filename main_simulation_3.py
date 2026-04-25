@@ -38,76 +38,14 @@ RIGHT_BASE_POSITION = [0.0, 0.35, 0.65]
 TABLE_BASE_POSITION = [0.6, 0.0, 0.0]
 YCB_DIR = "/workspace/KCC-2026-VLM/data/object2urdf/examples/ycb"
 
-
-# module3_output.json 물체 이름 → YCB URDF 파일명 매핑
-# 새로운 물체가 추가될 경우 이 딕셔너리에 항목을 추가하세요.
-MODULE3_LABEL_TO_YCB = {
-    "ruler":        ("ruler",        "ruler.urdf",              [0.55, -0.20, 0.82]),
-    "tweezers":     ("tweezers",     "tweezers.urdf",           [0.60,  0.10, 0.82]),
-    "sticky notes": ("sticky_notes", "sticky_notes.urdf",       [0.65,  0.00, 0.82]),
-    # ── 기존 YCB fallback (module3_output.json에 없을 경우에도 로드 가능) ──
-    "chips_can":    ("chips_can",    "001_chips_can.urdf",      [0.80, -0.15, 0.82]),
-    "apple":        ("apple",        "013_apple.urdf",          [0.55, -0.25, 0.82]),
-    "cracker_box":  ("cracker_box",  "003_cracker_box.urdf",   [0.70,  0.10, 0.82]),
-    "mug":          ("mug",          "025_mug.urdf",            [0.62, -0.05, 0.82]),
-    "mustard_bottle":("mustard_bottle","006_mustard_bottle.urdf",[0.47,-0.12, 0.82]),
-    "large_clamp":  ("large_clamp",  "051_large_clamp.urdf",   [0.76,  0.22, 0.82]),
-}
-
-
-def _load_module3_object_labels(json_path: str) -> list[str]:
-    """
-    module3_output.json에서 사용된 물체 이름 목록을 파싱해 반환.
-    base_object / attach_object 모두 수집하며 순서를 유지한다.
-    """
-    import json as _json
-    try:
-        raw = _json.loads(open(json_path, encoding="utf-8").read())
-        seen, labels = set(), []
-        for step in raw.get("assembly_steps", []):
-            for key in ("base_object", "attach_object"):
-                val = step.get(key)
-                if val and val not in seen:
-                    seen.add(val)
-                    labels.append(val)
-        print(f"[Boot] module3 object labels: {labels}")
-        return labels
-    except Exception as exc:
-        print(f"[Boot][WARN] could not parse module3_output.json ({exc}); using fallback YCB spec.")
-        return []
-
-
-def _build_ycb_object_specs(json_path: str) -> list[tuple]:
-    """
-    module3_output.json 물체 목록을 기반으로 YCB_OBJECT_SPECS를 동적 생성.
-    JSON에 없는 물체나 매핑이 없는 경우 경고 후 건너뜀.
-    """
-    labels = _load_module3_object_labels(json_path)
-    if not labels:
-        # fallback: 기존 YCB 전체 로드
-        return [
-            ("chips_can",     "001_chips_can.urdf",     [0.80, -0.15, 0.82]),
-            ("apple",         "013_apple.urdf",          [0.55, -0.25, 0.82]),
-            ("cracker_box",   "003_cracker_box.urdf",   [0.70,  0.10, 0.82]),
-            ("mug",           "025_mug.urdf",            [0.62, -0.05, 0.82]),
-            ("mustard_bottle","006_mustard_bottle.urdf", [0.47, -0.12, 0.82]),
-            ("large_clamp",   "051_large_clamp.urdf",   [0.76,  0.22, 0.82]),
-        ]
-    specs = []
-    for raw_label in labels:
-        entry = MODULE3_LABEL_TO_YCB.get(raw_label)
-        if entry is None:
-            print(f"[Boot][WARN] '{raw_label}' is not in MODULE3_LABEL_TO_YCB — skipping load.")
-            continue
-        specs.append(entry)
-    return specs
-
-
-# JSON 경로를 미리 결정 (main() 호출 전에도 사용)
-_MODULE3_JSON_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "module3_output.json")
-
-# 동적으로 결정된 YCB_OBJECT_SPECS
-YCB_OBJECT_SPECS: list[tuple] = _build_ycb_object_specs(_MODULE3_JSON_PATH)
+YCB_OBJECT_SPECS = [
+    ("chips_can", "001_chips_can.urdf", [0.80, -0.15, 0.82]),
+    ("apple", "013_apple.urdf", [0.55, -0.25, 0.82]),
+    ("cracker_box", "003_cracker_box.urdf", [0.70, 0.10, 0.82]),
+    ("mug", "025_mug.urdf", [0.62, -0.05, 0.82]),
+    ("mustard_bottle", "006_mustard_bottle.urdf", [0.47, -0.12, 0.82]),
+    ("large_clamp", "051_large_clamp.urdf", [0.76, 0.22, 0.82]),
+]
 
 MODULE1_FALLBACK_MAP = {
     "clamp_ranges": {
@@ -196,31 +134,6 @@ YCB_MODULE1_PROFILE_BY_LABEL = {
         "mass_category": "medium",
         "density_category": "high",
         "size_relative": "small",
-    },
-    # ── module3_output.json 물체 물리 프로파일 ──────────────────────────────
-    "ruler": {
-        "surface_friction": "low",
-        "slip_tendency": "high",
-        "mass_category": "very_light",
-        "density_category": "medium",
-        "size_relative": "large",
-        "deformability": "low",
-    },
-    "tweezers": {
-        "surface_friction": "medium",
-        "slip_tendency": "medium",
-        "mass_category": "very_light",
-        "density_category": "high",
-        "size_relative": "small",
-        "deformability": "low",
-    },
-    "sticky notes": {
-        "surface_friction": "high",
-        "slip_tendency": "low",
-        "mass_category": "very_light",
-        "density_category": "very_low",
-        "size_relative": "medium",
-        "deformability": "medium",
     },
 }
 
@@ -721,39 +634,19 @@ def run_sequential_demo(
         print("[Demo][WARN] no YCB objects were loaded, skipping grasp demo.")
         return
 
-    # ── module3_output.json에서 grasp 대상 결정 ────────────────────────────
-    # JSON의 assembly_steps 순서에 따라 첫 번째 base_object를 left arm,
-    # 첫 번째 attach_object(또는 두 번째 base_object)를 right arm으로 할당.
-    _m3_labels = _load_module3_object_labels(_MODULE3_JSON_PATH)
-    _loaded_labels = list(ycb_object_ids.keys())  # 실제 로드된 물체만 후보
-
-    # left: JSON 첫 번째 물체 (loaded 중 첫 번째로 매칭)
-    left_target_label = next(
-        (lbl for lbl in _m3_labels if lbl in ycb_object_ids),
-        _loaded_labels[0] if _loaded_labels else None,
-    )
-    # right: JSON 두 번째 물체 (left와 다른 것 중 첫 번째)
-    right_target_label = next(
-        (lbl for lbl in _m3_labels if lbl in ycb_object_ids and lbl != left_target_label),
-        _loaded_labels[1] if len(_loaded_labels) > 1 else left_target_label,
-    )
-
-    if left_target_label is None:
-        print("[Demo][WARN] could not determine left grasp target; skipping demo.")
-        return
-
+    left_target_label  = "apple"          if "apple"          in ycb_object_ids else next(iter(ycb_object_ids))
+    right_target_label = "mustard_bottle"  if "mustard_bottle"  in ycb_object_ids else next(iter(ycb_object_ids))
     left_body_id  = ycb_object_ids[left_target_label]
     right_body_id = ycb_object_ids[right_target_label]
 
-    print(f"[Demo] grasp targets — left: '{left_target_label}', right: '{right_target_label}'")
-
-    # 조립·배치 위치 (두 팔이 서로 다른 Y 방향에서 접근)
-    ASSEMBLY_POS_LEFT  = [0.62, -0.10, 0.97]
-    ASSEMBLY_POS_RIGHT = [0.62,  0.10, 1.13]
+    # 조립·배치 위치
+    # 두 팔이 서로 다른 Y 방향에서 접근하므로 충돌이 없는 높이를 사용한다.
+    ASSEMBLY_POS_LEFT  = [0.62, -0.10, 0.97]   # left(apple)  — 살짝 왼쪽
+    ASSEMBLY_POS_RIGHT = [0.62,  0.10, 1.13]   # right(mustard) — 살짝 오른쪽·위
     PLACE_POS          = [0.62,  0.00, 0.85]
 
     # ══════════════════════════════════════════════════════
-    # Step 1-L. Left arm: base_object 파지 → 제자리 대기
+    # Step 1-L. Left arm: apple 파지 → 제자리 대기
     # ══════════════════════════════════════════════════════
     print(f"[Demo] left-arm grasp target: {left_target_label}")
     left_ok = left.grasp_body(
@@ -768,7 +661,7 @@ def run_sequential_demo(
         print("[Demo] left arm holding — waiting for right arm grasp.")
 
     # ══════════════════════════════════════════════════════
-    # Step 1-R. Right arm: attach_object 파지 → 제자리 대기
+    # Step 1-R. Right arm: mustard_bottle 파지 → 제자리 대기
     #           left가 들고 있는 동안 hold_companion으로 보호
     # ══════════════════════════════════════════════════════
     print(f"[Demo] right-arm grasp target: {right_target_label}")
@@ -790,7 +683,7 @@ def run_sequential_demo(
     # ══════════════════════════════════════════════════════
     carry_constraint = None
     if left_ok:
-        # carry constraint: 이동 중 left_target이 미끄러지지 않도록 EE에 고정
+        # carry constraint: 이동 중 apple이 미끄러지지 않도록 EE에 고정
         obj_pos, _   = p.getBasePositionAndOrientation(left_body_id)
         ee_pos, ee_orn = left.get_end_effector_pose()
         ee_orn_inv = p.invertTransform([0, 0, 0], list(ee_orn))[1]
@@ -809,7 +702,7 @@ def run_sequential_demo(
             childFramePosition=[0, 0, 0],
         )
         p.changeConstraint(carry_constraint, maxForce=200)
-        print(f"[Demo] carry constraint set — '{left_target_label}' locked to EE.")
+        print("[Demo] carry constraint set — apple locked to EE.")
 
         left.move_end_effector_to(
             ASSEMBLY_POS_LEFT, orientation=down_orn, steps=600,
@@ -842,14 +735,11 @@ def run_sequential_demo(
     if os.path.isfile(_plan_path):
         try:
             assembly_manager.load_plan_from_json(_plan_path)
-            # JSON에 등장하는 모든 물체 label → pybullet body_id 매핑 등록
-            # ycb_object_ids 키는 MODULE3_LABEL_TO_YCB의 urdf_label(=raw json label)과 일치
-            _m3_all_labels = _load_module3_object_labels(_plan_path)
-            _body_map = {lbl: ycb_object_ids[lbl] for lbl in _m3_all_labels if lbl in ycb_object_ids}
-            if not _body_map:
-                # fallback: 로드된 두 물체만 등록
-                _body_map = {left_target_label: left_body_id, right_target_label: right_body_id}
-            assembly_manager.register_bodies(_body_map)
+            # JSON의 object label과 pybullet body_id를 매핑
+            assembly_manager.register_bodies({
+                left_target_label:  left_body_id,
+                right_target_label: right_body_id,
+            })
             _plan_loaded = True
         except Exception as exc:
             print(f"[Demo][WARN] module3 plan load failed ({exc}), using fallback attach.")
@@ -868,9 +758,9 @@ def run_sequential_demo(
             print("[Demo] bodies too far apart — nudging right arm closer...")
             left_aabb_min, left_aabb_max   = p.getAABB(left_body_id)
             right_aabb_min, right_aabb_max = p.getAABB(right_body_id)
-            left_top_z     = float(left_aabb_max[2])
-            right_half_z   = (float(right_aabb_max[2]) - float(right_aabb_min[2])) / 2.0
-            nudge_pos = [float(main_pos[0]), float(main_pos[1]), left_top_z + right_half_z + 0.01]
+            apple_top_z    = float(left_aabb_max[2])
+            mustard_half_z = (float(right_aabb_max[2]) - float(right_aabb_min[2])) / 2.0
+            nudge_pos = [float(main_pos[0]), float(main_pos[1]), apple_top_z + mustard_half_z + 0.01]
             right.move_end_effector_to(nudge_pos, orientation=down_orn, steps=400, hold_companion=left)
             right.maintain_grasp_hold(steps=60)
             main_pos, main_orn = p.getBasePositionAndOrientation(left_body_id)
