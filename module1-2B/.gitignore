@@ -1,0 +1,18 @@
+# Python bytecode/cache
+__pycache__/
+*.py[cod]
+
+# Transient pytest cache directories observed in this workspace
+pytest-cache-files-*
+
+# Runtime artifacts
+outputs/scratch/
+outputs/**/__pycache__/
+outputs/**/*.pyc
+<<<<<<< HEAD
+=======
+outputs/
+outputs_archive/
+outputs_backup.zip
+outputs_old_backup.zip
+>>>>>>> origin/subin/module2c-3-pipeline

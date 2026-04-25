@@ -1,0 +1,10 @@
+﻿registry_version: "0.1"
+variants:
+  baseline_env_only_v0_1:
+    prompt_variant: baseline_v0_1
+    target_binding_rules: configs/module2b_target_binding_rules.yaml
+    environment_rules: configs/module2b_environment_rules.yaml
+    numericization_rules: configs/module2b_numericization_rules.yaml
+    constraint_rules: configs/module2b_constraint_rules.yaml
+    notes: Deterministic env-only baseline with strict schema output.
+default_variant: baseline_env_only_v0_1

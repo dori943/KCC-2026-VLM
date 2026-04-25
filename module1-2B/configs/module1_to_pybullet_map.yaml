@@ -1,0 +1,138 @@
+map_version: "1.0.0"
+notes:
+  - "This mapping produces experimental surrogates for simulation only."
+  - "Surrogate parameters are not treated as ground-truth physical values."
+clamp_ranges:
+  lateral_friction: [0.05, 2.0]
+  restitution: [0.0, 0.95]
+  mass_kg: [0.02, 5.0]
+  linear_damping: [0.0, 0.2]
+  angular_damping: [0.0, 0.2]
+friction_map:
+  low: 0.2
+  medium: 0.6
+  high: 1.0
+slip_penalty:
+  low: -0.05
+  medium: -0.15
+  high: -0.3
+restitution_map:
+  low: 0.15
+  medium: 0.45
+  high: 0.75
+mass_base_kg_by_category:
+  very_light: 0.08
+  light: 0.25
+  medium: 0.75
+  heavy: 1.8
+density_multiplier:
+  very_low: 0.7
+  low: 0.9
+  medium: 1.1
+  high: 1.35
+size_multiplier:
+  very_small: 0.6
+  small: 0.8
+  medium: 1.0
+  large: 1.25
+  very_large: 1.5
+  unknown: 1.0
+thickness_to_radius_m:
+  very_thin: 0.008
+  thin: 0.015
+  medium: 0.03
+  thick: 0.05
+  bulky: 0.08
+  unknown: 0.03
+proxy_rules:
+  - rule_id: "shape_sphere_like"
+    when:
+      path: "geometry.shape_class"
+      op: "contains_any"
+      values: ["sphere", "ball"]
+    primitive: "sphere"
+  - rule_id: "shape_cylinder_like"
+    when:
+      path: "geometry.shape_class"
+      op: "contains_any"
+      values: ["cylinder", "bottle", "can"]
+    primitive: "cylinder"
+  - rule_id: "shape_capsule_elongated"
+    when:
+      path: "geometry.aspect_ratio_hint"
+      op: "eq"
+      value: "elongated"
+    primitive: "capsule"
+  - rule_id: "shape_container_cavity"
+    when:
+      path: "geometry.has_open_cavity"
+      op: "eq"
+      value: true
+    primitive: "thin_box"
+  - rule_id: "shape_sheet_like"
+    when:
+      path: "geometry.aspect_ratio_hint"
+      op: "eq"
+      value: "sheet_like"
+    primitive: "thin_box"
+default_proxy:
+  primitive: "box"
+  reason: "fallback_no_specific_geometry_match"
+dimensions_defaults:
+  box:
+    half_extents_m: [0.03, 0.04, 0.03]
+  thin_box:
+    half_extents_m: [0.04, 0.04, 0.008]
+  sphere:
+    radius_m: 0.03
+  cylinder:
+    radius_m: 0.028
+    height_m: 0.08
+  capsule:
+    radius_m: 0.015
+    height_m: 0.09
+dimension_scale_rules:
+  usable_span_reference_m: 0.12
+  min_scale: 0.6
+  max_scale: 2.0
+non_rigid_metadata_rules:
+  - property: "stiffness"
+    strategy: "diagnostic_only"
+    note: "Rigid-body simulator cannot directly capture stiffness gradients."
+  - property: "deformability"
+    strategy: "diagnostic_only"
+    note: "Captured as risk/metadata, not direct rigid-body dynamics."
+  - property: "fragility"
+    strategy: "diagnostic_only"
+    note: "Used for risk diagnostics only."
+  - property: "failure_mode"
+    strategy: "diagnostic_only"
+    note: "Failure mode not physically simulated in this phase."
+  - property: "press_response_type"
+    strategy: "diagnostic_only"
+    note: "Press response requires deformable/contact modeling."
+  - property: "tip_force_transmission"
+    strategy: "diagnostic_only"
+    note: "Stored for future contact model refinement."
+  - property: "load_bearing"
+    strategy: "diagnostic_only"
+    note: "Indirectly reflected in conservative mass scaling only."
+scenario_defaults:
+  seed: 123
+  fixed_timestep_s: 0.0041666667
+  gravity_mps2: -9.81
+  drop_test:
+    start_height_m: 0.6
+    max_steps: 1800
+    settle_velocity_threshold_mps: 0.03
+    settle_window_steps: 60
+  slide_test:
+    start_height_m: 0.03
+    initial_velocity_mps: 1.2
+    max_steps: 1600
+    stop_velocity_threshold_mps: 0.03
+  force_response_test:
+    start_height_m: 0.04
+    force_newton: 2.5
+    force_steps: 120
+    max_steps: 600

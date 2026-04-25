@@ -1,0 +1,46 @@
+{
+  "registry_version": "1.0.0",
+  "module2a": {
+  "interaction_primitives": {
+  "push": 1, "pull": 2, "drag": 3, "lift": 4, "grasp": 5,
+  "pinch": 6, "clamp": 7, "support": 8, "brace": 9, "stabilize": 10,
+  "press": 11, "poke": 12, "tap": 13, "hook": 14, "wedge": 15,
+  "pry": 16, "sweep": 17, "scrape": 18, "scoop": 19, "contain": 20,
+  "pour": 21, "funnel": 22, "align": 23, "guide": 24, "insert": 25,
+  "thread": 26, "bridge": 27, "stack": 28, "cover": 29, "anchor": 30,
+  "fasten": 31, "clip": 32, "hang": 33, "roll": 34, "spin": 35
+},
+    "affordance_atoms": {
+      "rigid_tip_contact": 101,
+      "thin_insertable": 102,
+      "broad_push_face": 103,
+      "stable_support_face": 104,
+      "elongated_reach": 105,
+      "frictional_contact": 106,
+      "compliant_pad": 107,
+      "concave_containment": 108,
+      "inertial_anchor": 109,
+      "hookable_gap": 110,
+      "edge_followable": 111,
+      "axis_insertable": 112,
+      "flat_mating_face": 113,
+      "clampable_span": 114,
+      "deformable_threadable": 115,
+      "pour_channel": 116,
+      "cover_area": 117,
+      "rolling_body": 118,
+      "rotatable_axis": 119,
+      "prying_edge": 120,
+      "stackable_top": 121,
+      "hangable_edge": 122,
+      "graspable_body": 123
+    },
+    "risk_atoms": {
+      "break_prone": 201,
+      "deform_prone": 202,
+      "slip_prone": 203,
+      "placement_unstable": 204,
+      "sharp_contact_risk": 205
+    }
+  }
+}
