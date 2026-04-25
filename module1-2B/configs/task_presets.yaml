@@ -3,7 +3,7 @@ tasks:
     name: card_from_gap
     image: cases/images/card_from_gap.png
     target_name: "business card"
-    description: "좁은 틈에 노출된 명함의 가장자리를 조심스럽게 들어 올려, 구기거나 찢지 않고 명함을 꺼낸다."
+    description: "좁은 틈에 끼인 명함을, 구기거나 찢지 않고 꺼낸다."
     scene_info: ../scene_info_case1.json
 
   task2:

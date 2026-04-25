@@ -361,16 +361,16 @@ def _merge_scene_info(
         return scene_objects
 
     scene_info = load_json(scene_info_path)
-    pybullet_objects: dict[str, dict[str, Any]] = {}
-    for obj in scene_info.get("objects", []):
-        label = obj.get("label", "")
-        if label:
-            pybullet_objects[label] = obj
+    pb_objects = scene_info.get("objects", [])
+    if not pb_objects:
+        print(f"[scene_info] {scene_info_path} 비어있음 → 비전 결과 유지")
+        return scene_objects
 
-    updated = 0
-    for scene_obj in scene_objects:
-        raw_name = scene_obj.get("name", "")
-        # 대소문자/공백 방어 + 스네이크케이스 변형도 시도
+    # ── 비전 결과에서 graspable_regions / functional_regions 인덱싱 ──
+    # PyBullet label 기준으로 매칭해 기존 vision 메타데이터를 최대한 보존
+    vision_meta_by_label: dict[str, dict[str, Any]] = {}
+    for so in scene_objects:
+        raw_name = so.get("name", "")
         lowered = raw_name.strip().lower()
         snake = lowered.replace(" ", "_").replace("-", "_")
         mapped_name = (
@@ -379,18 +379,39 @@ def _merge_scene_info(
             or _SCENE_NAME_MAP.get(snake)
             or snake
         )
-        pb_obj = pybullet_objects.get(mapped_name)
-        if pb_obj:
-            if pb_obj.get("aabb_min"):
-                scene_obj["aabb_min"] = pb_obj["aabb_min"]
-            if pb_obj.get("aabb_max"):
-                scene_obj["aabb_max"] = pb_obj["aabb_max"]
-            if pb_obj.get("center_world"):
-                scene_obj["center_world"] = pb_obj["center_world"]
-            updated += 1
+        if mapped_name and mapped_name not in vision_meta_by_label:
+            vision_meta_by_label[mapped_name] = {
+                "graspable_regions": so.get("graspable_regions", ["body"]),
+                "functional_regions": so.get("functional_regions", ["surface"]),
+                "principal_axis_hint": so.get("principal_axis_hint", "z_axis"),
+            }
 
-    print(f"[scene_info] {updated}/{len(scene_objects)}개 물체 AABB 업데이트 완료")
-    return scene_objects
+    # ── PyBullet 정답 기준으로 wholesale 교체 ──
+    new_scene_objects: list[dict[str, Any]] = []
+    for pb_obj in pb_objects:
+        pb_id = pb_obj.get("id")
+        label = pb_obj.get("label", "")
+        if not label:
+            continue
+        object_id = f"pb_{int(pb_id):02d}" if pb_id is not None else f"pb_{label}"
+        meta = vision_meta_by_label.get(label, {})
+        new_scene_objects.append({
+            "object_id": object_id,
+            "name": label,
+            "center_world": pb_obj.get("center_world", [0.0, 0.0, 0.0]),
+            "aabb_min": pb_obj.get("aabb_min", [0.0, 0.0, 0.0]),
+            "aabb_max": pb_obj.get("aabb_max", [0.0, 0.0, 0.0]),
+            "principal_axis_hint": meta.get("principal_axis_hint", "z_axis"),
+            "graspable_regions": meta.get("graspable_regions", ["body"]),
+            "functional_regions": meta.get("functional_regions", ["surface"]),
+        })
+
+    matched_meta = sum(1 for pb in pb_objects if pb.get("label") in vision_meta_by_label)
+    print(
+        f"[scene_info] PyBullet ground truth로 wholesale 교체: "
+        f"{len(new_scene_objects)}개 물체 (비전 메타데이터 매칭 {matched_meta}개)"
+    )
+    return new_scene_objects
 
 
 # ─── 변환 함수 ────────────────────────────────────────────────
