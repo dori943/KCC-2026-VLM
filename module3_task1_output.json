@@ -40,7 +40,7 @@
         "description": "PyBullet constraint \uc0dd\uc131 \uc704\uce58."
       },
       "contact_type": "surface",
-      "expected_function_after_step": "Provide stable support for the extraction process.",
+      "expected_function_after_step": "Provide  stable support for the extraction process.",
       "reason": "The cracker box's broad flat face offers stability, which is crucial for supporting the extraction of the business card.",
       "weak_points_applied": [],
       "functional_roles": {
