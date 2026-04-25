@@ -57,6 +57,69 @@ YCB_OBJECT_SPECS = [
 
 ]
 
+def _load_module3_object_labels(json_path: str) -> list[str]:
+    """
+    module3_output.json에서 사용된 물체 이름 목록을 파싱해 반환.
+    base_object / attach_object 모두 수집하며 순서를 유지한다.
+    """
+    import json as _json
+    try:
+        raw = _json.loads(open(json_path, encoding="utf-8").read())
+        seen, labels = set(), []
+        for step in raw.get("assembly_steps", []):
+            for key in ("base_object", "attach_object"):
+                val = step.get(key)
+                if val and val not in seen:
+                    seen.add(val)
+                    labels.append(val)
+        print(f"[Boot] module3 object labels: {labels}")
+        return labels
+    except Exception as exc:
+        print(f"[Boot][WARN] could not parse module3_output.json ({exc}); using fallback YCB spec.")
+        return []
+
+
+def _build_ycb_object_specs(json_path: str) -> list[tuple]:
+    """
+    module3_output.json 물체 목록을 기반으로 YCB_OBJECT_SPECS를 동적 생성.
+    JSON에 없는 물체나 매핑이 없는 경우 경고 후 건너뜀.
+    """
+    labels = _load_module3_object_labels(json_path)
+    if not labels:
+        # fallback: 기존 YCB 전체 로드
+        return [
+            ("cracker_box", "003_cracker_box.urdf", [1.2, 0.3, 0.82]),
+            ("pudding_box", "008_pudding_box.urdf", [1.2, 0.10, 0.82]),
+            ("gelatin_box", "009_gelatin_box.urdf", [1.2, -0.10, 0.82]),
+            ("plate", "029_plate.urdf", [1.2, -0.3, 0.82]),
+            ("bowl", "024_bowl.urdf", [1.0, 0.2, 0.82]),
+            ("mug", "025_mug.urdf", [1.0, 0.0, 0.82]),
+            ("sponge", "026_sponge.urdf", [1.0, -0.2, 0.82]),
+            ("spatula", "033_spatula.urdf", [0.7, 0.3, 0.82]),   
+            ("wood_block", "036_wood_block.urdf", [0.7, 0.10, 0.82]),
+            ("foam_brick", "061_foam_brick.urdf", [0.7, -0.1, 0.82]),
+            ("large_marker", "040_large_marker.urdf", [0.7, -0.3, 0.82]),
+            ("flat_screwdriver", "044_flat_screwdriver.urdf", [0.45, 0.2, 0.82]),
+            ("cups", "065-a_cups.urdf", [0.45, 0.0, 0.82]),
+            ("phillips_screwdriver", "043_phillips_screwdriver.urdf", [0.45, -0.2, 0.82]),
+            ("rubiks_cube", "077_rubiks_cube.urdf", [0.45, -0.35, 0.82]),
+        ]
+    specs = []
+    for raw_label in labels:
+        entry = YCB_OBJECT_SPECS.get(raw_label)
+        if entry is None:
+            print(f"[Boot][WARN] '{raw_label}' is not in YCB_OBJECT_SPECS — skipping load.")
+            continue
+        specs.append(entry)
+    return specs
+
+
+# JSON 경로를 미리 결정 (main() 호출 전에도 사용)
+_MODULE3_JSON_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "module3_task5_output.json")
+
+# 동적으로 결정된 YCB_OBJECT_SPECS
+YCB_OBJECT_SPECS: list[tuple] = _build_ycb_object_specs(_MODULE3_JSON_PATH)
+
 MODULE1_FALLBACK_MAP = {
     "clamp_ranges": {
         "lateral_friction": [0.05, 2.0],
@@ -595,7 +658,6 @@ def run_optional_affordance_probe(
         print(f"[R1][WARN] optional affordance probe failed, continuing simulation: {exc}")
 
 
-# 수정 후
 def run_sequential_demo(
     controllers: dict,
     ycb_object_ids: dict,
@@ -620,32 +682,52 @@ def run_sequential_demo(
         print("[3] scene_capture.png 저장 완료")
     except Exception:
         pass
-
+ 
     print("[Boot] reset both robots to home")
     left.reset_to_home(steps=600)
     right.reset_to_home(steps=600)
-
+ 
     print("[Demo] open both grippers")
     left.open_gripper(steps=120)
     right.open_gripper(steps=120)
-
+ 
     if not ycb_object_ids:
         print("[Demo][WARN] no YCB objects were loaded, skipping grasp demo.")
         return
-
-    left_target_label  = "apple"          if "apple"          in ycb_object_ids else next(iter(ycb_object_ids))
-    right_target_label = "mustard_bottle"  if "mustard_bottle"  in ycb_object_ids else next(iter(ycb_object_ids))
+ 
+    # ── module3_output.json에서 grasp 대상 결정 ────────────────────────────
+    # JSON의 assembly_steps 순서에 따라 첫 번째 base_object를 left arm,
+    # 첫 번째 attach_object(또는 두 번째 base_object)를 right arm으로 할당.
+    _m3_labels = _load_module3_object_labels(_MODULE3_JSON_PATH)
+    _loaded_labels = list(ycb_object_ids.keys())  # 실제 로드된 물체만 후보
+ 
+    # left: JSON 첫 번째 물체 (loaded 중 첫 번째로 매칭)
+    left_target_label = next(
+        (lbl for lbl in _m3_labels if lbl in ycb_object_ids),
+        _loaded_labels[0] if _loaded_labels else None,
+    )
+    # right: JSON 두 번째 물체 (left와 다른 것 중 첫 번째)
+    right_target_label = next(
+        (lbl for lbl in _m3_labels if lbl in ycb_object_ids and lbl != left_target_label),
+        _loaded_labels[1] if len(_loaded_labels) > 1 else left_target_label,
+    )
+ 
+    if left_target_label is None:
+        print("[Demo][WARN] could not determine left grasp target; skipping demo.")
+        return
+ 
     left_body_id  = ycb_object_ids[left_target_label]
     right_body_id = ycb_object_ids[right_target_label]
-
-    # 조립·배치 위치
-    # 두 팔이 서로 다른 Y 방향에서 접근하므로 충돌이 없는 높이를 사용한다.
-    ASSEMBLY_POS_LEFT  = [0.62, -0.10, 0.97]   # left(apple)  — 살짝 왼쪽
-    ASSEMBLY_POS_RIGHT = [0.62,  0.10, 1.13]   # right(mustard) — 살짝 오른쪽·위
+ 
+    print(f"[Demo] grasp targets — left: '{left_target_label}', right: '{right_target_label}'")
+ 
+    # 조립·배치 위치 (두 팔이 서로 다른 Y 방향에서 접근)
+    ASSEMBLY_POS_LEFT  = [0.62, -0.10, 0.97]
+    ASSEMBLY_POS_RIGHT = [0.62,  0.10, 1.13]
     PLACE_POS          = [0.62,  0.00, 0.85]
-
+ 
     # ══════════════════════════════════════════════════════
-    # Step 1-L. Left arm: apple 파지 → 제자리 대기
+    # Step 1-L. Left arm: base_object 파지 → 제자리 대기
     # ══════════════════════════════════════════════════════
     print(f"[Demo] left-arm grasp target: {left_target_label}")
     left_ok = left.grasp_body(
@@ -658,9 +740,9 @@ def run_sequential_demo(
     else:
         left.maintain_grasp_hold(steps=120)
         print("[Demo] left arm holding — waiting for right arm grasp.")
-
+ 
     # ══════════════════════════════════════════════════════
-    # Step 1-R. Right arm: mustard_bottle 파지 → 제자리 대기
+    # Step 1-R. Right arm: attach_object 파지 → 제자리 대기
     #           left가 들고 있는 동안 hold_companion으로 보호
     # ══════════════════════════════════════════════════════
     print(f"[Demo] right-arm grasp target: {right_target_label}")
@@ -675,41 +757,21 @@ def run_sequential_demo(
     else:
         right.maintain_grasp_hold(steps=120)
         print("[Demo] right arm holding — both arms ready.")
-
+ 
     # ══════════════════════════════════════════════════════
     # Step 2-L. Left arm: 조립 위치로 이동
     #           right가 들고 있는 동안 hold_companion으로 보호
     # ══════════════════════════════════════════════════════
-    carry_constraint = None
+    # move_end_effector_to 내부에서 매 스텝 _update_grasp_hold_feedback() +
+    # _set_gripper_target()이 호출되므로 slip 감지 시 자동으로 force가 증가함.
     if left_ok:
-        # carry constraint: 이동 중 apple이 미끄러지지 않도록 EE에 고정
-        obj_pos, _   = p.getBasePositionAndOrientation(left_body_id)
-        ee_pos, ee_orn = left.get_end_effector_pose()
-        ee_orn_inv = p.invertTransform([0, 0, 0], list(ee_orn))[1]
-        rel_pos, _ = p.multiplyTransforms(
-            [0, 0, 0], ee_orn_inv,
-            (np.array(obj_pos) - np.array(ee_pos)).tolist(), [0, 0, 0, 1],
-        )
-        carry_constraint = p.createConstraint(
-            parentBodyUniqueId=left.panda_id,
-            parentLinkIndex=11,
-            childBodyUniqueId=left_body_id,
-            childLinkIndex=-1,
-            jointType=p.JOINT_FIXED,
-            jointAxis=[0, 0, 0],
-            parentFramePosition=list(rel_pos),
-            childFramePosition=[0, 0, 0],
-        )
-        p.changeConstraint(carry_constraint, maxForce=200)
-        print("[Demo] carry constraint set — apple locked to EE.")
-
         left.move_end_effector_to(
             ASSEMBLY_POS_LEFT, orientation=down_orn, steps=600,
             hold_companion=right if right_ok else None,
         )
         left.maintain_grasp_hold(steps=60)
         print("[Demo] left arm at assembly position.")
-
+ 
     # ══════════════════════════════════════════════════════
     # Step 2-R. Right arm: 조립 위치로 이동
     #           left hold_companion으로 보호
@@ -721,46 +783,102 @@ def run_sequential_demo(
         )
         right.maintain_grasp_hold(steps=80)
         print("[Demo] right arm at assembly position.")
-
+ 
+    # 수정 후
     # ══════════════════════════════════════════════════════
-    # Step 3. Assembly (constraint 생성)
+    # Step 3. Assembly — module3_output.json 계획 기반 실행
     # ══════════════════════════════════════════════════════
-    assembly_constraint = None
+    assembly_manager = AssemblyManager()
+ 
+    # JSON 계획 로드 (파일이 없으면 fallback으로 직접 attach)
+    _plan_path = os.path.join(os.path.dirname(__file__), "module3_output.json")
+    _plan_loaded = False
+    if os.path.isfile(_plan_path):
+        try:
+            assembly_manager.load_plan_from_json(_plan_path)
+            # JSON에 등장하는 모든 물체 label → pybullet body_id 매핑 등록
+            # ycb_object_ids 키는 MODULE3_LABEL_TO_YCB의 urdf_label(=raw json label)과 일치
+            _m3_all_labels = _load_module3_object_labels(_plan_path)
+            _body_map = {lbl: ycb_object_ids[lbl] for lbl in _m3_all_labels if lbl in ycb_object_ids}
+            if not _body_map:
+                # fallback: 로드된 두 물체만 등록
+                _body_map = {left_target_label: left_body_id, right_target_label: right_body_id}
+            assembly_manager.register_bodies(_body_map)
+            _plan_loaded = True
+        except Exception as exc:
+            print(f"[Demo][WARN] module3 plan load failed ({exc}), using fallback attach.")
+    else:
+        print(f"[Demo][WARN] module3_output.json not found at {_plan_path}, using fallback attach.")
+ 
+    assembly_results = []
     if left_ok and right_ok:
-        print("[Demo] assembling parts...")
-        # 현재 실제 위치 기반으로 offset 계산 → 순간이동 없음
+        # ── attach 전 두 물체 간 거리 확인 및 nudge ─────────────────────────
         main_pos, main_orn = p.getBasePositionAndOrientation(left_body_id)
         aux_pos,  _        = p.getBasePositionAndOrientation(right_body_id)
-        main_orn_inv = p.invertTransform([0, 0, 0], list(main_orn))[1]
-        contact_offset, _ = p.multiplyTransforms(
-            [0, 0, 0], main_orn_inv,
-            (np.array(aux_pos) - np.array(main_pos)).tolist(), [0, 0, 0, 1],
-        )
-        assembly_constraint = p.createConstraint(
-            parentBodyUniqueId=left_body_id,
-            parentLinkIndex=-1,
-            childBodyUniqueId=right_body_id,
-            childLinkIndex=-1,
-            jointType=p.JOINT_FIXED,
-            jointAxis=[0, 0, 0],
-            parentFramePosition=list(contact_offset),
-            childFramePosition=[0, 0, 0],
-        )
-        p.changeConstraint(assembly_constraint, maxForce=500)
-        print(
-            f"[Demo] assembly constraint={assembly_constraint}, "
-            f"offset=[{contact_offset[0]:.3f}, {contact_offset[1]:.3f}, {contact_offset[2]:.3f}]"
-        )
+        body_dist = float(np.linalg.norm(np.array(aux_pos) - np.array(main_pos)))
+        print(f"[Demo] pre-attach body distance: {body_dist:.3f} m")
+ 
+        if body_dist > 0.35:
+            print("[Demo] bodies too far apart — nudging right arm closer...")
+            left_aabb_min, left_aabb_max   = p.getAABB(left_body_id)
+            right_aabb_min, right_aabb_max = p.getAABB(right_body_id)
+            left_top_z     = float(left_aabb_max[2])
+            right_half_z   = (float(right_aabb_max[2]) - float(right_aabb_min[2])) / 2.0
+            nudge_pos = [float(main_pos[0]), float(main_pos[1]), left_top_z + right_half_z + 0.01]
+            right.move_end_effector_to(nudge_pos, orientation=down_orn, steps=400, hold_companion=left)
+            right.maintain_grasp_hold(steps=60)
+            main_pos, main_orn = p.getBasePositionAndOrientation(left_body_id)
+            aux_pos,  _        = p.getBasePositionAndOrientation(right_body_id)
+            body_dist = float(np.linalg.norm(np.array(aux_pos) - np.array(main_pos)))
+            print(f"[Demo] post-nudge body distance: {body_dist:.3f} m")
+ 
+        print("[Demo] assembling parts...")
+ 
+        if _plan_loaded:
+            # ── module3 JSON 계획 실행 ──────────────────────────────────────
+            # step1(position-only)은 배치 기록만, step2 이후 attach 실행
+            assembly_results = assembly_manager.execute_plan(settle_steps=60, max_force=500)
+            attach_results = [r for r in assembly_results if r.get("constraint_id") is not None]
+            if attach_results:
+                print(f"[Demo] assembly successful via module3 plan "
+                      f"({len(attach_results)} constraint(s) created).")
+            else:
+                print("[Demo][WARN] module3 plan produced no constraints — falling back.")
+                _plan_loaded = False   # fallback으로 전환
+ 
+        if not _plan_loaded:
+            # ── fallback: 현재 실제 위치 기반 직접 attach ──────────────────
+            main_orn_inv = p.invertTransform([0, 0, 0], list(main_orn))[1]
+            contact_offset, _ = p.multiplyTransforms(
+                [0, 0, 0], main_orn_inv,
+                (np.array(aux_pos) - np.array(main_pos)).tolist(), [0, 0, 0, 1],
+            )
+            cid = assembly_manager.attach(
+                main_body_id=left_body_id,
+                aux_body_id=right_body_id,
+                contact_offset=list(contact_offset),
+                label=f"{left_target_label}_{right_target_label}",
+                settle_steps=60,
+                max_force=500,
+            )
+            assembly_results = [{"step": 1, "ok": cid is not None, "constraint_id": cid}]
+            if cid is not None:
+                print(f"[Demo] fallback assembly successful (constraint={cid}, "
+                      f"offset=[{contact_offset[0]:.3f}, {contact_offset[1]:.3f}, {contact_offset[2]:.3f}], "
+                      f"dist={body_dist:.3f} m)")
+            else:
+                print("[Demo][WARN] fallback assembly also failed.")
+ 
         # 안정화
         for _ in range(DEMO_HOLD_STEPS):
             left._tick_gripper_hold()
             right._tick_gripper_hold()
             p.stepSimulation()
             time.sleep(SIM_TIMESTEP)
-        print("[Demo] assembly successful.")
+ 
     else:
         print("[Demo][WARN] skipping assembly (one or both grasps failed).")
-
+ 
     # ══════════════════════════════════════════════════════
     # Step 4. 결합체 내려놓기 & release
     # ══════════════════════════════════════════════════════
@@ -770,16 +888,12 @@ def run_sequential_demo(
             hold_companion=right if right_ok else None,
         )
         left.maintain_grasp_hold(steps=60)
-
-    # carry constraint 해제
-    if carry_constraint is not None:
-        p.removeConstraint(carry_constraint)
-        carry_constraint = None
-        print("[Demo] carry constraint released.")
-
+ 
+    # (carry_constraint 없음 — gripper force 유지로 이동)
+ 
     if left_ok:
         left.release_grasp(open_after=True, steps=120)
-
+ 
     if right_ok:
         right.move_end_effector_to(
             [PLACE_POS[0], PLACE_POS[1], PLACE_POS[2] + 0.15],
@@ -787,25 +901,25 @@ def run_sequential_demo(
         )
         right.maintain_grasp_hold(steps=60)
         right.release_grasp(open_after=True, steps=120)
-
+ 
     # assembly constraint는 release 후에도 두 물체가 붙어있게 유지
     # 분리하려면: p.removeConstraint(assembly_constraint)
-
+ 
     print("[Demo] return to home")
     left.reset_to_home(steps=600)
     right.reset_to_home(steps=600)
-
+ 
     for _ in range(DEMO_HOLD_STEPS):
         p.stepSimulation()
         time.sleep(SIM_TIMESTEP)
-
+ 
 def keep_gui_alive() -> None:
     print("[Boot] simulation running. Press Ctrl+C to exit.")
     while True:
         p.stepSimulation()
         time.sleep(SIM_TIMESTEP)
-
-
+ 
+ 
 def main() -> None:
     print(f"[Boot] R1 source (HF): {R1_HF_REPO}")
     enable_affordance_r1 = env_flag(
@@ -831,9 +945,9 @@ def main() -> None:
     print("[Boot] grasp mode: contact-based (no fixed constraint)")
     configure_simulation()
     scene_ids = load_static_scene()
-    ycb_object_ids = load_ycb_objects()
+    ycb_object_ids = load_ycb_objects(table_body_id=scene_ids.get("table_id"))
     controllers, robot_ids = create_dual_arm_controllers()
-
+ 
     if enable_module1_dynamics:
         map_cfg = load_module1_map()
         applied_dynamics = apply_module1_dynamics_to_loaded_objects(
@@ -844,11 +958,11 @@ def main() -> None:
         print(f"[Boot] module1 dynamics applied (summary): {summarize_applied_dynamics(applied_dynamics)}")
     else:
         print("[Boot] module1 dynamics skipped by flag.")
-
+ 
     print(f"[Boot] scene IDs: {scene_ids}")
     print(f"[Boot] ycb objects: {ycb_object_ids}")
     print(f"[Boot] robot IDs: {robot_ids}")
-
+ 
     stabilize_scene()
     run_optional_affordance_probe(
         enable_affordance_r1=enable_affordance_r1,
@@ -860,7 +974,7 @@ def main() -> None:
         ycb_object_ids=ycb_object_ids,
     )
     keep_gui_alive()
-
-
+ 
+ 
 if __name__ == "__main__":
     main()

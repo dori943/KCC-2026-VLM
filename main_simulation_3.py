@@ -15,7 +15,7 @@ import numpy as np
 import pybullet as p
 import pybullet_data
 
-from robot_controller_3 import PandaController
+from robot_controller_3 import PandaController, render_camera
 from assembly_manager import AssemblyManager
 
 
@@ -699,8 +699,6 @@ def run_optional_affordance_probe(
     except Exception as exc:
         print(f"[R1][WARN] optional affordance probe failed, continuing simulation: {exc}")
 
-
-# 수정 후
 def run_sequential_demo(
     controllers: dict,
     ycb_object_ids: dict,
@@ -709,24 +707,41 @@ def run_sequential_demo(
     right = controllers["right"]
     down_orn = p.getQuaternionFromEuler([np.pi, 0.0, 0.0])
 
+    CAM_CONFIG = {
+    "cam_target":   [1.0, 0.0, 0.8],
+    "cam_distance": 0.8,
+    "cam_yaw":      70,
+    "cam_pitch":    -60,
+    }
+
+    print("\n[3] 가상 카메라 렌더링 중...")
+    rgb, depth, proj_matrix, view_matrix = render_camera(**CAM_CONFIG)
+
+    try:
+        from PIL import Image as PILImage
+        PILImage.fromarray(rgb).save("scene_capture.png")
+        print("[3] scene_capture.png 저장 완료")
+    except Exception:
+        pass
+ 
     print("[Boot] reset both robots to home")
     left.reset_to_home(steps=600)
     right.reset_to_home(steps=600)
-
+ 
     print("[Demo] open both grippers")
     left.open_gripper(steps=120)
     right.open_gripper(steps=120)
-
+ 
     if not ycb_object_ids:
         print("[Demo][WARN] no YCB objects were loaded, skipping grasp demo.")
         return
-
+ 
     # ── module3_output.json에서 grasp 대상 결정 ────────────────────────────
     # JSON의 assembly_steps 순서에 따라 첫 번째 base_object를 left arm,
     # 첫 번째 attach_object(또는 두 번째 base_object)를 right arm으로 할당.
     _m3_labels = _load_module3_object_labels(_MODULE3_JSON_PATH)
     _loaded_labels = list(ycb_object_ids.keys())  # 실제 로드된 물체만 후보
-
+ 
     # left: JSON 첫 번째 물체 (loaded 중 첫 번째로 매칭)
     left_target_label = next(
         (lbl for lbl in _m3_labels if lbl in ycb_object_ids),
@@ -737,21 +752,21 @@ def run_sequential_demo(
         (lbl for lbl in _m3_labels if lbl in ycb_object_ids and lbl != left_target_label),
         _loaded_labels[1] if len(_loaded_labels) > 1 else left_target_label,
     )
-
+ 
     if left_target_label is None:
         print("[Demo][WARN] could not determine left grasp target; skipping demo.")
         return
-
+ 
     left_body_id  = ycb_object_ids[left_target_label]
     right_body_id = ycb_object_ids[right_target_label]
-
+ 
     print(f"[Demo] grasp targets — left: '{left_target_label}', right: '{right_target_label}'")
-
+ 
     # 조립·배치 위치 (두 팔이 서로 다른 Y 방향에서 접근)
     ASSEMBLY_POS_LEFT  = [0.62, -0.10, 0.97]
     ASSEMBLY_POS_RIGHT = [0.62,  0.10, 1.13]
     PLACE_POS          = [0.62,  0.00, 0.85]
-
+ 
     # ══════════════════════════════════════════════════════
     # Step 1-L. Left arm: base_object 파지 → 제자리 대기
     # ══════════════════════════════════════════════════════
@@ -766,7 +781,7 @@ def run_sequential_demo(
     else:
         left.maintain_grasp_hold(steps=120)
         print("[Demo] left arm holding — waiting for right arm grasp.")
-
+ 
     # ══════════════════════════════════════════════════════
     # Step 1-R. Right arm: attach_object 파지 → 제자리 대기
     #           left가 들고 있는 동안 hold_companion으로 보호
@@ -783,41 +798,21 @@ def run_sequential_demo(
     else:
         right.maintain_grasp_hold(steps=120)
         print("[Demo] right arm holding — both arms ready.")
-
+ 
     # ══════════════════════════════════════════════════════
     # Step 2-L. Left arm: 조립 위치로 이동
     #           right가 들고 있는 동안 hold_companion으로 보호
     # ══════════════════════════════════════════════════════
-    carry_constraint = None
+    # move_end_effector_to 내부에서 매 스텝 _update_grasp_hold_feedback() +
+    # _set_gripper_target()이 호출되므로 slip 감지 시 자동으로 force가 증가함.
     if left_ok:
-        # carry constraint: 이동 중 left_target이 미끄러지지 않도록 EE에 고정
-        obj_pos, _   = p.getBasePositionAndOrientation(left_body_id)
-        ee_pos, ee_orn = left.get_end_effector_pose()
-        ee_orn_inv = p.invertTransform([0, 0, 0], list(ee_orn))[1]
-        rel_pos, _ = p.multiplyTransforms(
-            [0, 0, 0], ee_orn_inv,
-            (np.array(obj_pos) - np.array(ee_pos)).tolist(), [0, 0, 0, 1],
-        )
-        carry_constraint = p.createConstraint(
-            parentBodyUniqueId=left.panda_id,
-            parentLinkIndex=11,
-            childBodyUniqueId=left_body_id,
-            childLinkIndex=-1,
-            jointType=p.JOINT_FIXED,
-            jointAxis=[0, 0, 0],
-            parentFramePosition=list(rel_pos),
-            childFramePosition=[0, 0, 0],
-        )
-        p.changeConstraint(carry_constraint, maxForce=200)
-        print(f"[Demo] carry constraint set — '{left_target_label}' locked to EE.")
-
         left.move_end_effector_to(
             ASSEMBLY_POS_LEFT, orientation=down_orn, steps=600,
             hold_companion=right if right_ok else None,
         )
         left.maintain_grasp_hold(steps=60)
         print("[Demo] left arm at assembly position.")
-
+ 
     # ══════════════════════════════════════════════════════
     # Step 2-R. Right arm: 조립 위치로 이동
     #           left hold_companion으로 보호
@@ -829,13 +824,13 @@ def run_sequential_demo(
         )
         right.maintain_grasp_hold(steps=80)
         print("[Demo] right arm at assembly position.")
-
+ 
     # 수정 후
     # ══════════════════════════════════════════════════════
     # Step 3. Assembly — module3_output.json 계획 기반 실행
     # ══════════════════════════════════════════════════════
     assembly_manager = AssemblyManager()
-
+ 
     # JSON 계획 로드 (파일이 없으면 fallback으로 직접 attach)
     _plan_path = os.path.join(os.path.dirname(__file__), "module3_output.json")
     _plan_loaded = False
@@ -855,7 +850,7 @@ def run_sequential_demo(
             print(f"[Demo][WARN] module3 plan load failed ({exc}), using fallback attach.")
     else:
         print(f"[Demo][WARN] module3_output.json not found at {_plan_path}, using fallback attach.")
-
+ 
     assembly_results = []
     if left_ok and right_ok:
         # ── attach 전 두 물체 간 거리 확인 및 nudge ─────────────────────────
@@ -863,7 +858,7 @@ def run_sequential_demo(
         aux_pos,  _        = p.getBasePositionAndOrientation(right_body_id)
         body_dist = float(np.linalg.norm(np.array(aux_pos) - np.array(main_pos)))
         print(f"[Demo] pre-attach body distance: {body_dist:.3f} m")
-
+ 
         if body_dist > 0.35:
             print("[Demo] bodies too far apart — nudging right arm closer...")
             left_aabb_min, left_aabb_max   = p.getAABB(left_body_id)
@@ -877,9 +872,9 @@ def run_sequential_demo(
             aux_pos,  _        = p.getBasePositionAndOrientation(right_body_id)
             body_dist = float(np.linalg.norm(np.array(aux_pos) - np.array(main_pos)))
             print(f"[Demo] post-nudge body distance: {body_dist:.3f} m")
-
+ 
         print("[Demo] assembling parts...")
-
+ 
         if _plan_loaded:
             # ── module3 JSON 계획 실행 ──────────────────────────────────────
             # step1(position-only)은 배치 기록만, step2 이후 attach 실행
@@ -891,7 +886,7 @@ def run_sequential_demo(
             else:
                 print("[Demo][WARN] module3 plan produced no constraints — falling back.")
                 _plan_loaded = False   # fallback으로 전환
-
+ 
         if not _plan_loaded:
             # ── fallback: 현재 실제 위치 기반 직접 attach ──────────────────
             main_orn_inv = p.invertTransform([0, 0, 0], list(main_orn))[1]
@@ -914,17 +909,17 @@ def run_sequential_demo(
                       f"dist={body_dist:.3f} m)")
             else:
                 print("[Demo][WARN] fallback assembly also failed.")
-
+ 
         # 안정화
         for _ in range(DEMO_HOLD_STEPS):
             left._tick_gripper_hold()
             right._tick_gripper_hold()
             p.stepSimulation()
             time.sleep(SIM_TIMESTEP)
-
+ 
     else:
         print("[Demo][WARN] skipping assembly (one or both grasps failed).")
-
+ 
     # ══════════════════════════════════════════════════════
     # Step 4. 결합체 내려놓기 & release
     # ══════════════════════════════════════════════════════
@@ -934,16 +929,12 @@ def run_sequential_demo(
             hold_companion=right if right_ok else None,
         )
         left.maintain_grasp_hold(steps=60)
-
-    # carry constraint 해제
-    if carry_constraint is not None:
-        p.removeConstraint(carry_constraint)
-        carry_constraint = None
-        print("[Demo] carry constraint released.")
-
+ 
+    # (carry_constraint 없음 — gripper force 유지로 이동)
+ 
     if left_ok:
         left.release_grasp(open_after=True, steps=120)
-
+ 
     if right_ok:
         right.move_end_effector_to(
             [PLACE_POS[0], PLACE_POS[1], PLACE_POS[2] + 0.15],
@@ -951,25 +942,25 @@ def run_sequential_demo(
         )
         right.maintain_grasp_hold(steps=60)
         right.release_grasp(open_after=True, steps=120)
-
+ 
     # assembly constraint는 release 후에도 두 물체가 붙어있게 유지
     # 분리하려면: p.removeConstraint(assembly_constraint)
-
+ 
     print("[Demo] return to home")
     left.reset_to_home(steps=600)
     right.reset_to_home(steps=600)
-
+ 
     for _ in range(DEMO_HOLD_STEPS):
         p.stepSimulation()
         time.sleep(SIM_TIMESTEP)
-
+ 
 def keep_gui_alive() -> None:
     print("[Boot] simulation running. Press Ctrl+C to exit.")
     while True:
         p.stepSimulation()
         time.sleep(SIM_TIMESTEP)
-
-
+ 
+ 
 def main() -> None:
     print(f"[Boot] R1 source (HF): {R1_HF_REPO}")
     enable_affordance_r1 = env_flag(
@@ -995,9 +986,9 @@ def main() -> None:
     print("[Boot] grasp mode: contact-based (no fixed constraint)")
     configure_simulation()
     scene_ids = load_static_scene()
-    ycb_object_ids = load_ycb_objects()
+    ycb_object_ids = load_ycb_objects(table_body_id=scene_ids.get("table_id"))
     controllers, robot_ids = create_dual_arm_controllers()
-
+ 
     if enable_module1_dynamics:
         map_cfg = load_module1_map()
         applied_dynamics = apply_module1_dynamics_to_loaded_objects(
@@ -1008,11 +999,11 @@ def main() -> None:
         print(f"[Boot] module1 dynamics applied (summary): {summarize_applied_dynamics(applied_dynamics)}")
     else:
         print("[Boot] module1 dynamics skipped by flag.")
-
+ 
     print(f"[Boot] scene IDs: {scene_ids}")
     print(f"[Boot] ycb objects: {ycb_object_ids}")
     print(f"[Boot] robot IDs: {robot_ids}")
-
+ 
     stabilize_scene()
     run_optional_affordance_probe(
         enable_affordance_r1=enable_affordance_r1,
@@ -1024,7 +1015,7 @@ def main() -> None:
         ycb_object_ids=ycb_object_ids,
     )
     keep_gui_alive()
-
-
+ 
+ 
 if __name__ == "__main__":
     main()
