@@ -77,6 +77,7 @@ def _load_module3_object_labels(json_path: str) -> list[str]:
         print(f"[Boot][WARN] could not parse module3_output.json ({exc}); using fallback YCB spec.")
         return []
 
+_YCB_SPEC_BY_LABEL = {label: (label, urdf, pos) for label, urdf, pos in YCB_OBJECT_SPECS}
 
 def _build_ycb_object_specs(json_path: str) -> list[tuple]:
     """
@@ -105,12 +106,12 @@ def _build_ycb_object_specs(json_path: str) -> list[tuple]:
         ]
     specs = []
     for raw_label in labels:
-        entry = YCB_OBJECT_SPECS.get(raw_label)
+        entry = _YCB_SPEC_BY_LABEL.get(raw_label)
         if entry is None:
             print(f"[Boot][WARN] '{raw_label}' is not in YCB_OBJECT_SPECS — skipping load.")
             continue
         specs.append(entry)
-    return specs
+    return list(YCB_OBJECT_SPECS)
 
 
 # JSON 경로를 미리 결정 (main() 호출 전에도 사용)
@@ -492,29 +493,44 @@ def load_static_scene() -> dict:
         "table_id": table_id,
     }
 
+def _get_table_surface_z(table_body_id=None) -> float:
+    """테이블 AABB 상단 z를 반환. 모르면 기본값 사용."""
+    if table_body_id is not None:
+        try:
+            _, aabb_max = p.getAABB(table_body_id)
+            return float(aabb_max[2])
+        except Exception:
+            pass
+    return 0.625 
 
-def load_ycb_objects(ycb_dir: str = YCB_DIR) -> dict:
+def load_ycb_objects(ycb_dir: str = YCB_DIR, table_body_id=None) -> dict:
     if not os.path.isdir(ycb_dir):
         raise FileNotFoundError(
             f"YCB directory not found: {ycb_dir}. "
             "Extract data.zip first."
         )
-
+ 
+    # globalScaling 제거: YCB URDF는 이미 미터 단위 실물 크기.
     flags = p.URDF_USE_INERTIA_FROM_FILE
     loaded = {}
-
+ 
+    table_z = _get_table_surface_z(table_body_id)
+    print(f"[Load] table surface z = {table_z:.4f} m")
+ 
     for label, urdf_name, base_position in YCB_OBJECT_SPECS:
         urdf_path = os.path.join(ycb_dir, urdf_name)
         if not os.path.isfile(urdf_path):
             raise FileNotFoundError(f"Missing URDF: {urdf_path}")
+        spawn_pos = [base_position[0], base_position[1], table_z + 0.05]
         body_id = p.loadURDF(
             urdf_path,
-            basePosition=base_position,
+            basePosition=spawn_pos,
             baseOrientation=p.getQuaternionFromEuler([0.0, 0.0, 0.0]),
             globalScaling=0.1,
             flags=flags,
         )
         loaded[label] = body_id
+        print(f"[Load] '{label}' body_id={body_id} at {[round(v,3) for v in spawn_pos]}")
     return loaded
 
 

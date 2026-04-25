@@ -78,6 +78,7 @@ def _load_module3_object_labels(json_path: str) -> list[str]:
         print(f"[Boot][WARN] could not parse module3_output.json ({exc}); using fallback YCB spec.")
         return []
 
+_YCB_SPEC_BY_LABEL = {label: (label, urdf, pos) for label, urdf, pos in YCB_OBJECT_SPECS}
 
 def _build_ycb_object_specs(json_path: str) -> list[tuple]:
     """
@@ -106,7 +107,7 @@ def _build_ycb_object_specs(json_path: str) -> list[tuple]:
         ]
     specs = []
     for raw_label in labels:
-        entry = YCB_OBJECT_SPECS.get(raw_label)
+        entry = _YCB_SPEC_BY_LABEL.get(raw_label)
         if entry is None:
             print(f"[Boot][WARN] '{raw_label}' is not in YCB_OBJECT_SPECS — skipping load.")
             continue
