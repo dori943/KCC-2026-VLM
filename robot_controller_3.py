@@ -597,8 +597,7 @@ class PandaController:
         grasp_z_ratio = float(self._active_grasp_profile.get("grasp_z_ratio", 0.50))
         grasp_z_ratio = _clamp(grasp_z_ratio, 0.45, 0.98)
         FINGER_TIP_OFFSET = 0.058
-        tip_compensation = _clamp(FINGER_TIP_OFFSET - size_z * grasp_z_ratio, 0.0, FINGER_TIP_OFFSET)
-        target_grasp_z = bottom_z + size_z * grasp_z_ratio + grasp_clearance + tip_compensation
+        target_grasp_z = bottom_z + size_z * grasp_z_ratio + FINGER_TIP_OFFSET + grasp_clearance
         return {
             "target_xy": target_xy,
             "top_z": top_z,
@@ -992,6 +991,7 @@ class PandaController:
         summary = self._finger_contact_summary(body_id)
         return summary["total"] > 0, end_closed, summary
 
+    # 수정 후
     def _descend_until_precontact(
         self,
         body_id: int,
@@ -1000,14 +1000,25 @@ class PandaController:
         max_drop: float = 0.30,
         hold_companion: "PandaController | None" = None,
     ) -> None:
+        # finger tip이 물체 bottom 아래로 내려가지 않도록 safe_floor 설정
+        # EE_z >= bottom_z + FINGER_TIP_OFFSET - 여유 0.002
+        try:
+            aabb_min, _ = p.getAABB(body_id)
+            safe_floor_z = float(aabb_min[2]) + 0.058 - 0.002
+        except Exception:
+            safe_floor_z = -999.0
+
         checks = int(max_drop / drop_step)
         for _ in range(checks):
             summary = self._finger_contact_summary(body_id)
             if summary["total"] > 0:
                 return
             ee_pos, _ = self.get_end_effector_pose()
-            next_pos = [float(ee_pos[0]), float(ee_pos[1]), float(ee_pos[2] - drop_step)]
-            self.move_end_effector_to(next_pos, orientation=orientation, steps=80, hold_companion=hold_companion)
+            next_z = float(ee_pos[2]) - drop_step
+            if next_z < safe_floor_z:
+                return
+            next_pos = [float(ee_pos[0]), float(ee_pos[1]), next_z]
+            self.move_end_effector_to(next_pos, orientation=orientation, steps=60, hold_companion=hold_companion)
 
     def get_end_effector_pose(self) -> tuple[np.ndarray, np.ndarray]:
         self._ensure_loaded()
@@ -1107,11 +1118,15 @@ class PandaController:
         print(f"[{self.name}] grasp coords: approach={[round(v,4) for v in approach]}, grasp={[round(v,4) for v in grasp]}")
         aabb_min_dbg, aabb_max_dbg = p.getAABB(body_id)
         print(f"[{self.name}] object AABB: min={[round(v,4) for v in aabb_min_dbg]}, max={[round(v,4) for v in aabb_max_dbg]}")
+        # 수정 후
         self.move_end_effector_to(approach, orientation=selected_orientation, steps=420, hold_companion=hold_companion)
         self.move_end_effector_to(grasp, orientation=selected_orientation, steps=360, hold_companion=hold_companion)
         ee_pos_dbg, _ = self.get_end_effector_pose()
         print(f"[{self.name}] EE after grasp move: {[round(v,4) for v in ee_pos_dbg]}")
-        self._descend_until_precontact(body_id=body_id, orientation=selected_orientation, hold_companion=hold_companion)
+        # grasp 위치 도달 직후 이미 contact인지 확인 — 있으면 descend 생략
+        _pre_summary = self._finger_contact_summary(body_id)
+        if _pre_summary["total"] == 0:
+            self._descend_until_precontact(body_id=body_id, orientation=selected_orientation, hold_companion=hold_companion)
         ee_pos_dbg2, _ = self.get_end_effector_pose()
         print(f"[{self.name}] EE after descend: {[round(v,4) for v in ee_pos_dbg2]}")
 
