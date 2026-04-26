@@ -352,6 +352,40 @@ _SCENE_NAME_MAP: dict[str, str] = {
 }
 
 
+# ── Scene pose sanity 가드 ────────────────────────────────────
+# PyBullet settle 도중 collision/freefall로 테이블 밖으로 튀어나간 물체가
+# 그대로 candidate pool에 들어오면 (e.g. T2 small_clamp z=0.06, y=-3.08)
+# Module 2C/2D/3 어디에서도 잡아내지 못한다. 여기서 한 번 차단한다.
+#
+# 정상 범위 (table-mounted scene 가정):
+#   • z ∈ [0.4, 1.5] m — 테이블 위 ~ 캐비닛 상단 정도까지 허용
+#   • √(x² + y²) ≤ 2.5 m — 로봇 작업영역 + 안전 마진
+#   • AABB extent: 0 < width < 1.0 m per axis
+_TABLE_Z_RANGE: tuple[float, float] = (0.4, 1.5)
+_TABLE_XY_RADIUS: float = 2.5
+_AABB_MAX_EXTENT: float = 1.0
+
+
+def _is_pose_sane(
+    center: list[float] | None,
+    aabb_min: list[float] | None,
+    aabb_max: list[float] | None,
+) -> tuple[bool, str]:
+    if center is None or len(center) < 3:
+        return False, "center_world missing"
+    x, y, z = float(center[0]), float(center[1]), float(center[2])
+    if not (_TABLE_Z_RANGE[0] <= z <= _TABLE_Z_RANGE[1]):
+        return False, f"z={z:.3f} out of {_TABLE_Z_RANGE}"
+    if (x * x + y * y) ** 0.5 > _TABLE_XY_RADIUS:
+        return False, f"xy_radius={(x*x+y*y)**0.5:.3f} > {_TABLE_XY_RADIUS}"
+    if aabb_min and aabb_max and len(aabb_min) >= 3 and len(aabb_max) >= 3:
+        for i in range(3):
+            w = float(aabb_max[i]) - float(aabb_min[i])
+            if w <= 0 or w > _AABB_MAX_EXTENT:
+                return False, f"axis{i} extent={w:.3f} invalid"
+    return True, ""
+
+
 def _merge_scene_info(
     scene_objects: list[dict[str, Any]],
     scene_info_path: Path,
@@ -386,21 +420,29 @@ def _merge_scene_info(
                 "principal_axis_hint": so.get("principal_axis_hint", "z_axis"),
             }
 
-    # ── PyBullet 정답 기준으로 wholesale 교체 ──
+    # ── PyBullet 정답 기준으로 wholesale 교체 (pose sanity 가드 적용) ──
     new_scene_objects: list[dict[str, Any]] = []
+    rejected: list[tuple[str, str]] = []
     for pb_obj in pb_objects:
         pb_id = pb_obj.get("id")
         label = pb_obj.get("label", "")
         if not label:
+            continue
+        center = pb_obj.get("center_world")
+        aabb_min = pb_obj.get("aabb_min")
+        aabb_max = pb_obj.get("aabb_max")
+        ok, reason = _is_pose_sane(center, aabb_min, aabb_max)
+        if not ok:
+            rejected.append((label, reason))
             continue
         object_id = f"pb_{int(pb_id):02d}" if pb_id is not None else f"pb_{label}"
         meta = vision_meta_by_label.get(label, {})
         new_scene_objects.append({
             "object_id": object_id,
             "name": label,
-            "center_world": pb_obj.get("center_world", [0.0, 0.0, 0.0]),
-            "aabb_min": pb_obj.get("aabb_min", [0.0, 0.0, 0.0]),
-            "aabb_max": pb_obj.get("aabb_max", [0.0, 0.0, 0.0]),
+            "center_world": center,
+            "aabb_min": aabb_min,
+            "aabb_max": aabb_max,
             "principal_axis_hint": meta.get("principal_axis_hint", "z_axis"),
             "graspable_regions": meta.get("graspable_regions", ["body"]),
             "functional_regions": meta.get("functional_regions", ["surface"]),
@@ -411,6 +453,10 @@ def _merge_scene_info(
         f"[scene_info] PyBullet ground truth로 wholesale 교체: "
         f"{len(new_scene_objects)}개 물체 (비전 메타데이터 매칭 {matched_meta}개)"
     )
+    if rejected:
+        print(f"[scene_info] ⚠ pose sanity 실패로 {len(rejected)}개 물체 제외:")
+        for name, reason in rejected:
+            print(f"             - {name}: {reason}")
     return new_scene_objects
 
 

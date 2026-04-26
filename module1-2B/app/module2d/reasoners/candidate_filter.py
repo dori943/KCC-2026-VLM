@@ -159,6 +159,72 @@ false 항목이 있으면 repair_analysis를 채워라.
 }"""
 
 
+def _check_subgoal_coverage(
+    candidate: dict[str, Any],
+    subgoal_constraints: list[dict[str, Any]],
+    prop_map: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """후보가 각 subgoal 의 required_atoms / required_interaction_primitives 를
+    얼마나 커버하는지 결정론적으로 검사.
+
+    원칙:
+    - required_atoms 와 required_interaction_primitives 가 모두 비어있는 subgoal 은
+      "검증 정보 부재" 로 보고 자동 통과 (issue 없음).
+    - 후보의 inferred_functions / function_mapping.function 어휘가 한 atom 이라도
+      매칭하면 partial pass 로 처리 (issue 없음).
+    - 모든 atom 이 미매칭일 때만 issue 추가.
+
+    반환: subgoal 별 미커버 issue list (weak_points 부착용).
+    """
+    used_names = candidate.get("used_objects", []) or []
+
+    # 후보가 가진 어휘를 모두 모음 (lowercase)
+    candidate_funcs: set[str] = set()
+    for fm in candidate.get("function_mapping", []) or []:
+        f = (fm.get("function") or "").lower().strip()
+        if f:
+            candidate_funcs.add(f)
+        # role 도 보조 단서로 (primary_executor 등은 제외)
+    for n in used_names:
+        prop = prop_map.get(n, {}) or {}
+        for f in prop.get("inferred_functions", []) or []:
+            if isinstance(f, str) and f.strip():
+                candidate_funcs.add(f.lower().strip())
+
+    def _atom_covered(atom: str) -> bool:
+        a = atom.lower().strip()
+        if not a:
+            return True  # 빈 atom 은 자동 통과
+        for f in candidate_funcs:
+            if a == f or a in f or f in a:
+                return True
+        return False
+
+    issues: list[dict[str, Any]] = []
+    for sg in subgoal_constraints or []:
+        if not isinstance(sg, dict):
+            continue
+        sg_id = sg.get("subgoal_id", "")
+        required_atoms = [a for a in (sg.get("required_atoms") or []) if isinstance(a, str)]
+        required_prims = [p for p in (sg.get("required_interaction_primitives") or []) if isinstance(p, str)]
+
+        # 둘 다 비어있으면 검증 정보 부재 → 자동 통과
+        if not required_atoms and not required_prims:
+            continue
+
+        missing_atoms = [a for a in required_atoms if not _atom_covered(a)]
+        missing_prims = [p for p in required_prims if not _atom_covered(p)]
+
+        if missing_atoms or missing_prims:
+            issues.append({
+                "subgoal_id": sg_id,
+                "missing_atoms": missing_atoms,
+                "missing_primitives": missing_prims,
+                "candidate_functions": sorted(candidate_funcs),
+            })
+    return issues
+
+
 def filter_candidates(
     input_data: Module2DInput,
     api_key: str | None = None,
@@ -177,14 +243,44 @@ def filter_candidates(
     prop_map = {p["name"]: p for p in input_data.object_physical_properties}
     geo_map = {o["name"]: o for o in input_data.scene_objects}
 
+    # subgoal 제약 추출 (Module 2-B 가 넘긴 정보)
+    subgoal_constraints: list[dict[str, Any]] = []
+    tc = input_data.tool_constraints or {}
+    sg_raw = tc.get("subgoal_constraints") if isinstance(tc, dict) else None
+    if isinstance(sg_raw, list):
+        subgoal_constraints = [s for s in sg_raw if isinstance(s, dict)]
+
+    # scene_objects 의 실제 이름 화이트리스트
+    # Module 3 의 _init_positions 가 이 이름들로만 위치를 색인하므로,
+    # used_objects 가 이 집합 밖이면 Module 3 에서 unknown_base 가 발생한다.
+    allowed_scene_names: set[str] = {
+        (o.get("name") or "").strip() for o in (input_data.scene_objects or [])
+        if (o.get("name") or "").strip()
+    }
+
     evaluated: list[EvaluatedCandidate] = []
     total_prompt_tokens = 0
     total_completion_tokens = 0
     raw_previews: dict[str, str] = {}
+    coverage_issues_by_cid: dict[str, list[dict[str, Any]]] = {}
+    rejected_for_unknown_names: list[dict[str, Any]] = []
 
     for candidate in input_data.candidate_tools:
         cid = candidate["candidate_id"]
         used_names = candidate.get("used_objects", [])
+
+        # ── used_objects 화이트리스트 검사 (hard filter) ──
+        # scene_objects 에 없는 이름(obj_XX, pb_XX 등)을 참조하는 후보는
+        # Module 3 가 위치를 못 찾아서 collision/contact_feasibility 가 무조건 fail.
+        # 그런 후보는 평가 자체에서 탈락시키고 다른 후보가 선택되도록 한다.
+        unknown_names = [n for n in used_names if n not in allowed_scene_names]
+        if unknown_names:
+            rejected_for_unknown_names.append({
+                "candidate_id": cid,
+                "unknown_names": unknown_names,
+                "used_objects": used_names,
+            })
+            continue
 
         # Idea 3: Python-built object profile summary (geometry_profile + numeric_profile)
         profile_lines: list[str] = []
@@ -251,10 +347,46 @@ def filter_candidates(
         except json.JSONDecodeError as e:
             raise ValueError(f"Module 2-D [{cid}]: GPT 응답 JSON 파싱 실패: {e}\n응답: {raw_text[:200]}")
 
-        evaluated.extend(_parse_evaluated_candidates([parsed]))
+        new_evals = _parse_evaluated_candidates([parsed])
+
+        # ── subgoal coverage 결정론적 검사 → 미커버 시 weak_point 부착 (soft) ──
+        coverage_issues = _check_subgoal_coverage(candidate, subgoal_constraints, prop_map)
+        if coverage_issues:
+            coverage_issues_by_cid[cid] = coverage_issues
+            for ev in new_evals:
+                if ev.candidate_id != cid:
+                    continue
+                for issue in coverage_issues:
+                    sg_id = issue.get("subgoal_id", "")
+                    miss_a = issue.get("missing_atoms", []) or []
+                    miss_p = issue.get("missing_primitives", []) or []
+                    parts: list[str] = []
+                    if miss_a:
+                        parts.append(f"missing_atoms={miss_a}")
+                    if miss_p:
+                        parts.append(f"missing_primitives={miss_p}")
+                    reason = (
+                        f"[deterministic_subgoal_coverage] subgoal={sg_id} "
+                        + ", ".join(parts)
+                        + f" | candidate_functions={issue.get('candidate_functions', [])}"
+                    )
+                    ev.weak_points.append(WeakPoint(
+                        stage="commonsense",
+                        item="C3",
+                        score=0.0,
+                        reason=reason,
+                    ))
+
+        evaluated.extend(new_evals)
 
     selected_id = _select_best_candidate(evaluated, input_data.candidate_tools)
     feedback = _compute_feedback_decision(evaluated, input_data)
+
+    passed_count = sum(1 for c in evaluated if c.passed)
+    is_fallback = selected_id is not None and passed_count == 0
+    selected_passed = next(
+        (c.passed for c in evaluated if c.candidate_id == selected_id), False
+    ) if selected_id else False
 
     trace = {
         "model": model,
@@ -262,8 +394,20 @@ def filter_candidates(
         "prompt_tokens": total_prompt_tokens,
         "completion_tokens": total_completion_tokens,
         "evaluated_count": len(evaluated),
+        "passed_count": passed_count,
         "selected_candidate_id": selected_id,
+        "selected_via_fallback": is_fallback,
+        "selected_passed": selected_passed,
+        "fallback_note": (
+            "모든 후보가 hard filter 에서 탈락하여 best-effort 로 1개 선택. "
+            "Module 3 는 이 후보로 어셈블리를 시도하되, feedback 은 module2a 로 전달."
+            if is_fallback else None
+        ),
         "raw_response_previews": raw_previews,
+        "subgoal_coverage_issues": coverage_issues_by_cid,
+        "subgoal_coverage_checked_count": len(subgoal_constraints),
+        "rejected_for_unknown_names": rejected_for_unknown_names,
+        "allowed_scene_names_count": len(allowed_scene_names),
     }
 
     return evaluated, selected_id, feedback, trace
@@ -273,16 +417,44 @@ def _select_best_candidate(
     evaluated: list[EvaluatedCandidate],
     candidate_tools: list[dict[str, Any]],
 ) -> str | None:
-    """Select best candidate: highest total_score among passed; tiebreak by used_objects count."""
+    """Select best candidate.
+
+    1순위: passed=True 중 total_score 최대 (tiebreak: used_objects 길이).
+    Fallback: passed 가 0개이면 best-effort 로 가장 살릴 만한 후보를 1개 선택.
+       모든 후보가 hard filter 에서 탈락한 경우에도 None 을 반환하지 않는다.
+       (이전엔 None → Module 3 가 임의 후보로 폴백 → 품질 저하 + 실험 불가능.
+        이제 2-D 가 가장 위반 적은 후보를 명시적으로 선택해 Module 3 에 넘긴다.)
+    """
+    obj_count = {c["candidate_id"]: len(c.get("used_objects", [])) for c in candidate_tools}
+
     passed = [c for c in evaluated if c.passed]
-    if not passed:
+    if passed:
+        max_score = max(c.total_score for c in passed)
+        top = [c for c in passed if c.total_score == max_score]
+        return max(top, key=lambda c: obj_count.get(c.candidate_id, 0)).candidate_id
+
+    # ── Fallback: passed=0 이어도 best-effort 로 1개 선택 ──
+    if not evaluated:
         return None
 
-    obj_count = {c["candidate_id"]: len(c.get("used_objects", [])) for c in candidate_tools}
-    max_score = max(c.total_score for c in passed)
-    top = [c for c in passed if c.total_score == max_score]
+    def _fallback_key(c: EvaluatedCandidate) -> tuple:
+        env_pass = bool((c.environment_filter or {}).get("pass", False))
+        asm_pass = bool((c.assembly_filter or {}).get("pass", False))
+        # 우선순위:
+        # 1) environment_filter 통과 (수치 제약은 hard 영역이므로 환경 통과가 가장 중요)
+        # 2) assembly_filter 통과
+        # 3) weak_points 적음 (-len)
+        # 4) total_score 높음
+        # 5) used_objects 많음 (3+ 조합 우선)
+        return (
+            int(env_pass),
+            int(asm_pass),
+            -len(c.weak_points),
+            c.total_score,
+            obj_count.get(c.candidate_id, 0),
+        )
 
-    return max(top, key=lambda c: obj_count.get(c.candidate_id, 0)).candidate_id
+    return max(evaluated, key=_fallback_key).candidate_id
 
 
 _PASS_THRESHOLDS = {

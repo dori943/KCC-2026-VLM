@@ -152,8 +152,17 @@ subgoal_constraints에 위 목록에 없는 atom이 있으면 그 의미를 추�
 2. candidate_tools는 6개 이상 포함하라.
 3. **[강제] 6개 중 최소 2개는 used_objects 길이가 3 이상이어야 한다.**
    used_objects 길이가 모두 2인 출력은 규칙 위반이다.
-4. used_objects는 물체 이름(name)으로 표기하라. object_id 사용 금지.
-5. JSON 바깥의 설명문은 출력하지 마라.
+4. **[매우 중요] used_objects 는 반드시 [scene_objects].name 의 실제 물체 이름**
+   (예: "fork", "plate", "spoon", "adjustable_wrench", "cracker_box") **만 사용하라.**
+   - [object_physical_properties].name 이 "obj_01", "obj_03" 같은 abstract id 형태일
+     수 있는데, 그 값은 used_objects / function_mapping.object 에 절대 쓰지 마라.
+   - scene_objects 와 object_physical_properties 가 같은 물체를 가리키더라도,
+     used_objects 표기는 **항상 scene_objects.name (real label) 만** 채택한다.
+   - object_id (obj_XX, pb_XX) 사용 금지.
+   - 즉 used_objects 의 모든 원소는 입력 scene_objects 배열의 어떤 원소의 name 과
+     글자 그대로 일치해야 한다.
+5. function_mapping[].object 도 위 규칙과 동일하게 scene_objects.name 만 사용하라.
+6. JSON 바깥의 설명문은 출력하지 마라.
 
 [출력 형식]
 
@@ -227,6 +236,12 @@ def generate_candidates(
 ) -> tuple[list[CandidateTool], dict[str, Any]]:
     client = OpenAI(api_key=api_key or os.environ["OPENAI_API_KEY"])
 
+    # used_objects 화이트리스트 = scene_objects 의 real name 들
+    allowed_object_names = [
+        so.get("name", "") for so in (input_data.scene_objects or [])
+        if so.get("name")
+    ]
+
     user_payload = {
         "task": input_data.task,
         "tool_constraints": input_data.tool_constraints,
@@ -236,6 +251,10 @@ def generate_candidates(
 
     user_message = (
         "다음 입력을 분석하여 도구 조합 후보를 생성하라.\n\n"
+        f"=== ALLOWED used_objects names (반드시 이 목록 안의 이름만 사용) ===\n"
+        f"{json.dumps(allowed_object_names, ensure_ascii=False)}\n\n"
+        "위 목록에 없는 이름(예: obj_01, obj_03, pb_05)은 사용 시 후보가 폐기된다.\n\n"
+        "=== 전체 입력 ===\n"
         + json.dumps(user_payload, ensure_ascii=False, indent=2)
     )
 

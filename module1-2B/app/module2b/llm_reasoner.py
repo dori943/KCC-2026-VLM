@@ -109,13 +109,29 @@ def generate_module2b_output_with_llm(
     )
 
     system_prompt = (
-        "You are Module 2-B env-only reasoner. "
-        "Return JSON only. Do not do Module 3 planning. "
-        "Produce a structurally complete module2b_output object."
+        "너는 Module 2-B: Target Object 및 환경 제약 반영기(env-only)이다. "
+        "user 메시지의 module2b_prompt_spec(specs/module2b_prompt_spec.md)을 "
+        "ground truth 지시문으로 따른다. 그 안의 §토폴로지 매핑 표, §수치 추정 가이드, "
+        "§제약 카탈로그 가이드, §출력 규칙, §자기 점검을 모두 적용해 출력하라. "
+        "특히: (1) module2b_input_bundle.task_brief.description(또는 user_goal) "
+        "키워드를 반드시 읽고 topology_tags/numeric_estimates에 반영한다. "
+        "(2) topology_tags ≥ 2, numeric_estimates ≥ 2, constraint_catalog ≥ 3 "
+        "(parameter_name 서로 다름) 미만이면 규칙 위반이다. "
+        "(3) 'c_01: min_effective_reach'만 있는 generic 출력은 절대 금지. "
+        "(4) Module 3의 plan/assembly/실행은 절대 하지 않는다. 환경 제약만 본다. "
+        "JSON only, JSON 바깥 설명 금지."
+    )
+    task_description_focus = _extract_task_focus(
+        raw_bundle=raw_bundle,
+        normalized_context=normalized_context,
     )
     user_payload = {
         "task": "Generate module2b_output_env_only from Module 2-B inputs.",
+        "task_description_focus": task_description_focus,
         "requirements": [
+            "task_description_focus.text의 키워드를 반드시 topology_tags/numeric_estimates로 변환하라.",
+            "topology_tags ≥ 2, numeric_estimates ≥ 2, constraint_catalog ≥ 3 (parameter_name 모두 상이).",
+            "'c_01: min_effective_reach' generic 단독 출력은 절대 금지.",
             "Use only inventory object ids that exist in the provided context.",
             "subgoal_bindings order must exactly match input subgoal order.",
             "Each constraint target_binding_ids must contain the same binding_id.",
@@ -185,6 +201,81 @@ def _load_prompt_spec(path: Path) -> str:
     if not path.exists():
         return ""
     return path.read_text(encoding="utf-8")
+
+
+def _extract_task_focus(
+    raw_bundle: dict[str, Any],
+    normalized_context: NormalizedContext,
+) -> dict[str, Any]:
+    """Surface task description text up to top-level so LLM cannot miss it.
+
+    LLM이 generic c_01 출력만 내는 패턴의 주된 원인은 task description이
+    raw_bundle 깊은 곳에 묻혀 무시되는 것. 이를 top-level focus로 끌어올린다.
+    """
+    pieces: list[str] = []
+
+    def _add(value: Any) -> None:
+        if isinstance(value, str):
+            text = value.strip()
+            if text and text not in pieces:
+                pieces.append(text)
+        elif isinstance(value, list):
+            for item in value:
+                _add(item)
+
+    bundle = raw_bundle if isinstance(raw_bundle, dict) else {}
+    task_brief = bundle.get("task_brief") if isinstance(bundle.get("task_brief"), dict) else {}
+    _add(task_brief.get("user_goal"))
+    _add(task_brief.get("description"))
+    _add(task_brief.get("success_criteria"))
+    _add(task_brief.get("task_notes"))
+
+    ctx_dict = normalized_context.to_dict()
+    ctx_brief = ctx_dict.get("task_brief") if isinstance(ctx_dict.get("task_brief"), dict) else {}
+    _add(ctx_brief.get("user_goal"))
+    _add(ctx_brief.get("description"))
+    _add(ctx_brief.get("success_criteria"))
+    _add(ctx_brief.get("task_notes"))
+
+    combined_text = " | ".join(pieces) if pieces else ""
+
+    keyword_hints: list[str] = []
+    keyword_map = [
+        ("좁은 틈", "narrow_gap"),
+        ("끼인", "narrow_gap"),
+        ("틈새", "narrow_gap"),
+        ("깊은 구멍", "deep_recess"),
+        ("구멍 바닥", "deep_recess"),
+        ("팔 길이", "reachable_depth lower_bound"),
+        ("팔의 길이", "reachable_depth lower_bound"),
+        ("길이의 절반", "reachable_depth lower_bound"),
+        ("매달", "under_overhang"),
+        ("공중", "under_overhang"),
+        ("실에", "occluding_edge"),
+        ("장력", "max_allowed_compliance_level"),
+        ("장애물", "obstacle"),
+        ("막힌", "obstacle"),
+        ("문", "obstacle confined_channel"),
+        ("손잡이", "min_tip_force_transmission_level"),
+        ("회전", "max_required_entry_angle_deg"),
+        ("유리", "fragility max_tip_thickness"),
+        ("파편", "obstacle constraining_surface_pair"),
+        ("날카로", "fragility"),
+        ("직접 접촉", "no_direct_contact"),
+        ("좁은 접근", "confined_channel"),
+    ]
+    for kw, hint in keyword_map:
+        if kw in combined_text and hint not in keyword_hints:
+            keyword_hints.append(hint)
+
+    return {
+        "text": combined_text,
+        "keyword_hints": keyword_hints,
+        "instruction": (
+            "이 텍스트는 task의 핵심 물리 제약이다. 키워드와 hint를 "
+            "topology_tags / numeric_estimates / constraint_catalog에 반드시 반영하라."
+        ),
+    }
 
 
 def _post_json(
@@ -299,6 +390,7 @@ def _normalize_module2b_payload(
         raw_items=env_raw.get("relevant_structures"),
         inventory_ids=inventory_ids,
         fallback_related_id=(target_binding["primary_targets"][0]["object_id"] if target_binding["primary_targets"] else None),
+        topology_tags=topology_tags,
     )
     structure_ids = [item["environment_structure_id"] for item in relevant_structures]
     target_binding["context_refs"] = _sanitize_id_list(
@@ -329,8 +421,15 @@ def _normalize_module2b_payload(
         derived_raw.get("global_constraint_ids"),
         constraint_ids,
     )
-    if not global_constraint_ids and constraint_ids:
-        global_constraint_ids = [constraint_ids[0]]
+    # LLM 이 global_constraint_ids 를 비우거나 c_01 하나만 넣는 경우가 많아서,
+    # priority=high 인 모든 constraint 를 자동으로 global 로 승격한다.
+    if not global_constraint_ids and constraint_catalog:
+        high_priority_ids = [
+            item["constraint_id"]
+            for item in constraint_catalog
+            if item.get("priority") == "high"
+        ]
+        global_constraint_ids = high_priority_ids or [constraint_ids[0]]
     subgoal_bindings = _normalize_subgoal_bindings(
         raw_items=derived_raw.get("subgoal_bindings"),
         subgoal_ids=subgoal_ids,
@@ -484,6 +583,7 @@ def _normalize_relevant_structures(
     raw_items: Any,
     inventory_ids: list[str],
     fallback_related_id: str | None,
+    topology_tags: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     structures: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
@@ -535,6 +635,37 @@ def _normalize_relevant_structures(
                 "confidence": _clamp01(_safe_float(item.get("confidence"), 0.5)),
             }
         )
+
+    # LLM 이 relevant_structures 를 비웠을 때:
+    # topology_tags 기반으로 의미 있는 fallback 을 만든다.
+    # 예전엔 무조건 obstacle 한 개만 만들어서 task1(narrow_gap) 일 때도
+    # env_01 = obstacle 로 잘못 표기됐다.
+    if not structures and topology_tags:
+        related = [fallback_related_id] if (
+            fallback_related_id and fallback_related_id in inventory_ids
+        ) else (inventory_ids[:1] if inventory_ids else [])
+        for idx, tag in enumerate(topology_tags, start=1):
+            label = tag.get("label", "obstacle")
+            if label not in _ALLOWED_TOPOLOGY_LABELS:
+                label = "obstacle"
+            sid = f"env_{idx:02d}"
+            if related:
+                src = [related[0]]
+            else:
+                src = [sid]
+            structures.append(
+                {
+                    "environment_structure_id": sid,
+                    "structure_role": label,
+                    "topology_tags": [label],
+                    "related_object_ids": list(related),
+                    "evidence": [
+                        f"Inferred from topology_tag {tag.get('tag_id', f'tag_{idx:02d}')} ({label})."
+                    ],
+                    "source_refs": src,
+                    "confidence": _clamp01(_safe_float(tag.get("confidence"), 0.5)),
+                }
+            )
 
     if not structures and fallback_related_id and fallback_related_id in inventory_ids:
         structures = [

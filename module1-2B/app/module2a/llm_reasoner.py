@@ -527,10 +527,19 @@ def _rebuild_pybullet_bridges(
         summary = {}
         payload["task_level_requirement_summary"] = summary
 
-    req_union = summary.get("required_atoms_union", []) or []
-    pref_union = summary.get("preferred_atoms_union", []) or []
-    risk_union = summary.get("risk_atoms_to_avoid_union", []) or []
-    primitives_union = summary.get("required_interaction_primitives_union", []) or []
+    # LLM 이 만든 raw union 에 중복이 들어올 수 있음 → 강제 dedupe.
+    # 스키마 검증("non-unique elements") 을 통과하기 위해 여기서 정리한다.
+    req_union = _dedupe_keep_order(list(summary.get("required_atoms_union", []) or []))
+    pref_union = _dedupe_keep_order(list(summary.get("preferred_atoms_union", []) or []))
+    risk_union = _dedupe_keep_order(list(summary.get("risk_atoms_to_avoid_union", []) or []))
+    primitives_union = _dedupe_keep_order(
+        list(summary.get("required_interaction_primitives_union", []) or [])
+    )
+    # 정리된 결과를 summary 에 반영해 다음 단계 검증을 통과시킴
+    summary["required_atoms_union"] = req_union
+    summary["preferred_atoms_union"] = pref_union
+    summary["risk_atoms_to_avoid_union"] = risk_union
+    summary["required_interaction_primitives_union"] = primitives_union
     gap_hypotheses = summary.get("resource_gap_hypotheses", []) or []
     overall_suff = str(summary.get("overall_resource_sufficiency") or "usable")
     if overall_suff not in sufficiency_codes:
