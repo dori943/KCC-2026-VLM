@@ -581,14 +581,107 @@ def capture_affordance_rgb(
     return rgba_np[:, :, :3]
 
 
+# 수정 후
+def _pixel_depth_to_world(
+    px: float,
+    py: float,
+    depth_buf: np.ndarray,
+    proj_matrix: tuple,
+    view_matrix: tuple,
+    img_w: int,
+    img_h: int,
+) -> np.ndarray | None:
+    """
+    2D 이미지 픽셀 (px, py) + PyBullet depth buffer → world 3D 좌표 변환.
+    depth_buf: getCameraImage의 depthBuffer (float32 [H, W], 0~1 NDC)
+    """
+    ix = int(np.clip(px, 0, img_w - 1))
+    iy = int(np.clip(py, 0, img_h - 1))
+    depth_ndc = float(depth_buf[iy, ix])
+    if depth_ndc >= 0.9999:   # 배경/무한대
+        return None
+
+    # NDC → clip → view → world
+    # PyBullet projection은 OpenGL 컨벤션 (column-major, z [-1,1])
+    proj = np.array(proj_matrix).reshape(4, 4).T
+    view = np.array(view_matrix).reshape(4, 4).T
+
+    # pixel → NDC
+    ndc_x = (px / img_w) * 2.0 - 1.0
+    ndc_y = 1.0 - (py / img_h) * 2.0   # y축 반전
+    ndc_z = 2.0 * depth_ndc - 1.0
+
+    clip = np.array([ndc_x, ndc_y, ndc_z, 1.0])
+    view_inv = np.linalg.inv(proj)
+    view_coord = view_inv @ clip
+    view_coord /= view_coord[3]
+
+    world_inv = np.linalg.inv(view)
+    world = world_inv @ view_coord
+    return world[:3]
+
+
+def _crop_object_rgb(
+    rgb: np.ndarray,
+    depth: np.ndarray,
+    bbox_pixel: list[int],
+    pad: int = 8,
+) -> np.ndarray:
+    """bbox_pixel 영역을 잘라 R1 개별 추론용 crop 이미지 반환."""
+    h, w = rgb.shape[:2]
+    x1 = max(0, bbox_pixel[0] - pad)
+    y1 = max(0, bbox_pixel[1] - pad)
+    x2 = min(w, bbox_pixel[2] + pad)
+    y2 = min(h, bbox_pixel[3] + pad)
+    if x2 <= x1 or y2 <= y1:
+        return rgb
+    return rgb[y1:y2, x1:x2].copy()
+
+
+def _project_body_to_pixel(
+    body_id: int,
+    proj_matrix: tuple,
+    view_matrix: tuple,
+    img_w: int,
+    img_h: int,
+) -> list[int] | None:
+    """PyBullet body의 world pos를 카메라 픽셀 좌표로 투영."""
+    try:
+        pos, _ = p.getBasePositionAndOrientation(body_id)
+        proj = np.array(proj_matrix).reshape(4, 4).T
+        view = np.array(view_matrix).reshape(4, 4).T
+        world_pt = np.array([pos[0], pos[1], pos[2], 1.0])
+        clip = proj @ view @ world_pt
+        if abs(clip[3]) < 1e-6:
+            return None
+        ndc = clip[:3] / clip[3]
+        px = int((ndc[0] + 1.0) / 2.0 * img_w)
+        py = int((1.0 - ndc[1]) / 2.0 * img_h)
+        if 0 <= px < img_w and 0 <= py < img_h:
+            return [px, py]
+    except Exception:
+        pass
+    return None
+
+
 def run_optional_affordance_probe(
     enable_affordance_r1: bool,
     enable_sam2_refinement: bool = False,
     controllers: dict | None = None,
-) -> None:
+    ycb_object_ids: dict | None = None,
+    target_labels: list[str] | None = None,
+) -> dict[str, dict]:
+    """
+    R1 추론을 물체별로 실행해 각 controller에 3D grasp hint를 주입.
+
+    Returns:
+        { label: { "world_pos": [x,y,z], "orientation": quaternion, "bbox_pixel": [...] } }
+    """
+    results: dict[str, dict] = {}
+
     if not enable_affordance_r1:
         print("[R1] optional affordance probe disabled (set ENABLE_AFFORDANCE_R1=1 to enable)")
-        return
+        return results
 
     print("[R1] optional affordance probe enabled")
 
@@ -596,83 +689,228 @@ def run_optional_affordance_probe(
         from affordancegrasp_r1_adapter import AffordanceGraspR1Adapter
     except Exception as exc:
         print(f"[R1][WARN] adapter import failed: {exc}")
-        return
+        return results
 
     try:
-        rgb = capture_affordance_rgb()
+        # ── 1. 카메라 설정 (depth 포함) ──────────────────────────────────────
+        IMG_W = AFFORDANCE_CAPTURE_WIDTH
+        IMG_H = AFFORDANCE_CAPTURE_HEIGHT
+        view_matrix = p.computeViewMatrix(
+            cameraEyePosition=[1.05, -1.00, 1.35],
+            cameraTargetPosition=[1.3, 0.0, 0.8],
+            cameraUpVector=[0.0, 0.0, 1.0],
+        )
+        proj_matrix = p.computeProjectionMatrixFOV(
+            fov=60.0,
+            aspect=IMG_W / IMG_H,
+            nearVal=0.01,
+            farVal=5.0,
+        )
+        _, _, rgba_raw, depth_raw, _ = p.getCameraImage(
+            width=IMG_W,
+            height=IMG_H,
+            viewMatrix=view_matrix,
+            projectionMatrix=proj_matrix,
+            renderer=p.ER_TINY_RENDERER,
+        )
+        rgb_full = np.asarray(rgba_raw, dtype=np.uint8).reshape(IMG_H, IMG_W, 4)[:, :, :3]
+        depth_buf = np.asarray(depth_raw, dtype=np.float32).reshape(IMG_H, IMG_W)
+
+        # ── 2. R1 adapter 로드 (CPU 강제) ────────────────────────────────────
+        import os as _os
+        _os.environ["CUDA_VISIBLE_DEVICES"] = ""   # GPU 비활성화 → device mismatch 방지
+
         adapter = AffordanceGraspR1Adapter(
             model_id=AFFORDANCE_MODEL_ID,
-            local_model_dir=os.getenv("AFFORDANCE_R1_LOCAL_DIR"),
+            device="cpu",
+            local_model_dir=_os.getenv("AFFORDANCE_R1_LOCAL_DIR"),
             local_files_only=env_flag("AFFORDANCE_R1_LOCAL_ONLY", default=False),
         )
+        adapter.load()
+        if not adapter.is_available():
+            print(f"[R1][WARN] model not available: {adapter._last_error}")
+            return results
 
-        import os as _os
-        _os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
+        # ── 3. 물체별 개별 추론 ─────────────────────────────────────────────
+        labels_to_probe = target_labels or (list(ycb_object_ids.keys()) if ycb_object_ids else [])
+        if not labels_to_probe:
+            print("[R1][WARN] no target labels to probe.")
+            return results
 
-        result = adapter.predict(
-            rgb,
-            prompt=(
-                "Find one robust grasp affordance for tabletop robot pick and place. "
-                "Return [x1, y1, x2, y2] and part name."
-            ),
-            extra_context={
-                "scene": "dual-panda-tabletop",
-                "objects": [spec[0] for spec in YCB_OBJECT_SPECS],
-            },
-        )
+        for label in labels_to_probe:
+            body_id = (ycb_object_ids or {}).get(label)
+            if body_id is None:
+                print(f"[R1][WARN] label '{label}' not in ycb_object_ids, skipping.")
+                continue
 
-        if result.get("success"):
-            candidates = result.get("grasp_candidates") or []
-            if enable_sam2_refinement and candidates:
-                print("[SAM2] refinement enabled")
+            print(f"[R1] probing '{label}' (body_id={body_id})...")
+
+            # 3-a. body를 픽셀로 투영해 crop 범위 결정
+            center_px = _project_body_to_pixel(
+                body_id, proj_matrix, view_matrix, IMG_W, IMG_H
+            )
+            if center_px is not None:
+                # AABB 기반 bbox 크기 추정
+                try:
+                    aabb_min, aabb_max = p.getAABB(body_id)
+                    # 물체 크기를 픽셀 크기로 대략 환산 (FOV 기반 rough estimate)
+                    obj_span = max(
+                        float(aabb_max[0] - aabb_min[0]),
+                        float(aabb_max[1] - aabb_min[1]),
+                        float(aabb_max[2] - aabb_min[2]),
+                    )
+                    half_px = max(20, int(obj_span * IMG_W * 0.5))
+                    crop_bbox = [
+                        max(0, center_px[0] - half_px),
+                        max(0, center_px[1] - half_px),
+                        min(IMG_W, center_px[0] + half_px),
+                        min(IMG_H, center_px[1] + half_px),
+                    ]
+                except Exception:
+                    crop_bbox = [
+                        max(0, center_px[0] - 30),
+                        max(0, center_px[1] - 30),
+                        min(IMG_W, center_px[0] + 30),
+                        min(IMG_H, center_px[1] + 30),
+                    ]
+                crop_img = _crop_object_rgb(rgb_full, depth_buf, crop_bbox)
+            else:
+                crop_img = rgb_full   # fallback: 전체 이미지
+                crop_bbox = [0, 0, IMG_W, IMG_H]
+
+            # 3-b. R1 추론 (물체 label을 prompt에 명시)
+            r1_result = adapter.predict(
+                image=crop_img,
+                prompt=(
+                    f"Find the best robot grasp region for '{label}'. "
+                    "The robot gripper approaches from above. "
+                    "Return [x1, y1, x2, y2] (0-1000 scale) and a part name."
+                ),
+                extra_context={
+                    "target_object": label,
+                    "scene": "dual-panda-tabletop",
+                    "grasp_direction": "top-down",
+                },
+                max_new_tokens=128,
+            )
+
+            if not r1_result.get("success"):
+                print(f"[R1][WARN] '{label}' inference failed: {r1_result.get('error')}")
+                continue
+
+            candidates = r1_result.get("grasp_candidates") or []
+            if not candidates:
+                print(f"[R1][INFO] '{label}' — no candidate parsed from output: {r1_result.get('raw_output')}")
+                continue
+
+            top = candidates[0]
+            print(f"[R1] '{label}' top candidate: {top}")
+
+            # 3-c. crop 내 픽셀 좌표 → 전체 이미지 픽셀 좌표로 역변환
+            cx_crop, cy_crop = top["center_pixel"]
+            crop_w = crop_bbox[2] - crop_bbox[0]
+            crop_h = crop_bbox[3] - crop_bbox[1]
+            if crop_w > 0 and crop_h > 0:
+                cx_full = crop_bbox[0] + cx_crop * (crop_w / max(crop_img.shape[1], 1))
+                cy_full = crop_bbox[1] + cy_crop * (crop_h / max(crop_img.shape[0], 1))
+            else:
+                cx_full, cy_full = cx_crop, cy_crop
+
+            # 3-d. 2D pixel → 3D world 좌표 변환
+            world_pos = _pixel_depth_to_world(
+                px=cx_full, py=cy_full,
+                depth_buf=depth_buf,
+                proj_matrix=proj_matrix,
+                view_matrix=view_matrix,
+                img_w=IMG_W,
+                img_h=IMG_H,
+            )
+
+            if world_pos is None:
+                # depth 실패 → AABB center fallback
+                try:
+                    aabb_min, aabb_max = p.getAABB(body_id)
+                    world_pos = np.array([
+                        (float(aabb_min[0]) + float(aabb_max[0])) / 2.0,
+                        (float(aabb_min[1]) + float(aabb_max[1])) / 2.0,
+                        float(aabb_max[2]),   # top surface
+                    ])
+                    print(f"[R1] '{label}' depth miss → AABB center fallback: {world_pos.tolist()}")
+                except Exception:
+                    print(f"[R1][WARN] '{label}' could not compute world_pos, skipping.")
+                    continue
+
+            # 3-e. orientation: crop bbox 종횡비로 긴 축 방향 추정 → yaw 계산
+            bbox_w = top["bbox_pixel"][2] - top["bbox_pixel"][0]
+            bbox_h = top["bbox_pixel"][3] - top["bbox_pixel"][1]
+            # bbox가 가로로 길면 물체의 긴 축이 X방향 → yaw=0
+            # bbox가 세로로 길면 물체의 긴 축이 Y방향 → yaw=90deg
+            if bbox_h > bbox_w * 1.2:
+                grasp_yaw = np.pi / 2.0
+            elif bbox_w > bbox_h * 1.2:
+                grasp_yaw = 0.0
+            else:
+                grasp_yaw = 0.0   # 정방형: 기본값
+            grasp_orientation = p.getQuaternionFromEuler([np.pi, 0.0, grasp_yaw])
+
+            print(
+                f"[R1] '{label}' world_pos={[round(v, 4) for v in world_pos.tolist()]}, "
+                f"yaw={np.degrees(grasp_yaw):.1f}°"
+            )
+
+            hint_payload = {
+                "world_pos": world_pos.tolist(),
+                "orientation": list(grasp_orientation),
+                "bbox_pixel": top.get("bbox_pixel", []),
+                "part": top.get("part", ""),
+                "score": float(top.get("score", 1.0)),
+            }
+            results[label] = hint_payload
+
+            # SAM2 refinement (선택)
+            if enable_sam2_refinement:
                 try:
                     from sam2_segmenter_adapter import SAM2SegmentationAdapter
-
-                    sam2_adapter = SAM2SegmentationAdapter(
-                        model_id=os.getenv("SAM2_MODEL_ID", SAM2_MODEL_ID),
-                        local_model_dir=os.getenv("SAM2_LOCAL_DIR"),
+                    sam2 = SAM2SegmentationAdapter(
+                        model_id=_os.getenv("SAM2_MODEL_ID", SAM2_MODEL_ID),
+                        local_model_dir=_os.getenv("SAM2_LOCAL_DIR"),
                         local_files_only=env_flag("SAM2_LOCAL_ONLY", default=False),
                     )
-                    refined = sam2_adapter.refine_result(
-                        image=rgb,
-                        affordance_result=result,
-                        top_k=1,
-                    )
+                    refined = sam2.refine_result(image=crop_img, affordance_result=r1_result, top_k=1)
                     if refined.get("success"):
-                        result = refined.get("result", result)
-                        candidates = result.get("grasp_candidates") or candidates
-                        print("[SAM2] top-1 candidate refined with mask.")
-                    else:
-                        print(f"[SAM2][WARN] refinement skipped: {refined.get('error')}")
-                except Exception as exc:
-                    print(f"[SAM2][WARN] refinement failed, using R1 candidate only: {exc}")
-            elif enable_sam2_refinement:
-                print("[SAM2][INFO] no R1 candidates available to refine.")
+                        print(f"[SAM2] '{label}' mask refined.")
+                except Exception as sam_exc:
+                    print(f"[SAM2][WARN] '{label}' refinement failed: {sam_exc}")
 
-            print(f"[R1] summary: {result.get('affordance_summary')}")
-            if candidates:
-                print(f"[R1] top candidate: {candidates[0]}")
-            else:
-                print("[R1][INFO] inference succeeded but no parsed candidate was found.")
+            # 3-f. controller에 hint 주입
             if isinstance(controllers, dict):
                 for arm_name, controller in controllers.items():
-                    hint = controller.set_affordance_hint(result)
-                    print(f"[R1] {arm_name} controller hint: {hint}")
-            print("[R1][TODO] map 2D affordance candidates to object-level 3D pick waypoints.")
-            return
+                    # 이 label이 해당 arm의 타겟인지는 run_sequential_demo에서 결정
+                    # 여기서는 전체 inference_result에 world_pos 포함해서 저장
+                    r1_result_with_3d = dict(r1_result)
+                    r1_result_with_3d["world_pos"] = world_pos.tolist()
+                    r1_result_with_3d["orientation"] = list(grasp_orientation)
+                    r1_result_with_3d["target_label"] = label
+                    controller.set_affordance_hint(r1_result_with_3d)
+                    print(f"[R1] hint injected into controller '{arm_name}' for '{label}'")
 
-        print(f"[R1][WARN] inference unavailable: {result.get('error')}")
+        return results
+
     except Exception as exc:
-        print(f"[R1][WARN] optional affordance probe failed, continuing simulation: {exc}")
+        print(f"[R1][WARN] affordance probe failed: {exc}")
+        import traceback; traceback.print_exc()
+        return results
 
 
 def run_sequential_demo(
     controllers: dict,
     ycb_object_ids: dict,
+    r1_hints: dict | None = None,   # ← run_optional_affordance_probe 결과
 ) -> None:
     left = controllers["left"]
     right = controllers["right"]
     down_orn = p.getQuaternionFromEuler([np.pi, 0.0, 0.0])
+    r1_hints = r1_hints or {}
  
     CAM_CONFIG = {
     "cam_target":   [1.0, 0.0, 0.8],
@@ -748,11 +986,16 @@ def run_sequential_demo(
     # ══════════════════════════════════════════════════════
     # Step 1-L. Left arm: base_object 파지 → 제자리 대기
     # ══════════════════════════════════════════════════════
+    # 수정 후
     print(f"[Demo] left-arm grasp target: {left_target_label}")
+    _left_hint = r1_hints.get(left_target_label, {})
+    _left_orn = _left_hint.get("orientation") or down_orn
+    if _left_hint.get("orientation"):
+        print(f"[R1] using R1 orientation for '{left_target_label}': {[round(v,4) for v in _left_orn]}")
     left_ok = left.grasp_body(
         body_id=left_body_id,
         object_label=left_target_label,
-        orientation=down_orn,
+        orientation=list(_left_orn),
     )
     if not left_ok:
         print(f"[Demo][WARN] left-arm grasp failed for '{left_target_label}'")
@@ -765,10 +1008,14 @@ def run_sequential_demo(
     #           left가 들고 있는 동안 hold_companion으로 보호
     # ══════════════════════════════════════════════════════
     print(f"[Demo] right-arm grasp target: {right_target_label}")
+    _right_hint = r1_hints.get(right_target_label, {})
+    _right_orn = _right_hint.get("orientation") or down_orn
+    if _right_hint.get("orientation"):
+        print(f"[R1] using R1 orientation for '{right_target_label}': {[round(v,4) for v in _right_orn]}")
     right_ok = right.grasp_body(
         body_id=right_body_id,
         object_label=right_target_label,
-        orientation=down_orn,
+        orientation=list(_right_orn),
         hold_companion=left if left_ok else None,
     )
     if not right_ok:
@@ -982,15 +1229,23 @@ def main() -> None:
     print(f"[Boot] ycb objects: {ycb_object_ids}")
     print(f"[Boot] robot IDs: {robot_ids}")
  
+    # 수정 후
     stabilize_scene()
-    run_optional_affordance_probe(
+
+    # module3 대상 물체 labels를 R1 probe에 전달
+    _m3_labels = _load_module3_object_labels(_MODULE3_JSON_PATH)
+    r1_hints = run_optional_affordance_probe(
         enable_affordance_r1=enable_affordance_r1,
         enable_sam2_refinement=enable_sam2_refinement,
         controllers=controllers,
+        ycb_object_ids=ycb_object_ids,
+        target_labels=_m3_labels if _m3_labels else None,
     )
+
     run_sequential_demo(
         controllers=controllers,
         ycb_object_ids=ycb_object_ids,
+        r1_hints=r1_hints,
     )
     keep_gui_alive()
  
