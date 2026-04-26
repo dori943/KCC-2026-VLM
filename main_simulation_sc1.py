@@ -514,14 +514,11 @@ def load_ycb_objects(ycb_dir: str = YCB_DIR, table_body_id=None) -> dict:
     flags = p.URDF_USE_INERTIA_FROM_FILE
     loaded = {}
  
-    table_z = _get_table_surface_z(table_body_id)
-    print(f"[Load] table surface z = {table_z:.4f} m")
- 
     for label, urdf_name, base_position in YCB_OBJECT_SPECS:
         urdf_path = os.path.join(ycb_dir, urdf_name)
         if not os.path.isfile(urdf_path):
             raise FileNotFoundError(f"Missing URDF: {urdf_path}")
-        spawn_pos = [base_position[0], base_position[1], table_z + 0.05]
+        spawn_pos = [base_position[0], base_position[1], base_position[2]]
         body_id = p.loadURDF(
             urdf_path,
             basePosition=spawn_pos,
