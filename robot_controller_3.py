@@ -455,7 +455,7 @@ class PandaController:
         elif features["slender_like"]:
             grasp_z_ratio = 0.72
         elif features["flat_like"]:
-            grasp_z_ratio = 0.92
+            grasp_z_ratio = 0.50  # side-grasp: 물체 중간 높이에서 옆면 접근
         approach_height = _clamp(0.12 + size_z * 0.65, 0.12, 0.24)
         lift_height = _clamp(0.08 + 0.045 * mass_factor + 0.02 * width_factor, 0.08, 0.18)
         min_lift_gain = _clamp(size_z * 0.22, 0.012, 0.030)
@@ -581,15 +581,20 @@ class PandaController:
         xy_offset: tuple[float, float] = (0.0, 0.0),
     ) -> dict:
         aabb_min, aabb_max = p.getAABB(body_id)
-        body_pos, _ = p.getBasePositionAndOrientation(body_id)
-        target_xy = np.array(body_pos[:2], dtype=float) + np.array(xy_offset, dtype=float)
+        # body_pos 대신 AABB center를 사용: globalScaling 환경에서 pose origin과
+        # 실제 물체 중심이 미세하게 달라 contact 실패하는 문제 방지
+        aabb_center_xy = np.array([
+            (float(aabb_min[0]) + float(aabb_max[0])) / 2.0,
+            (float(aabb_min[1]) + float(aabb_max[1])) / 2.0,
+        ], dtype=float)
+        target_xy = aabb_center_xy + np.array(xy_offset, dtype=float)
         top_z = float(aabb_max[2])
         bottom_z = float(aabb_min[2])
         size_z = max(1e-4, top_z - bottom_z)
         size_x = max(1e-4, float(aabb_max[0] - aabb_min[0]))
         size_y = max(1e-4, float(aabb_max[1] - aabb_min[1]))
         span_xy = max(size_x, size_y)
-        grasp_z_ratio = float(self._active_grasp_profile.get("grasp_z_ratio", 0.85))
+        grasp_z_ratio = float(self._active_grasp_profile.get("grasp_z_ratio", 0.50))
         grasp_z_ratio = _clamp(grasp_z_ratio, 0.45, 0.98)
         target_grasp_z = bottom_z + size_z * grasp_z_ratio + grasp_clearance
         return {
@@ -989,8 +994,8 @@ class PandaController:
         self,
         body_id: int,
         orientation,
-        drop_step: float = 0.015,
-        max_drop: float = 0.18,
+        drop_step: float = 0.008,
+        max_drop: float = 0.30,
         hold_companion: "PandaController | None" = None,
     ) -> None:
         checks = int(max_drop / drop_step)
@@ -1097,9 +1102,16 @@ class PandaController:
         lift = candidate["lift"]
         size_z = float(candidate.get("size_z", 0.10))
 
+        print(f"[{self.name}] grasp coords: approach={[round(v,4) for v in approach]}, grasp={[round(v,4) for v in grasp]}")
+        aabb_min_dbg, aabb_max_dbg = p.getAABB(body_id)
+        print(f"[{self.name}] object AABB: min={[round(v,4) for v in aabb_min_dbg]}, max={[round(v,4) for v in aabb_max_dbg]}")
         self.move_end_effector_to(approach, orientation=selected_orientation, steps=420, hold_companion=hold_companion)
         self.move_end_effector_to(grasp, orientation=selected_orientation, steps=360, hold_companion=hold_companion)
+        ee_pos_dbg, _ = self.get_end_effector_pose()
+        print(f"[{self.name}] EE after grasp move: {[round(v,4) for v in ee_pos_dbg]}")
         self._descend_until_precontact(body_id=body_id, orientation=selected_orientation, hold_companion=hold_companion)
+        ee_pos_dbg2, _ = self.get_end_effector_pose()
+        print(f"[{self.name}] EE after descend: {[round(v,4) for v in ee_pos_dbg2]}")
 
         # _finger_open: AABB 기반 계산값을 start_open으로 전달해
         # _close_until_contact가 다시 0.04로 벌리지 않도록 함
@@ -1216,12 +1228,30 @@ class PandaController:
         hold_companion: 이 팔이 grasp하는 동안 hold를 유지해야 하는 다른 PandaController.
         """
         self._ensure_loaded()
-        if orientation is None:
-            orientation = p.getQuaternionFromEuler([np.pi, 0.0, 0.0])
         profile = self._activate_grasp_profile(
             body_id=body_id,
             object_label=object_label,
         )
+
+        # flat_like 물체(납작한 물체)는 top-grasp 불가 → side-grasp로 자동 전환
+        # height_ratio = size_z / span_xy < 0.55 이면 flat_like
+        if orientation is None:
+            features = self._active_body_features or {}
+            if features.get("flat_like", False):
+                # 물체 긴 축(span_xy 방향) 기준으로 side에서 접근
+                # roll=pi/2: gripper를 옆으로 눕혀서 납작한 면의 측면을 잡음
+                aabb_min_f, aabb_max_f = p.getAABB(body_id)
+                dx = float(aabb_max_f[0] - aabb_min_f[0])
+                dy = float(aabb_max_f[1] - aabb_min_f[1])
+                if dy > dx:
+                    # y가 긴 축 → x방향(roll=pi/2, pitch=0)에서 옆으로 접근
+                    orientation = p.getQuaternionFromEuler([np.pi / 2.0, 0.0, 0.0])
+                else:
+                    # x가 긴 축 → y방향(roll=pi/2, pitch=pi/2)에서 옆으로 접근
+                    orientation = p.getQuaternionFromEuler([np.pi / 2.0, 0.0, np.pi / 2.0])
+                print(f"[{self.name}] flat_like detected → side-grasp orientation (dx={dx:.3f}, dy={dy:.3f})")
+            else:
+                orientation = p.getQuaternionFromEuler([np.pi, 0.0, 0.0])
         if use_constraint:
             print(f"[{self.name}] use_constraint=True is deprecated; using contact-based grasp.")
 
