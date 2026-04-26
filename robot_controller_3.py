@@ -519,14 +519,31 @@ class PandaController:
     def _estimate_object_inplane_angle(self, body_id: int) -> float:
         """
         Estimate object in-plane (world Z) yaw.
-        Priority:
-        1) physics pose quaternion yaw
-        2) fallback to 0 if unavailable
+        AABB의 긴 축을 감지해 gripper가 짧은 폭 방향으로 접근하도록 angle 반환.
+        - AABB x > y (x가 더 길다) → 긴 축이 x방향 → gripper는 y방향으로 접근 → yaw=90deg
+        - AABB y > x (y가 더 길다) → 긴 축이 y방향 → gripper는 x방향으로 접근 → yaw=0deg
+        물체 pose quaternion yaw도 더해서 실제 방향 반영.
         """
         try:
             _, body_orn = p.getBasePositionAndOrientation(body_id)
-            yaw = float(p.getEulerFromQuaternion(body_orn)[2])
-            return _normalize_angle_rad(yaw)
+            pose_yaw = float(p.getEulerFromQuaternion(body_orn)[2])
+
+            aabb_min, aabb_max = p.getAABB(body_id)
+            dx = float(aabb_max[0] - aabb_min[0])
+            dy = float(aabb_max[1] - aabb_min[1])
+
+            # 긴 축에 수직 방향으로 gripper 접근
+            if dx > dy * 1.2:
+                # x가 긴 축 → gripper를 y방향으로 벌림 → yaw=90deg
+                long_axis_angle = np.pi / 2.0
+            elif dy > dx * 1.2:
+                # y가 긴 축 → gripper를 x방향으로 벌림 → yaw=0deg
+                long_axis_angle = 0.0
+            else:
+                # 정방형에 가까우면 pose yaw 그대로
+                long_axis_angle = pose_yaw
+
+            return _normalize_angle_rad(long_axis_angle + pose_yaw)
         except Exception:
             return 0.0
 
@@ -1042,7 +1059,29 @@ class PandaController:
     ) -> bool:
         start_obj_pos = np.array(p.getBasePositionAndOrientation(body_id)[0])
         self._last_grasp_failure = None
-        self.open_gripper(steps=90)
+
+        # 물체 AABB 기반으로 gripper open width를 물체 크기에 맞게 조정.
+        # 기본 0.04(=8cm total)는 globalScaling=0.1 물체에 비해 너무 커서
+        # 손가락 사이로 빠짐. 물체 최대 폭의 절반 + 여유 0.005m로 제한.
+        try:
+            _aabb_min, _aabb_max = p.getAABB(body_id)
+            # 물체의 짧은 방향(폭)으로 잡아야 접촉이 잘 됨
+            # max(긴 방향) 대신 min(짧은 방향) 사용
+            _obj_width = min(
+                float(_aabb_max[0] - _aabb_min[0]),
+                float(_aabb_max[1] - _aabb_min[1]),
+            )
+            _finger_open = _clamp(_obj_width / 2.0 + 0.005, 0.005, 0.04)
+        except Exception:
+            _finger_open = 0.04
+        for _fj in GRIPPER_JOINT_INDICES:
+            p.setJointMotorControl2(
+                self.panda_id, _fj,
+                p.POSITION_CONTROL,
+                targetPosition=_finger_open,
+                force=GRIPPER_FORCE,
+            )
+        _step_simulation(90)
         candidate = self._select_grasp_candidate(
             body_id=body_id,
             orientation_hint=orientation,
@@ -1062,12 +1101,16 @@ class PandaController:
         self.move_end_effector_to(grasp, orientation=selected_orientation, steps=360, hold_companion=hold_companion)
         self._descend_until_precontact(body_id=body_id, orientation=selected_orientation, hold_companion=hold_companion)
 
-        contact_found, hold_target, summary = self._close_until_contact(body_id=body_id, hold_companion=hold_companion)
+        # _finger_open: AABB 기반 계산값을 start_open으로 전달해
+        # _close_until_contact가 다시 0.04로 벌리지 않도록 함
+        contact_found, hold_target, summary = self._close_until_contact(
+            body_id=body_id, start_open=_finger_open, hold_companion=hold_companion)
         if not contact_found:
             extra_drop = _clamp(0.18 * size_z, 0.008, 0.025)
             fallback_grasp = [grasp[0], grasp[1], grasp[2] - extra_drop]
             self.move_end_effector_to(fallback_grasp, orientation=selected_orientation, steps=140, hold_companion=hold_companion)
-            contact_found, hold_target, summary = self._close_until_contact(body_id=body_id, hold_companion=hold_companion)
+            contact_found, hold_target, summary = self._close_until_contact(
+                body_id=body_id, start_open=_finger_open, hold_companion=hold_companion)
         if not contact_found:
             print(f"[{self.name}] no-contact close (contacts={summary['total']})")
             end_obj_pos = np.array(p.getBasePositionAndOrientation(body_id)[0])
