@@ -596,7 +596,9 @@ class PandaController:
         span_xy = max(size_x, size_y)
         grasp_z_ratio = float(self._active_grasp_profile.get("grasp_z_ratio", 0.50))
         grasp_z_ratio = _clamp(grasp_z_ratio, 0.45, 0.98)
-        target_grasp_z = bottom_z + size_z * grasp_z_ratio + grasp_clearance
+        FINGER_TIP_OFFSET = 0.058
+        tip_compensation = _clamp(FINGER_TIP_OFFSET - size_z * grasp_z_ratio, 0.0, FINGER_TIP_OFFSET)
+        target_grasp_z = bottom_z + size_z * grasp_z_ratio + grasp_clearance + tip_compensation
         return {
             "target_xy": target_xy,
             "top_z": top_z,
@@ -994,7 +996,7 @@ class PandaController:
         self,
         body_id: int,
         orientation,
-        drop_step: float = 0.008,
+        drop_step: float = 0.005,
         max_drop: float = 0.30,
         hold_companion: "PandaController | None" = None,
     ) -> None:
@@ -1076,7 +1078,7 @@ class PandaController:
                 float(_aabb_max[0] - _aabb_min[0]),
                 float(_aabb_max[1] - _aabb_min[1]),
             )
-            _finger_open = _clamp(_obj_width / 2.0 + 0.005, 0.005, 0.04)
+            _finger_open = _clamp(_obj_width / 2.0 + 0.012, 0.015, 0.04)
         except Exception:
             _finger_open = 0.04
         for _fj in GRIPPER_JOINT_INDICES:

@@ -606,6 +606,9 @@ def run_optional_affordance_probe(
             local_files_only=env_flag("AFFORDANCE_R1_LOCAL_ONLY", default=False),
         )
 
+        import os as _os
+        _os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
+
         result = adapter.predict(
             rgb,
             prompt=(
