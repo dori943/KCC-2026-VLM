@@ -700,16 +700,83 @@ def _crop_object_rgb(
     depth: np.ndarray,
     bbox_pixel: list[int],
     pad: int = 8,
-) -> np.ndarray:
-    """bbox_pixel ?곸뿭???섎씪 R1 媛쒕퀎 異붾줎??crop ?대?吏 諛섑솚."""
+) -> tuple[np.ndarray, list[int]]:
+    """Return padded crop image and crop bounds for a bbox."""
     h, w = rgb.shape[:2]
     x1 = max(0, bbox_pixel[0] - pad)
     y1 = max(0, bbox_pixel[1] - pad)
     x2 = min(w, bbox_pixel[2] + pad)
     y2 = min(h, bbox_pixel[3] + pad)
     if x2 <= x1 or y2 <= y1:
-        return rgb
-    return rgb[y1:y2, x1:x2].copy()
+        return rgb, [0, 0, w, h]
+    return rgb[y1:y2, x1:x2].copy(), [x1, y1, x2, y2]
+
+
+def _binary_dilate(mask: np.ndarray, radius: int = 1) -> np.ndarray:
+    """Simple binary dilation without external dependencies."""
+    out = np.asarray(mask, dtype=bool)
+    if radius <= 0 or not bool(np.any(out)):
+        return out
+    for _ in range(int(radius)):
+        padded = np.pad(out, 1, mode="constant", constant_values=False)
+        out = (
+            padded[:-2, :-2] | padded[:-2, 1:-1] | padded[:-2, 2:] |
+            padded[1:-1, :-2] | padded[1:-1, 1:-1] | padded[1:-1, 2:] |
+            padded[2:, :-2] | padded[2:, 1:-1] | padded[2:, 2:]
+        )
+    return out
+
+
+def _mask_bbox_xyxy(mask: np.ndarray) -> list[int] | None:
+    ys, xs = np.where(np.asarray(mask, dtype=bool))
+    if xs.size == 0 or ys.size == 0:
+        return None
+    # xyxy (x2, y2 are exclusive)
+    return [int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1]
+
+
+def _crop_object_rgb_by_mask(
+    rgb: np.ndarray,
+    object_mask: np.ndarray,
+    pad: int = 8,
+    mask_only: bool = True,
+) -> tuple[np.ndarray, list[int], np.ndarray]:
+    """
+    Build a tight crop around object mask.
+    If mask_only=True, keep target object pixels and zero background.
+    """
+    h, w = rgb.shape[:2]
+    mask = np.asarray(object_mask, dtype=bool)
+    bbox = _mask_bbox_xyxy(mask)
+    if bbox is None:
+        full_bounds = [0, 0, w, h]
+        full_mask = np.ones((h, w), dtype=bool)
+        return rgb.copy(), full_bounds, full_mask
+
+    x1 = max(0, int(bbox[0]) - int(pad))
+    y1 = max(0, int(bbox[1]) - int(pad))
+    x2 = min(w, int(bbox[2]) + int(pad))
+    y2 = min(h, int(bbox[3]) + int(pad))
+    if x2 <= x1 or y2 <= y1:
+        full_bounds = [0, 0, w, h]
+        full_mask = np.ones((h, w), dtype=bool)
+        return rgb.copy(), full_bounds, full_mask
+
+    crop_img = rgb[y1:y2, x1:x2].copy()
+    crop_mask = mask[y1:y2, x1:x2]
+    if mask_only:
+        crop_img[~crop_mask] = 0
+    return crop_img, [x1, y1, x2, y2], crop_mask
+
+
+def _save_binary_mask_png(mask: np.ndarray, out_path: str) -> tuple[bool, str | None]:
+    try:
+        from PIL import Image as _PILImage
+        mask_u8 = (np.asarray(mask, dtype=np.uint8) * 255)
+        _PILImage.fromarray(mask_u8, mode="L").save(out_path)
+        return True, None
+    except Exception as exc:
+        return False, str(exc)
 
 
 def _project_body_to_pixel(
@@ -903,6 +970,38 @@ def run_optional_affordance_probe(
         # Step 2. Load R1 adapter with selectable runtime device.
         # Do not force CPU here: keep model inputs on the same device as the model.
         import os as _os
+        def _safe_env_int(env_name: str, default_value: int) -> int:
+            raw = _os.getenv(env_name)
+            if raw is None:
+                return int(default_value)
+            try:
+                return int(raw)
+            except Exception:
+                return int(default_value)
+
+        save_mask_png = env_flag("SAVE_R1_MASK_PNG", default=True)
+        mask_debug_dir = _os.getenv("R1_MASK_DEBUG_DIR") or os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "r1_mask_debug"
+        )
+        mask_crop_pad_px = max(0, _safe_env_int("R1_MASK_CROP_PAD_PX", 8))
+        thin_mask_dilate_px = max(0, _safe_env_int("R1_THIN_MASK_DILATION_PX", 2))
+        default_mask_dilate_px = max(0, _safe_env_int("R1_MASK_DILATION_PX", 0))
+        thin_object_tokens = {
+            "knife",
+            "largemarker",
+            "fork",
+            "spoon",
+            "phillipsscrewdriver",
+            "flatscrewdriver",
+        }
+        if save_mask_png:
+            try:
+                os.makedirs(mask_debug_dir, exist_ok=True)
+                print(f"[R1] mask debug PNGs: {mask_debug_dir}")
+            except Exception as _mk_exc:
+                print(f"[R1][WARN] could not create mask debug dir ({_mk_exc})")
+                save_mask_png = False
+
         device_env = (_os.getenv("AFFORDANCE_R1_DEVICE") or "cuda").strip().lower()
         if device_env in {"", "cuda", "gpu"}:
             adapter_device = "cuda"
@@ -935,44 +1034,89 @@ def run_optional_affordance_probe(
             if body_id is None:
                 print(f"[R1][WARN] label '{label}' not in ycb_object_ids, skipping.")
                 continue
-            object_mask = (seg_obj_id == int(body_id))
-            if not bool(np.any(object_mask)):
+            label_norm = _normalize_label_token(label)
+            file_label = label_norm or re.sub(r"[^a-zA-Z0-9_-]+", "_", str(label))
+            object_mask_raw = (seg_obj_id == int(body_id))
+            if not bool(np.any(object_mask_raw)):
                 object_mask = None
+                dilation_px = 0
+            else:
+                dilation_px = thin_mask_dilate_px if label_norm in thin_object_tokens else default_mask_dilate_px
+                if dilation_px > 0:
+                    object_mask = _binary_dilate(object_mask_raw, radius=dilation_px)
+                else:
+                    object_mask = object_mask_raw
 
             print(f"[R1] probing '{label}' (body_id={body_id})...")
 
-            # 3-a. Project body center and define crop bbox.
-            center_px = _project_body_to_pixel(
-                body_id, proj_matrix, view_matrix, IMG_W, IMG_H
-            )
-            if center_px is not None:
-                # Estimate crop size from object AABB span.
-                try:
-                    aabb_min, aabb_max = p.getAABB(body_id)
-                    # Rough FOV-based pixel span estimate from object metric size.
-                    obj_span = max(
-                        float(aabb_max[0] - aabb_min[0]),
-                        float(aabb_max[1] - aabb_min[1]),
-                        float(aabb_max[2] - aabb_min[2]),
-                    )
-                    half_px = max(20, int(obj_span * IMG_W * 0.5))
-                    crop_bbox = [
-                        max(0, center_px[0] - half_px),
-                        max(0, center_px[1] - half_px),
-                        min(IMG_W, center_px[0] + half_px),
-                        min(IMG_H, center_px[1] + half_px),
-                    ]
-                except Exception:
-                    crop_bbox = [
-                        max(0, center_px[0] - 30),
-                        max(0, center_px[1] - 30),
-                        min(IMG_W, center_px[0] + 30),
-                        min(IMG_H, center_px[1] + 30),
-                    ]
-                crop_img = _crop_object_rgb(rgb_full, depth_buf, crop_bbox)
+            # 3-a. Build object-only mask, then create tight crop for R1.
+            if object_mask is not None and bool(np.any(object_mask)):
+                crop_img, crop_bounds, crop_mask = _crop_object_rgb_by_mask(
+                    rgb=rgb_full,
+                    object_mask=object_mask,
+                    pad=mask_crop_pad_px,
+                    mask_only=True,
+                )
+                crop_bbox = list(crop_bounds)
+                print(
+                    f"[R1] '{label}' mask pixels={int(np.count_nonzero(object_mask))}, "
+                    f"dilation_px={int(dilation_px)}, crop_bounds={crop_bounds}"
+                )
+                if save_mask_png:
+                    raw_path = os.path.join(mask_debug_dir, f"{file_label}_mask_raw.png")
+                    ok_raw, err_raw = _save_binary_mask_png(object_mask_raw, raw_path)
+                    if ok_raw:
+                        print(f"[R1] '{label}' mask saved: {raw_path}")
+                    elif err_raw:
+                        print(f"[R1][WARN] '{label}' raw mask save failed: {err_raw}")
+
+                    if dilation_px > 0:
+                        dil_path = os.path.join(mask_debug_dir, f"{file_label}_mask_dilated.png")
+                        ok_dil, err_dil = _save_binary_mask_png(object_mask, dil_path)
+                        if ok_dil:
+                            print(f"[R1] '{label}' dilated mask saved: {dil_path}")
+                        elif err_dil:
+                            print(f"[R1][WARN] '{label}' dilated mask save failed: {err_dil}")
+
+                    crop_path = os.path.join(mask_debug_dir, f"{file_label}_mask_crop.png")
+                    ok_crop, err_crop = _save_binary_mask_png(crop_mask, crop_path)
+                    if ok_crop:
+                        print(f"[R1] '{label}' crop mask saved: {crop_path}")
+                    elif err_crop:
+                        print(f"[R1][WARN] '{label}' crop mask save failed: {err_crop}")
             else:
-                crop_img = rgb_full   # fallback: full image
-                crop_bbox = [0, 0, IMG_W, IMG_H]
+                # Fallback: if segmentation mask is missing, keep previous bbox-based crop.
+                center_px = _project_body_to_pixel(
+                    body_id, proj_matrix, view_matrix, IMG_W, IMG_H
+                )
+                if center_px is not None:
+                    try:
+                        aabb_min, aabb_max = p.getAABB(body_id)
+                        obj_span = max(
+                            float(aabb_max[0] - aabb_min[0]),
+                            float(aabb_max[1] - aabb_min[1]),
+                            float(aabb_max[2] - aabb_min[2]),
+                        )
+                        half_px = max(20, int(obj_span * IMG_W * 0.5))
+                        crop_bbox = [
+                            max(0, center_px[0] - half_px),
+                            max(0, center_px[1] - half_px),
+                            min(IMG_W, center_px[0] + half_px),
+                            min(IMG_H, center_px[1] + half_px),
+                        ]
+                    except Exception:
+                        crop_bbox = [
+                            max(0, center_px[0] - 30),
+                            max(0, center_px[1] - 30),
+                            min(IMG_W, center_px[0] + 30),
+                            min(IMG_H, center_px[1] + 30),
+                        ]
+                    crop_img, crop_bounds = _crop_object_rgb(rgb_full, depth_buf, crop_bbox)
+                else:
+                    crop_img = rgb_full
+                    crop_bbox = [0, 0, IMG_W, IMG_H]
+                    crop_bounds = [0, 0, IMG_W, IMG_H]
+                print(f"[R1][WARN] '{label}' object mask unavailable; using bbox fallback crop.")
 
             # 3-b. R1 inference with explicit target label in prompt.
             r1_result = adapter.predict(
@@ -999,7 +1143,7 @@ def run_optional_affordance_probe(
                 print(f"[R1][INFO] '{label}' no candidate parsed from output: {r1_result.get('raw_output')}")
                 continue
 
-            target_norm = _normalize_label_token(label)
+            target_norm = label_norm
             matched = []
             generic = []
             mismatched_parts = []
@@ -1035,11 +1179,12 @@ def run_optional_affordance_probe(
 
             # 3-c. Map crop pixel coordinates back to full-image pixels.
             cx_crop, cy_crop = top["center_pixel"]
-            crop_w = crop_bbox[2] - crop_bbox[0]
-            crop_h = crop_bbox[3] - crop_bbox[1]
+            # IMPORTANT: use the actual padded crop bounds for reverse mapping.
+            crop_w = crop_bounds[2] - crop_bounds[0]
+            crop_h = crop_bounds[3] - crop_bounds[1]
             if crop_w > 0 and crop_h > 0:
-                cx_full = crop_bbox[0] + cx_crop * (crop_w / max(crop_img.shape[1], 1))
-                cy_full = crop_bbox[1] + cy_crop * (crop_h / max(crop_img.shape[0], 1))
+                cx_full = crop_bounds[0] + cx_crop * (crop_w / max(crop_img.shape[1], 1))
+                cy_full = crop_bounds[1] + cy_crop * (crop_h / max(crop_img.shape[0], 1))
             else:
                 cx_full, cy_full = cx_crop, cy_crop
 
@@ -1053,8 +1198,8 @@ def run_optional_affordance_probe(
                     _scy = _bpx[1] + (_bpx[3] - _bpx[1]) * _sy
                     # crop -> full-image coordinate mapping
                     if crop_w > 0 and crop_h > 0:
-                        _fx = crop_bbox[0] + _scx * (crop_w / max(crop_img.shape[1], 1))
-                        _fy = crop_bbox[1] + _scy * (crop_h / max(crop_img.shape[0], 1))
+                        _fx = crop_bounds[0] + _scx * (crop_w / max(crop_img.shape[1], 1))
+                        _fy = crop_bounds[1] + _scy * (crop_h / max(crop_img.shape[0], 1))
                     else:
                         _fx, _fy = _scx, _scy
                     _wp = _pixel_depth_to_world_with_local_search(
