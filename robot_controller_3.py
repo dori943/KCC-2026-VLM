@@ -609,10 +609,21 @@ class PandaController:
         # approach 기준점: top_z 바로 위
         # 실제 contact z는 _descend_until_precontact가 contact 감지로 결정
         FINGER_TIP_OFFSET = 0.058
-        target_grasp_z = top_z + FINGER_TIP_OFFSET + grasp_clearance
+        nominal_grasp_z = top_z + FINGER_TIP_OFFSET + grasp_clearance
+        target_grasp_z = nominal_grasp_z
         if r1_world_pos is not None and len(r1_world_pos) >= 3:
-            target_grasp_z = float(r1_world_pos[2])
-            print(f"[{self.name}] grasp z from R1 world_pos: {target_grasp_z:.4f}")
+            requested_grasp_z = float(r1_world_pos[2])
+            # Safety clamp:
+            # keep R1 z usable but never allow deep downward targets that can drive
+            # the gripper below the table/object region.
+            z_low = nominal_grasp_z - 0.015
+            z_high = nominal_grasp_z + 0.060
+            target_grasp_z = _clamp(requested_grasp_z, z_low, z_high)
+            print(
+                f"[{self.name}] grasp z from R1 world_pos: {requested_grasp_z:.4f} "
+                f"-> clamped {target_grasp_z:.4f} (nominal={nominal_grasp_z:.4f})"
+            )
+        safe_descend_floor_z = float(bottom_z + 0.006)
         return {
             "target_xy": target_xy,
             "top_z": top_z,
@@ -620,6 +631,7 @@ class PandaController:
             "size_z": size_z,
             "span_xy": span_xy,
             "target_grasp_z": target_grasp_z,
+            "safe_descend_floor_z": safe_descend_floor_z,
         }
 
     def _compose_grasp_candidate(
@@ -662,6 +674,7 @@ class PandaController:
             "grasp": grasp,
             "lift": lift,
             "size_z": float(grasp_frame["size_z"]),
+            "safe_descend_floor_z": float(grasp_frame.get("safe_descend_floor_z", grasp_frame["bottom_z"] + 0.006)),
             "probe": [
                 float(target_xy[0]),
                 float(target_xy[1]),
@@ -1022,6 +1035,7 @@ class PandaController:
         orientation,
         drop_step: float = 0.004,
         max_drop: float = 0.25,
+        min_ee_z: float | None = None,
         hold_companion: "PandaController | None" = None,
     ) -> None:
         checks = int(max_drop / drop_step)
@@ -1030,7 +1044,14 @@ class PandaController:
             if summary["total"] > 0:
                 return
             ee_pos, _ = self.get_end_effector_pose()
-            next_pos = [float(ee_pos[0]), float(ee_pos[1]), float(ee_pos[2] - drop_step)]
+            next_z = float(ee_pos[2] - drop_step)
+            if min_ee_z is not None and next_z <= float(min_ee_z):
+                print(
+                    f"[{self.name}] descend stop at safety floor "
+                    f"(next_z={next_z:.4f} <= min_ee_z={float(min_ee_z):.4f})"
+                )
+                return
+            next_pos = [float(ee_pos[0]), float(ee_pos[1]), next_z]
             self.move_end_effector_to(next_pos, orientation=orientation, steps=50, hold_companion=hold_companion)
 
     def get_end_effector_pose(self) -> tuple[np.ndarray, np.ndarray]:
@@ -1129,6 +1150,7 @@ class PandaController:
         grasp = candidate["grasp"]
         lift = candidate["lift"]
         size_z = float(candidate.get("size_z", 0.10))
+        safe_descend_floor_z = float(candidate.get("safe_descend_floor_z", 0.0))
 
         print(f"[{self.name}] grasp coords: approach={[round(v,4) for v in approach]}, grasp={[round(v,4) for v in grasp]}")
         aabb_min_dbg, aabb_max_dbg = p.getAABB(body_id)
@@ -1141,7 +1163,12 @@ class PandaController:
         # grasp 위치 도달 직후 이미 contact인지 확인 — 있으면 descend 생략
         _pre_summary = self._finger_contact_summary(body_id)
         if _pre_summary["total"] == 0:
-            self._descend_until_precontact(body_id=body_id, orientation=selected_orientation, hold_companion=hold_companion)
+            self._descend_until_precontact(
+                body_id=body_id,
+                orientation=selected_orientation,
+                min_ee_z=safe_descend_floor_z,
+                hold_companion=hold_companion,
+            )
         ee_pos_dbg2, _ = self.get_end_effector_pose()
         print(f"[{self.name}] EE after descend: {[round(v,4) for v in ee_pos_dbg2]}")
 
@@ -1151,7 +1178,8 @@ class PandaController:
             body_id=body_id, start_open=_finger_open, hold_companion=hold_companion)
         if not contact_found:
             extra_drop = _clamp(0.18 * size_z, 0.008, 0.025)
-            fallback_grasp = [grasp[0], grasp[1], grasp[2] - extra_drop]
+            fallback_z = max(float(grasp[2] - extra_drop), safe_descend_floor_z)
+            fallback_grasp = [grasp[0], grasp[1], fallback_z]
             self.move_end_effector_to(fallback_grasp, orientation=selected_orientation, steps=140, hold_companion=hold_companion)
             contact_found, hold_target, summary = self._close_until_contact(
                 body_id=body_id, start_open=_finger_open, hold_companion=hold_companion)

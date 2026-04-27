@@ -9,6 +9,7 @@ Notes:
 """
 
 import os
+import re
 import time
 
 import numpy as np
@@ -189,6 +190,10 @@ def env_flag(env_name: str, default: bool = False) -> bool:
     if raw is None:
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on", "y"}
+
+
+def _normalize_label_token(label: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(label).lower())
 
 
 def clamp_value(value: float, lower: float, upper: float) -> float:
@@ -631,6 +636,7 @@ def _pixel_depth_to_world_with_local_search(
     img_w: int,
     img_h: int,
     max_radius: int = 10,
+    valid_mask: np.ndarray | None = None,
 ) -> np.ndarray | None:
     """
     Robust world-point lookup around a target pixel.
@@ -638,22 +644,26 @@ def _pixel_depth_to_world_with_local_search(
     This keeps the R1 path (pixel/depth based) while reducing misses when the
     exact pixel falls on background for thin objects.
     """
-    direct = _pixel_depth_to_world(
-        px=px,
-        py=py,
-        depth_buf=depth_buf,
-        proj_matrix=proj_matrix,
-        view_matrix=view_matrix,
-        img_w=img_w,
-        img_h=img_h,
-    )
-    if direct is not None:
-        return direct
+    ix0 = int(np.clip(round(px), 0, img_w - 1))
+    iy0 = int(np.clip(round(py), 0, img_h - 1))
+    direct_allowed = valid_mask is None or bool(valid_mask[iy0, ix0])
+    if direct_allowed:
+        direct = _pixel_depth_to_world(
+            px=px,
+            py=py,
+            depth_buf=depth_buf,
+            proj_matrix=proj_matrix,
+            view_matrix=view_matrix,
+            img_w=img_w,
+            img_h=img_h,
+        )
+        if direct is not None:
+            return direct
 
     best = None
     best_depth = None
-    cx = int(np.clip(round(px), 0, img_w - 1))
-    cy = int(np.clip(round(py), 0, img_h - 1))
+    cx = ix0
+    cy = iy0
     for r in range(1, max_radius + 1):
         x1 = max(0, cx - r)
         x2 = min(img_w - 1, cx + r)
@@ -661,6 +671,8 @@ def _pixel_depth_to_world_with_local_search(
         y2 = min(img_h - 1, cy + r)
         for iy in range(y1, y2 + 1):
             for ix in range(x1, x2 + 1):
+                if valid_mask is not None and not bool(valid_mask[iy, ix]):
+                    continue
                 depth_ndc = float(depth_buf[iy, ix])
                 if depth_ndc >= 0.9999:
                     continue
@@ -872,7 +884,7 @@ def run_optional_affordance_probe(
             nearVal=0.01,
             farVal=5.0,
         )
-        _, _, rgba_raw, depth_raw, _ = p.getCameraImage(
+        _, _, rgba_raw, depth_raw, seg_raw = p.getCameraImage(
             width=IMG_W,
             height=IMG_H,
             viewMatrix=view_matrix,
@@ -881,6 +893,8 @@ def run_optional_affordance_probe(
         )
         rgb_full = np.asarray(rgba_raw, dtype=np.uint8).reshape(IMG_H, IMG_W, 4)[:, :, :3]
         depth_buf = np.asarray(depth_raw, dtype=np.float32).reshape(IMG_H, IMG_W)
+        seg_buf = np.asarray(seg_raw, dtype=np.int32).reshape(IMG_H, IMG_W)
+        seg_obj_id = np.bitwise_and(seg_buf, (1 << 24) - 1)
 
         # Step 2. Load R1 adapter with selectable runtime device.
         # Do not force CPU here: keep model inputs on the same device as the model.
@@ -917,6 +931,9 @@ def run_optional_affordance_probe(
             if body_id is None:
                 print(f"[R1][WARN] label '{label}' not in ycb_object_ids, skipping.")
                 continue
+            object_mask = (seg_obj_id == int(body_id))
+            if not bool(np.any(object_mask)):
+                object_mask = None
 
             print(f"[R1] probing '{label}' (body_id={body_id})...")
 
@@ -978,8 +995,39 @@ def run_optional_affordance_probe(
                 print(f"[R1][INFO] '{label}' no candidate parsed from output: {r1_result.get('raw_output')}")
                 continue
 
-            top = candidates[0]
+            target_norm = _normalize_label_token(label)
+            matched = []
+            generic = []
+            mismatched_parts = []
+            for cand in candidates:
+                part_raw = str(cand.get("part", "")).strip().lower()
+                part_norm = _normalize_label_token(part_raw)
+                if part_norm in {"", "object"}:
+                    generic.append(cand)
+                    continue
+                if part_norm == target_norm:
+                    matched.append(cand)
+                else:
+                    mismatched_parts.append(part_raw)
+
+            if matched:
+                top = matched[0]
+            elif generic:
+                top = generic[0]
+                if mismatched_parts:
+                    print(
+                        f"[R1][WARN] '{label}' candidate labels mismatched {mismatched_parts}; "
+                        "using generic candidate after validation."
+                    )
+            else:
+                print(
+                    f"[R1][WARN] '{label}' candidates rejected by target-label validation: "
+                    f"{mismatched_parts}"
+                )
+                continue
             print(f"[R1] '{label}' top candidate: {top}")
+            top_part_raw = str(top.get("part", "")).strip().lower()
+            top_part_norm = _normalize_label_token(top_part_raw)
 
             # 3-c. crop ???쎌? 醫뚰몴 ???꾩껜 ?대?吏 ?쎌? 醫뚰몴濡??????
             cx_crop, cy_crop = top["center_pixel"]
@@ -1014,6 +1062,7 @@ def run_optional_affordance_probe(
                         img_w=IMG_W,
                         img_h=IMG_H,
                         max_radius=8,
+                        valid_mask=object_mask,
                     )
                     if _wp is not None:
                         _sample_pts.append(_wp)
@@ -1031,6 +1080,7 @@ def run_optional_affordance_probe(
                     img_w=IMG_W,
                     img_h=IMG_H,
                     max_radius=20,
+                    valid_mask=object_mask,
                 )
                 if world_pos is None:
                     print(
@@ -1038,6 +1088,42 @@ def run_optional_affordance_probe(
                         "(PyBullet pose fallback disabled)."
                     )
                     continue
+            actual_pos, _ = p.getBasePositionAndOrientation(body_id)
+            aabb_min, aabb_max = p.getAABB(body_id)
+            aabb_center = np.array(
+                [
+                    (float(aabb_min[0]) + float(aabb_max[0])) / 2.0,
+                    (float(aabb_min[1]) + float(aabb_max[1])) / 2.0,
+                    (float(aabb_min[2]) + float(aabb_max[2])) / 2.0,
+                ],
+                dtype=float,
+            )
+            world_pos = np.array(world_pos, dtype=float)
+            dist_to_sim = float(np.linalg.norm(world_pos - np.array(actual_pos, dtype=float)))
+            in_expanded_aabb = (
+                (float(aabb_min[0]) - 0.08) <= float(world_pos[0]) <= (float(aabb_max[0]) + 0.08)
+                and (float(aabb_min[1]) - 0.08) <= float(world_pos[1]) <= (float(aabb_max[1]) + 0.08)
+                and (float(aabb_min[2]) - 0.05) <= float(world_pos[2]) <= (float(aabb_max[2]) + 0.12)
+            )
+
+            if top_part_norm not in {"", "object", target_norm} and dist_to_sim > 0.25:
+                print(
+                    f"[R1][WARN] '{label}' candidate part '{top_part_raw}' mismatches target and "
+                    f"is far from sim object (dist={dist_to_sim:.3f}m). Skipping."
+                )
+                continue
+
+            if (not in_expanded_aabb) or dist_to_sim > 0.40:
+                corrected = aabb_center.copy()
+                corrected[2] = max(float(aabb_center[2]), float(aabb_min[2]) + 0.01)
+                print(
+                    f"[R1][WARN] '{label}' world_pos outlier detected "
+                    f"(dist={dist_to_sim:.3f}m, in_aabb={in_expanded_aabb}). "
+                    f"Correcting to sim-aabb center {corrected.tolist()}."
+                )
+                world_pos = corrected
+                dist_to_sim = float(np.linalg.norm(world_pos - np.array(actual_pos, dtype=float)))
+
             grasp_yaw = 0.0
             for _yaw_key in ("grasp_yaw_deg", "yaw_deg", "angle_deg", "theta_deg", "yaw", "angle", "theta"):
                 if _yaw_key not in top:
@@ -1059,6 +1145,9 @@ def run_optional_affordance_probe(
 
             print(
                 f"[R1] '{label}' world_pos={[round(v, 4) for v in world_pos.tolist()]}, "
+                f"sim_pos={[round(float(v), 4) for v in actual_pos]}, "
+                f"sim_aabb_center={[round(float(v), 4) for v in aabb_center.tolist()]}, "
+                f"delta={dist_to_sim:.4f}m, "
                 f"yaw={np.degrees(grasp_yaw):.1f} deg"
             )
 
@@ -1490,10 +1579,27 @@ def main() -> None:
     print(f"[Boot] ycb objects: {ycb_object_ids}")
     print(f"[Boot] robot IDs: {robot_ids}")
  
-    # ?섏젙 ??
     stabilize_scene()
 
-    # module3 ???臾쇱껜 labels瑜?R1 probe???꾨떖
+    # 안정화 후 YCB 물체들의 실제 시뮬레이션 좌표 출력
+    print("[Boot] === YCB 물체 실제 좌표 (안정화 후) ===")
+    for label, body_id in ycb_object_ids.items():
+        pos, orn = p.getBasePositionAndOrientation(body_id)
+        aabb_min, aabb_max = p.getAABB(body_id)
+        aabb_center = [
+            (aabb_min[0] + aabb_max[0]) / 2,
+            (aabb_min[1] + aabb_max[1]) / 2,
+            (aabb_min[2] + aabb_max[2]) / 2,
+        ]
+        print(
+            f"  [{label}] body_id={body_id} "
+            f"pos=[{pos[0]:.4f}, {pos[1]:.4f}, {pos[2]:.4f}] "
+            f"aabb_center=[{aabb_center[0]:.4f}, {aabb_center[1]:.4f}, {aabb_center[2]:.4f}] "
+            f"size=[{aabb_max[0]-aabb_min[0]:.4f}, {aabb_max[1]-aabb_min[1]:.4f}, {aabb_max[2]-aabb_min[2]:.4f}]"
+        )
+    print("[Boot] ==========================================")
+
+    # module3 object labels are passed to R1 probe.
     _m3_labels = _load_module3_object_labels(_MODULE3_JSON_PATH)
     r1_hints = run_optional_affordance_probe(
         enable_affordance_r1=enable_affordance_r1,
