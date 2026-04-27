@@ -475,7 +475,7 @@ def configure_simulation() -> None:
         cameraDistance=1.0,
         cameraYaw=45,
         cameraPitch=-45,
-        cameraTargetPosition=[0.7, 0.0, 0.6],
+        cameraTargetPosition=[1.0, 0.0, 0.6],
     )
     p.setAdditionalSearchPath(pybullet_data.getDataPath())
     p.setTimeStep(SIM_TIMESTEP)
@@ -566,7 +566,7 @@ def capture_affordance_rgb(
     height: int = AFFORDANCE_CAPTURE_HEIGHT,
 ) -> np.ndarray:
     view_matrix = p.computeViewMatrixFromYawPitchRoll(
-        cameraTargetPosition=[0.7, 0.0, 0.6], # 물체들이 모여있는 중앙점 (조정됨)
+        cameraTargetPosition=[1.0, 0.0, 0.6], # 물체들이 모여있는 중앙점 (조정됨)
         distance=1.2,                        # 약간 더 멀리서 찍어 잘림 방지
         yaw=45,                              # 좌우 각도
         pitch=-45,                           # 위아래 각도
@@ -986,7 +986,7 @@ def run_optional_affordance_probe(
         IMG_W = AFFORDANCE_CAPTURE_WIDTH
         IMG_H = AFFORDANCE_CAPTURE_HEIGHT
         view_matrix = p.computeViewMatrixFromYawPitchRoll(
-        cameraTargetPosition=[0.7, 0.0, 0.6], # 위 함수와 동일하게 맞춤
+        cameraTargetPosition=[1.0, 0.0, 0.6], # 위 함수와 동일하게 맞춤
         distance=1.2,
         yaw=45,
         pitch=-45,
@@ -1413,7 +1413,7 @@ def run_sequential_demo(
     print(f"[R1] hint labels available: {sorted(list(r1_hints.keys()))}")
  
     CAM_CONFIG = {
-    "cam_target":   [0.7, 0.0, 0.6],
+    "cam_target":   [1.0, 0.0, 0.6],
     "cam_distance": 1.2,
     "cam_yaw":      45,
     "cam_pitch":    -45,
