@@ -509,9 +509,29 @@ class AffordanceGraspR1Adapter:
                 except Exception:
                     pass
             if part == "object":
+                # Scan tokens after the bbox and skip English stop-words /
+                # pronouns / articles so phrases like "this is the mug" yield
+                # "mug" rather than "this". If only stop-words appear, keep
+                # "object" so downstream validation treats it as generic.
+                _PART_STOPWORDS = {
+                    "this", "that", "these", "those", "it", "its",
+                    "they", "them", "their",
+                    "a", "an", "the", "some", "any",
+                    "is", "are", "was", "were", "be", "been", "being",
+                    "of", "for", "with", "and", "or", "to", "in", "on", "at",
+                    "object", "part", "region", "area", "item", "thing",
+                    "robot", "gripper", "grasp",
+                }
                 part_text = answer_text[bbox_match.end() :].strip()
                 if part_text:
-                    part = part_text.split()[0].strip(".,:;").strip("'\"").lower() or "object"
+                    for raw_token in part_text.split():
+                        token = raw_token.strip(".,:;!?()[]{}").strip("'\"").lower()
+                        if not token:
+                            continue
+                        if token in _PART_STOPWORDS:
+                            continue
+                        part = token
+                        break
 
             bbox_pixel = [px1, py1, px2, py2]
             candidate = {

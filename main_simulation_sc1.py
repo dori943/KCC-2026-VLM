@@ -1330,13 +1330,27 @@ def run_optional_affordance_probe(
                 continue
 
             target_norm = label_norm
+            # Generic / stop-word labels that should NOT be treated as a
+            # mismatched object. R1 frequently emits demonstratives like
+            # "this is the mug" and the adapter may surface "this" as the
+            # part name. Treat those as generic candidates instead of
+            # rejecting the whole result.
+            _GENERIC_PART_TOKENS = {
+                "", "object", "part", "region", "area", "item", "thing",
+                "this", "that", "these", "those", "it", "its",
+                "they", "them", "their",
+                "a", "an", "the", "some", "any",
+                "is", "are", "was", "were", "be", "been", "being",
+                "of", "for", "with", "and", "or", "to", "in", "on", "at",
+                "robot", "gripper", "grasp",
+            }
             matched = []
             generic = []
             mismatched_parts = []
             for cand in candidates:
                 part_raw = str(cand.get("part", "")).strip().lower()
                 part_norm = _normalize_label_token(part_raw)
-                if part_norm in {"", "object"}:
+                if part_norm in _GENERIC_PART_TOKENS:
                     generic.append(cand)
                     continue
                 if part_norm == target_norm:
@@ -1440,7 +1454,7 @@ def run_optional_affordance_probe(
                 and (float(aabb_min[2]) - 0.05) <= float(world_pos[2]) <= (float(aabb_max[2]) + 0.12)
             )
 
-            if top_part_norm not in {"", "object", target_norm} and dist_to_sim > 0.25:
+            if top_part_norm not in _GENERIC_PART_TOKENS and top_part_norm != target_norm and dist_to_sim > 0.25:
                 print(
                     f"[R1][WARN] '{label}' candidate part '{top_part_raw}' mismatches target and "
                     f"is far from sim object (dist={dist_to_sim:.3f}m). Skipping."
