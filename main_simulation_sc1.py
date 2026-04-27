@@ -1336,12 +1336,14 @@ def run_optional_affordance_probe(
                 continue
 
             target_norm = label_norm
-            # Generic / stop-word labels that should NOT be treated as a
-            # mismatched object. R1 frequently emits demonstratives like
-            # "this is the mug" and the adapter may surface "this" as the
-            # part name. Treat those as generic candidates instead of
-            # rejecting the whole result.
+            # Generic / stop-word / sub-part labels that should NOT be treated
+            # as a mismatched object. R1 frequently emits either demonstratives
+            # ("this is the mug" -> "this") or semantic sub-parts of the target
+            # ("handle" for a knife, "rim" for a mug). Both are valid grasp
+            # candidates, not wrong-object detections, so accept them as
+            # generic when the target label is not echoed verbatim.
             _GENERIC_PART_TOKENS = {
+                # filler / parser noise
                 "", "object", "part", "region", "area", "item", "thing",
                 "this", "that", "these", "those", "it", "its",
                 "they", "them", "their",
@@ -1349,6 +1351,12 @@ def run_optional_affordance_probe(
                 "is", "are", "was", "were", "be", "been", "being",
                 "of", "for", "with", "and", "or", "to", "in", "on", "at",
                 "robot", "gripper", "grasp",
+                # generic graspable sub-parts of common YCB objects
+                "handle", "grip", "shaft", "stem", "neck", "knob",
+                "body", "side", "top", "bottom", "base", "back", "front",
+                "edge", "rim", "lip", "mouth", "opening", "head",
+                "tip", "end", "tail", "center", "middle", "surface",
+                "blade", "prong", "tine",
             }
             matched = []
             generic = []
