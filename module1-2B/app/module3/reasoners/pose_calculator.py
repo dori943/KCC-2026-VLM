@@ -17,6 +17,7 @@ from typing import Any
 from openai import OpenAI
 
 from app.module3.models import Module3Input
+from app.module3.reasoners.scene_coord_overrides import apply_scene_overrides
 
 
 # ──────────────────────────────────────────────
@@ -44,6 +45,14 @@ COLLISION_OVERLAP_EPS  = 1e-8
 # floating point 정밀도 + PyBullet AABB inflation 으로 face contact 좌표가
 # sub-millimeter 침투를 일으키는 문제 회피용 안전 마진.
 COLLISION_SAFETY_MARGIN_M = 0.002
+
+# ── 테이블 plane 좌표계 정합 ──────────────────────────────────
+# 팀원 manipulation 시뮬 환경의 테이블 상판 z = 0.626 (실측 aabb_top_z, 2026-04-27 갱신).
+# 이전엔 0.65 로 잘못 알려져서 모든 물체가 테이블 위로 +29mm 들려있었음.
+# 0.626 으로 보정 후엔 PyBullet settle 좌표(z≈0.62)와도 거의 일치하므로
+# override 가 있는 물체는 lift 스킵, 없는 물체만 +6mm 정도 가벼운 lift.
+TABLE_TOP_Z: float = 0.626
+TABLE_TOP_SAFETY_MARGIN_M: float = 0.001  # 1mm 띄움 (mesh 침투 방지)
 
 # region → (axis, direction). direction +1 은 +축 방향(outward), -1 은 -축 방향.
 _REGION_AXIS_DIR: dict[str, tuple[int, int]] = {
@@ -102,6 +111,41 @@ def _normalize_region(region: str) -> tuple[str, str | None]:
 STRATEGY_SYSTEM_PROMPT = """너는 Module 3: 도구 조립 전략 계획기이다.
 
 목표: 선택된 도구 후보를 분석하여 조립 전략과 순서를 계획하라. 좌표 계산은 하지 않는다.
+
+전제 환경:
+- 모든 작업은 manipulation 시뮬레이터의 **테이블(table_top_z ≈ 0.626m) 위**에서 수행된다.
+- 모든 부품의 z 좌표는 0.626 이상이며, 테이블 plane 아래로 내려갈 수 없다.
+- 따라서 "바닥에 깐다", "지면에 받친다" 같은 전략은 금지. base 는 항상 테이블 위에 놓는다.
+
+# ───────── base_object 선택 가이드 (task-type 별, 가장 중요) ─────────
+task_description 의 의도에 따라 base 선택 휴리스틱이 다르다. **반드시 task 의도부터 먼저 분류하라.**
+
+(A) "좁은 틈/구멍/구석에서 작은 물체를 꺼낸다" 부류
+    · 키워드 예: "명함", "구멍", "끼인", "낀", "유리 조각", "구석"
+    · base = **가장 얇고 길이가 긴 강체** (insertion tool). 우선순위:
+        knife > flat_screwdriver > phillips_screwdriver > spatula > large_marker
+    · 넓은 그릇류(bowl, mug, plate)나 박스류(cracker_box, sugar_box, gelatin_box, pudding_box)를
+      base 로 두는 것은 **금지** — 좁은 틈에 들어갈 수 없어 task 자체가 실패한다.
+    · attach 는 보통 friction/leverage 를 더하는 작은 도구(large_marker, spoon, fork 등).
+
+(B) "걸려 있거나 매달려 있는 물체를 끌어내린다" 부류
+    · 키워드 예: "매달린", "걸린", "고리", "후크"
+    · base = **끝이 휘어있거나 후킹 가능한 도구** (spatula, adjustable_wrench, fork).
+    · attach 는 길이 보강/리치 연장용 (large_marker, screwdriver).
+
+(C) "막혀 있어서 손이 안 들어가는 손잡이/문을 조작한다" 부류
+    · 키워드 예: "막힌", "잠긴", "닫힌"
+    · base = 길고 강체 (flat_screwdriver, phillips_screwdriver, knife) — 레버 작용.
+    · attach 는 그립 보조(adjustable_wrench, mug 등 무게 추가).
+
+(D) "깊은 구멍 속의 물체에 닿는다" 부류
+    · 키워드 예: "깊은 구멍", "안쪽", "속"
+    · base = **가장 길고 얇은 봉형** (large_marker, screwdriver, spoon 손잡이).
+    · attach 는 끝부분 마찰/포획용 (sticky 표면, friction_enhancer 역할).
+
+공통 원칙: base 는 task 의 **기능단을 직접 수행하는 도구(primary_executor)**여야 한다.
+넓고 안정적이라는 이유만으로 mug/bowl/plate 를 base 로 잡는 것은 **거의 항상 오답**이다
+(이런 물체는 task 기능단(좁은 틈, 깊은 구멍, 매달린 물체)에 닿지 못한다).
 
 base_object / attach_object 정의 (중요 — 절대 혼동 금지):
 - base_object  : **이미 배치되어 있는 앵커 물체** (움직이지 않음)
@@ -181,14 +225,39 @@ STEP_SYSTEM_PROMPT = """너는 Module 3: 단계별 접합 좌표 계산기이다
 
 목표: current_positions(코드가 업데이트한 현재 AABB)를 기반으로 이번 step의 joint_position_world를 계산하라.
 
+# 출력 우선순위 (중요 — 팀 spec, 2026-04-27 업데이트)
+하류 R1 manipulation 은 **양팔 조립 모델**이다:
+  · 왼팔이 base 를 잡고, 오른팔이 attach 를 잡아 두 팔이 동시에 meeting point 로 이동해 attach.
+  · 따라서 step 출력에는 base 도착 좌표(base_target_pose_world.position)와
+    attach 도착 좌표(target_pose_world.position) 가 둘 다 필요하다 (코드가 자동 계산).
+  · 각도(orientation_rpy_deg) 는 현재 비활성 — 잡고 회전해서 다시 두는 동작은
+    VLM 추론 신뢰성 부족으로 시간상 보류. 모두 [0,0,0] 으로 출력된다.
+
+**너의 핵심 책임**: "두 물체가 어디에서 만나서 attach 되는가" 의 위치를 정확히 뽑기.
+즉 다음 정성 필드의 품질에 집중:
+  1) **attach_region_base** — base 의 어느 면이 contact 면인가 (6 enum 정확히)
+  2) **attach_region_object** — attach 의 어느 부위가 그 면에 닿는가
+  3) **contact_type** — point / surface / insertion
+  4) **reason / weak_points_applied / expected_function_after_step**
+
+좌표(position) 는 코드가 deterministic 으로 계산하므로 너의 좌표는 참고용.
+
 # joint_position_world의 의미
 joint은 **base의 attach_region face 위의 contact point**이다. attach_object의
 해당 반대면이 이 joint에 닿는 방식으로 코드가 자동 stacking한다.
 (예: upper_surface → attach 바닥이 joint에 착지, ruler 위에 tweezers가 얹히는 형태)
 
+# 좌표계 가드 (필수)
+- **테이블 상판(table_top_z) = 0.65m** (manipulation 시뮬 기준).
+- 모든 step 의 joint_z, target_pose_world.z, 그리고 attach_object 의
+  aabb_min_z 는 **반드시 0.65 이상**이어야 한다.
+- current_positions 의 aabb 값은 이미 테이블 plane 위로 lift 된 좌표이므로
+  그대로 사용하면 자동 충족된다. 임의로 z 를 빼지 말 것.
+- 0.65 미만의 z 가 산출되면 하드웨어/시뮬에서 부품이 테이블 안으로 박힌다 → fail.
+
 # attach_region_base 기본 계산식 (attach_object가 null이 아닐 때)
 - upper_surface  → joint_z = base.aabb_max_z,  joint_xy = base.center_xy
-- lower_surface  → joint_z = base.aabb_min_z,  joint_xy = base.center_xy
+- lower_surface  → joint_z = base.aabb_min_z,  joint_xy = base.center_xy   (단, ≥ 0.65)
 - front_end      → joint_x = base.aabb_max_x,  joint_yz = base.center_yz
 - rear_end       → joint_x = base.aabb_min_x,  joint_yz = base.center_yz
 - mid_body       → joint = base.center (insertion 시만)
@@ -226,10 +295,15 @@ joint은 **base의 attach_region face 위의 contact point**이다. attach_objec
 - calculation_basis에 사용한 AABB 수치, role 조합, shift 계산을 명시하라.
 
 # 좌표 자동 계산 안내 (중요)
-- joint_position_world.position 은 코드가 region + functional_role 기반으로
-  결정적으로 다시 계산한다. 너의 좌표는 참고용으로만 보존된다.
-- 따라서 너는 좌표 정확도보다 **reason / contact_type / weak_points_applied /
-  expected_function_after_step** 의 품질에 집중하라.
+- joint_position_world.position (= meeting point) 은 코드가 region + functional_role 기반으로
+  결정적으로 계산한다. 너의 좌표는 참고용.
+- target_pose_world.position (= attach 도착 좌표) 와
+  base_target_pose_world.position (= base 도착 좌표) 둘 다 코드가 region + AABB 기반으로 산출.
+- target_pose_world.orientation_rpy_deg / base_target_pose_world.orientation_rpy_deg 는
+  현재 비활성 ([0,0,0]).
+- relative_offset_from_base 도 코드가 (joint - base.center) 로 계산.
+- 따라서 너는 좌표 정확도보다 **region / contact_type / reason /
+  weak_points_applied / expected_function_after_step** 의 품질에 집중하라.
 
 # weak_points_applied (필수, 빈 배열 절대 금지)
 - filter_result.weak_points 항목 (예: P6 마찰 부족, C4 손상 위험, G3 기능단 차단)
@@ -433,11 +507,41 @@ def _is_degenerate_aabb(aabb_min: list[float], aabb_max: list[float]) -> bool:
     return all(aabb_max[i] - aabb_min[i] <= 1e-9 for i in range(3))
 
 
+def _lift_to_table_top(
+    center: list[float],
+    aabb_min: list[float],
+    aabb_max: list[float],
+) -> tuple[list[float], list[float], list[float], float]:
+    """물체 전체를 +z 방향으로 lift 하여 aabb_min_z >= TABLE_TOP_Z + safety 보장.
+
+    PyBullet settle 좌표(테이블 ≈ 0.62)와 manipulation 시뮬(테이블 = 0.65)
+    plane 좌표계 미스매치를 보정한다. 기존엔 부품들이 테이블 안으로 0.03m 박힘.
+
+    반환: (lifted_center, lifted_aabb_min, lifted_aabb_max, lift_amount)
+    """
+    z_floor = TABLE_TOP_Z + TABLE_TOP_SAFETY_MARGIN_M
+    if len(aabb_min) < 3:
+        return center, aabb_min, aabb_max, 0.0
+    cur_amin_z = float(aabb_min[2])
+    if cur_amin_z >= z_floor:
+        return center, aabb_min, aabb_max, 0.0
+    lift = z_floor - cur_amin_z
+    new_center = [center[0], center[1], round(center[2] + lift, 6)]
+    new_amin = [aabb_min[0], aabb_min[1], round(aabb_min[2] + lift, 6)]
+    new_amax = [aabb_max[0], aabb_max[1], round(aabb_max[2] + lift, 6)]
+    return new_center, new_amin, new_amax, lift
+
+
 def _init_positions(
     scene_objects: list[dict[str, Any]],
     object_physical_properties: list[dict[str, Any]] | None = None,
 ) -> dict[str, dict[str, list[float]]]:
-    """AABB 초기화. 결측 시 형상·질량 기반 fallback 적용 (논문 3.1.4)."""
+    """AABB 초기화. 결측 시 형상·질량 기반 fallback 적용 (논문 3.1.4).
+
+    추가 처리: PyBullet settle 좌표계(테이블 ≈ 0.62) ↔ manipulation 시뮬
+    좌표계(테이블 = 0.65) 정합 — aabb_min_z < TABLE_TOP_Z 인 물체는
+    전체를 +z 로 lift 한다. (T1 grasp 실패 hotfix)
+    """
     prop_map: dict[str, dict[str, Any]] = {}
     for p in object_physical_properties or []:
         name = p.get("name", "")
@@ -445,11 +549,14 @@ def _init_positions(
             prop_map[name] = p
 
     pos: dict[str, dict[str, list[float]]] = {}
+    lift_log: list[tuple[str, float]] = []
+    override_warn: list[tuple[str, float]] = []
     for obj in scene_objects:
         name     = obj.get("name", "")
         center   = list(obj.get("center_world", [0.0, 0.0, 0.0]))
         aabb_min = list(obj.get("aabb_min", [0.0, 0.0, 0.0]))
         aabb_max = list(obj.get("aabb_max", [0.0, 0.0, 0.0]))
+        is_overridden = bool(obj.get("_overridden", False))
 
         if _is_degenerate_aabb(aabb_min, aabb_max):
             prop = prop_map.get(name, {})
@@ -459,7 +566,33 @@ def _init_positions(
                 prop.get("estimated_mass_kg"),
             )
 
+        # 테이블 plane 좌표계 정합 — override 좌표는 팀원이 명시한 ground truth 이므로 lift 스킵.
+        # 팀원 sim 의 settle 결과는 통상 mesh 두께/접촉 tolerance 로 0~20mm 정도
+        # aabb_min_z 가 TABLE_TOP_Z 보다 작게 나오는 게 정상이라 경고는 30mm 초과 이상치만.
+        if is_overridden:
+            if aabb_min[2] < TABLE_TOP_Z - 0.030:
+                override_warn.append((name, aabb_min[2]))
+        else:
+            center, aabb_min, aabb_max, lift = _lift_to_table_top(center, aabb_min, aabb_max)
+            if lift > 0:
+                lift_log.append((name, lift))
+
         pos[name] = {"center": center, "aabb_min": aabb_min, "aabb_max": aabb_max}
+
+    if lift_log:
+        print(
+            f"[module3] table_top_z={TABLE_TOP_Z} 정합: "
+            f"{len(lift_log)}개 물체 +z lift 적용:"
+        )
+        for n, l in lift_log:
+            print(f"          - {n}: +{l*1000:.1f}mm")
+    if override_warn:
+        print(
+            f"[module3] ⚠ override 좌표 {len(override_warn)}개가 TABLE_TOP_Z={TABLE_TOP_Z}보다 30mm 이상 낮습니다 "
+            f"(팀원 시뮬 정합 의심 — 좌표 재확인 필요):"
+        )
+        for n, z in override_warn:
+            print(f"          - {n}: aabb_min_z={z:.4f} (penetration={(TABLE_TOP_Z-z)*1000:.1f}mm)")
     return pos
 
 
@@ -488,10 +621,20 @@ def _compute_joint_deterministic(
     base_center = base_pos["center"]
 
     # Step 1 (단독 배치) → joint = base.center
+    # ※ z floor clamp: 테이블 plane 좌표계 정합 (TABLE_TOP_Z=0.65). PyBullet
+    #   settle 좌표가 0.62 plane 기준이라 그대로 쓰면 manipulation 시뮬에서
+    #   부품이 테이블 아래로 박힘. base center_z 가 테이블 위에 있도록 보정.
     if attach_name is None:
+        joint = [round(v, 6) for v in base_center]
+        clamp_note = ""
+        z_floor = TABLE_TOP_Z + TABLE_TOP_SAFETY_MARGIN_M
+        if joint[2] < z_floor:
+            old_z = joint[2]
+            joint[2] = round(z_floor, 6)
+            clamp_note = f"; table_top_z_clamp z {old_z:.4f}→{joint[2]:.4f} (TABLE_TOP_Z={TABLE_TOP_Z})"
         return (
-            [round(v, 6) for v in base_center],
-            f"step_1_standalone, joint=base.center",
+            joint,
+            f"step_1_standalone, joint=base.center{clamp_note}",
         )
 
     region, region_alias = _normalize_region(attach_region_base)
@@ -556,7 +699,108 @@ def _compute_joint_deterministic(
             f"{COLLISION_SAFETY_MARGIN_M*1000:.0f}mm"
         )
 
+    # 테이블 plane 좌표계 정합 (T1 grasp 실패 hotfix).
+    # PyBullet settle 좌표(z≈0.62)와 manipulation 시뮬 테이블(z=0.65) 미스매치
+    # 보정 — joint_z 가 테이블 아래라면 위로 lift.
+    z_floor = TABLE_TOP_Z + TABLE_TOP_SAFETY_MARGIN_M
+    if joint[2] < z_floor:
+        old_z = joint[2]
+        joint[2] = z_floor
+        basis_parts.append(
+            f"table_top_z_clamp z {old_z:.4f}→{joint[2]:.4f} (TABLE_TOP_Z={TABLE_TOP_Z})"
+        )
+
     return [round(v, 6) for v in joint], "; ".join(basis_parts)
+
+
+def _compute_relative_orientation_rpy(
+    base_name: str,
+    attach_name: str | None,
+    attach_region_base: str,
+    contact_type: str,
+    current_positions: dict[str, dict[str, list[float]]],
+) -> tuple[list[float], str]:
+    """접합 시 attach 의 base 좌표계 기준 상대 회전 (RPY, deg).
+
+    팀 사양: target_pose_world 의 절대 position/orientation 은 R1 이 무시한다.
+    우리가 정확히 줘야 하는 것은 "두 물체가 어떤 위치에서 어떤 각도로 붙는가" 이므로
+    이 함수가 산출한 RPY 를 target_pose_world.orientation_rpy_deg 자리에 채운다.
+
+    규칙 (보수적으로 — 잘못된 회전은 안 주는 게 default 보다 나쁘므로
+    long_axis 정렬이 명백히 필요한 케이스만 적용):
+
+    - region == upper_surface / lower_surface (z-stacking)
+        · attach.long_axis == z 인 경우 (세로로 길쭉) → y 축 90° 로 눕힘 [0, 90, 0]
+          (그래야 "납작하게 쌓인다" 의 의미가 됨; 안 그러면 옆으로 세워서 무너짐)
+        · 그 외 → [0, 0, 0]
+    - region == front_end / rear_end (x 축 끝에 잇기)
+        · attach.long_axis 가 x 가 되도록 회전:
+            attach.long_axis == z → [0, 90, 0] (y 회전; z-long → x-long)
+            attach.long_axis == y → [0, 0, 90] (z 회전; y-long → x-long)
+            attach.long_axis == x → [0, 0, 0]
+    - region == side_face (y 축 면에 잇기)
+        · attach.long_axis 가 y 가 되도록:
+            attach.long_axis == x → [0, 0, 90]
+            attach.long_axis == z → [90, 0, 0]
+            attach.long_axis == y → [0, 0, 0]
+    - region == mid_body + contact_type == insertion
+        · attach.long_axis 가 base.long_axis 와 같은 축이 되도록 회전.
+    - 그 외 → [0, 0, 0]
+    """
+    rpy = [0.0, 0.0, 0.0]
+    if not attach_name or attach_name not in current_positions:
+        return rpy, "step_1_standalone or unknown attach → no relative rotation"
+    if base_name not in current_positions:
+        return rpy, f"unknown base={base_name}"
+
+    base = current_positions[base_name]
+    attach = current_positions[attach_name]
+    base_long = _longest_axis(base["aabb_min"], base["aabb_max"])
+    attach_long = _longest_axis(attach["aabb_min"], attach["aabb_max"])
+    region, _alias = _normalize_region(attach_region_base)
+
+    notes = [f"base.long_axis={['x','y','z'][base_long]}",
+             f"attach.long_axis={['x','y','z'][attach_long]}",
+             f"region={region}"]
+
+    if region in ("upper_surface", "lower_surface"):
+        if attach_long == 2:
+            rpy = [0.0, 90.0, 0.0]
+            notes.append("flatten: attach.long(z) → horizontal via pitch+90")
+    elif region in ("front_end", "rear_end"):
+        if attach_long == 2:
+            rpy = [0.0, 90.0, 0.0]
+            notes.append("align: attach.long(z) → x via pitch+90")
+        elif attach_long == 1:
+            rpy = [0.0, 0.0, 90.0]
+            notes.append("align: attach.long(y) → x via yaw+90")
+    elif region == "side_face":
+        if attach_long == 0:
+            rpy = [0.0, 0.0, 90.0]
+            notes.append("align: attach.long(x) → y via yaw+90")
+        elif attach_long == 2:
+            rpy = [90.0, 0.0, 0.0]
+            notes.append("align: attach.long(z) → y via roll+90")
+    elif region == "mid_body" and (contact_type or "").lower() == "insertion":
+        # base 의 long_axis 와 attach 의 long_axis 가 일치하도록.
+        if attach_long != base_long:
+            # 회전 매핑: (current_long, target_long) → rpy
+            #   x→y: yaw+90 / x→z: pitch+90 / y→x: yaw-90 / y→z: roll+90
+            #   z→x: pitch-90 / z→y: roll-90
+            mapping = {
+                (0, 1): [0.0, 0.0, 90.0],
+                (0, 2): [0.0, 90.0, 0.0],
+                (1, 0): [0.0, 0.0, -90.0],
+                (1, 2): [90.0, 0.0, 0.0],
+                (2, 0): [0.0, -90.0, 0.0],
+                (2, 1): [-90.0, 0.0, 0.0],
+            }
+            rpy = list(mapping.get((attach_long, base_long), [0.0, 0.0, 0.0]))
+            notes.append(
+                f"insertion_align: attach.long → base.long ({['x','y','z'][attach_long]} → {['x','y','z'][base_long]})"
+            )
+
+    return [round(v, 4) for v in rpy], "; ".join(notes)
 
 
 def _compute_stacking_delta(
@@ -597,6 +841,49 @@ def _compute_stacking_delta(
     # mid_body / 기본 → center = joint (변경 없음)
 
     return [round(d, 6) for d in delta]
+
+
+def _compute_base_pose_at_meeting(
+    base: dict[str, list[float]],
+    joint: list[float],
+    attach_region_base: str,
+) -> list[float]:
+    """양팔 조립 모델 — base 가 meeting point (joint) 로 이동했을 때의 base center.
+
+    팀원 manipulation 사양 (2026-04-27):
+      - 기존: base 가 가만히 있고 attach 만 이동 (1 팔 모델)
+      - 변경: 양팔이 base/attach 를 각각 들어 meeting point 에서 attach (2 팔 모델)
+
+    region 별로 base 의 contact face 가 joint 에 정렬되도록 base 전체를 평행이동.
+    contact face 는 attach 가 닿는 면이므로 stacking_delta 와 반대편 face 가 된다:
+      - upper_surface  : base 의 윗면(aabb_max_z) 이 joint 에 옴 → center.z 는 더 아래
+      - lower_surface  : base 의 아랫면(aabb_min_z) 이 joint 에 옴
+      - front_end      : base 의 앞면(aabb_max_x) 이 joint 에 옴
+      - rear_end       : base 의 뒷면(aabb_min_x) 이 joint 에 옴
+      - side_face      : base 의 옆면(aabb_max_y) 이 joint 에 옴
+      - mid_body       : base center = joint (insertion 의도)
+    """
+    center = base["center"]
+    amin   = base["aabb_min"]
+    amax   = base["aabb_max"]
+
+    # 기본: center 가 joint 와 정렬
+    delta = [joint[i] - center[i] for i in range(3)]
+
+    region = (attach_region_base or "").lower()
+    if region == "upper_surface":
+        delta[2] = joint[2] - amax[2]
+    elif region == "lower_surface":
+        delta[2] = joint[2] - amin[2]
+    elif region == "front_end":
+        delta[0] = joint[0] - amax[0]
+    elif region == "rear_end":
+        delta[0] = joint[0] - amin[0]
+    elif region == "side_face":
+        delta[1] = joint[1] - amax[1]
+    # mid_body / 그 외 → center = joint
+
+    return [round(center[i] + delta[i], 6) for i in range(3)]
 
 
 def _update_positions(
@@ -733,6 +1020,23 @@ def _simulate_attach_aabb(
         "aabb_min": [attach_pos["aabb_min"][i] + delta[i] for i in range(3)],
         "aabb_max": [attach_pos["aabb_max"][i] + delta[i] for i in range(3)],
     }
+
+
+def _table_clamp_deficit(
+    *aabbs_min_z: float,
+) -> float:
+    """주어진 amin_z 값들 중 가장 낮은 게 TABLE 위로 떠 있게 하는 양수 lift 양.
+
+    rear_end / front_end / side_face / mid_body 처럼 face-to-face 측면 접합에서는
+    base 와 attach 의 z 가 동일 plane 으로 정렬되는데, 이 plane 이 너무 낮으면
+    한쪽 또는 양쪽이 테이블 mesh 를 뚫는다. meeting point 를 모두에게 충분한
+    높이까지 +z lift 해서 contact 는 유지하되 테이블 침투만 막는다.
+    """
+    z_floor = TABLE_TOP_Z + TABLE_TOP_SAFETY_MARGIN_M
+    deficit = 0.0
+    for amin_z in aabbs_min_z:
+        deficit = max(deficit, z_floor - amin_z)
+    return max(0.0, deficit)
 
 
 _ALLOWED_REGIONS: frozenset[str] = frozenset({
@@ -1243,8 +1547,21 @@ def calculate_pose(
     strategy_unresolved = len(plan_errors) > 0
 
     # ── Phase 2: Per-step with validation retry ──
+    # 팀원 시뮬 실측 좌표 override 적용 (PyBullet settle vs sim 미스매치 보정).
+    raw_scene_objects = input_data.scene_context.get("scene_objects", [])
+    scene_objects, overridden_names, matched_task_id = apply_scene_overrides(
+        raw_scene_objects, input_data.task,
+    )
+    if overridden_names:
+        print(
+            f"[module3] scene_coord_overrides ({matched_task_id}): "
+            f"{len(overridden_names)}개 물체 좌표 교체:"
+        )
+        for nm in overridden_names:
+            obj = next((o for o in scene_objects if o.get("name") == nm), {})
+            print(f"          - {nm}: center_world={obj.get('center_world')}")
     current_positions = _init_positions(
-        input_data.scene_context.get("scene_objects", []),
+        scene_objects,
         input_data.object_physical_properties,
     )
     all_steps:         list[dict[str, Any]]       = []
@@ -1334,6 +1651,99 @@ def calculate_pose(
                 step_result.setdefault("target_pose_world", {})["position"] = [
                     round(c, 6) for c in attach_after["center"]
                 ]
+
+            # ── 접합 각도 (orientation) ──
+            # 팀원 결정 (2026-04-27): VLM 으로 회전 추론은 신뢰성 부족 → 각도는 [0,0,0] 으로 두고
+            # "attach 위치만 정확하게 뽑기" 에 집중. 추후 활성화하려면 아래 helper 호출 결과를
+            # tpw["orientation_rpy_deg"] 에 그대로 대입하면 됨 (계산 로직 보존).
+            tpw = step_result.setdefault("target_pose_world", {})
+            tpw["orientation_rpy_deg"] = [0.0, 0.0, 0.0]
+            # 디버그용으로만 산출 (calculation_basis 에 보조 정보로 기록).
+            contact_type_for_rot = step_result.get("contact_type", "") or plan.get("contact_type", "")
+            _rel_rpy_dbg, _rel_rpy_basis_dbg = _compute_relative_orientation_rpy(
+                base_name=base_name,
+                attach_name=attach_name,
+                attach_region_base=plan_region,
+                contact_type=contact_type_for_rot,
+                current_positions=current_positions,
+            )
+            jpw["calculation_basis"] = (
+                jpw.get("calculation_basis", "")
+                + f" || orientation=disabled (rpy_deg=[0,0,0])"
+                + (f"; rel_rpy_dbg={_rel_rpy_dbg} ({_rel_rpy_basis_dbg})" if any(_rel_rpy_dbg) else "")
+            )
+
+            # ── relative_offset_from_base deterministic override ──
+            # = joint_position_world 와 base.center 의 차이. role-shift 가 있으면 0이 아님.
+            # joint 가 base.center 와 동일하면 [0,0,0] 이지만, primary_executor + grip_assistant
+            # 같은 케이스에선 functional pole shift 로 의미 있는 값이 나옴.
+            if base_name in current_positions and joint_pos:
+                base_c = current_positions[base_name]["center"]
+                rel_off = [round(joint_pos[i] - base_c[i], 6) for i in range(3)]
+                step_result["relative_offset_from_base"] = rel_off
+
+            # ── base_target_pose_world (양팔 조립 모델) ──
+            # 팀원 사양 (2026-04-27): 왼팔이 base, 오른팔이 attach 를 들고 meeting point 에서 만남.
+            # → step 출력에 base 가 이동해 도착할 좌표 (base_target_pose_world.position) 를 추가.
+            #   target_pose_world.position 은 attach 도착 좌표 그대로.
+            # step 1 (attach=null): base 단독 배치 → base center 그대로 (이동 없음).
+            base_pose_position: list[float] | None = None
+            if attach_name and base_name in current_positions and joint_pos:
+                base_pose_position = _compute_base_pose_at_meeting(
+                    current_positions[base_name],
+                    joint_pos,
+                    step_result.get("attach_region_base", ""),
+                )
+            elif base_name in current_positions:
+                base_pose_position = list(current_positions[base_name]["center"])
+            if base_pose_position is not None:
+                step_result["base_target_pose_world"] = {
+                    "position": base_pose_position,
+                    "orientation_rpy_deg": [0.0, 0.0, 0.0],
+                    "description": (
+                        "양팔 조립 모델: base 가 meeting point 로 이동 후 attach 와 만남. "
+                        "step 1 standalone 의 경우 base 시작 위치 그대로."
+                    ),
+                }
+
+            # ── 테이블 침투 가드 (rear_end/front_end/side_face/mid_body 면접합) ──
+            # face-to-face 측면 접합에서는 base center z 와 attach center z 가 같은 plane 에
+            # 정렬되는데, 이 plane 이 낮으면 둘 중 하나(또는 둘 다)가 테이블에 박힌다.
+            # 양팔이 둘 다 들고 만나는 meeting point 이므로 joint/attach/base 셋 다 동일 +z lift
+            # 하면 contact 는 유지되고 테이블 침투만 해소된다.
+            # (upper_surface 는 attach 가 base 위에 얹히는 구조라 이 보정이 보통 0.)
+            tpw_pos = step_result.get("target_pose_world", {}).get("position")
+            if (
+                attach_name
+                and tpw_pos and len(tpw_pos) == 3
+                and base_pose_position and len(base_pose_position) == 3
+                and attach_name in current_positions
+                and base_name in current_positions
+            ):
+                a_half_z = (current_positions[attach_name]["aabb_max"][2]
+                            - current_positions[attach_name]["aabb_min"][2]) / 2.0
+                b_half_z = (current_positions[base_name]["aabb_max"][2]
+                            - current_positions[base_name]["aabb_min"][2]) / 2.0
+                attach_amin_z = tpw_pos[2] - a_half_z
+                base_amin_z   = base_pose_position[2] - b_half_z
+                lift = _table_clamp_deficit(attach_amin_z, base_amin_z)
+                if lift > 0:
+                    tpw_pos[2] = round(tpw_pos[2] + lift, 6)
+                    base_pose_position[2] = round(base_pose_position[2] + lift, 6)
+                    step_result["target_pose_world"]["position"] = tpw_pos
+                    step_result["base_target_pose_world"]["position"] = base_pose_position
+                    if joint_pos and len(joint_pos) == 3:
+                        joint_pos[2] = round(joint_pos[2] + lift, 6)
+                        step_result["joint_position_world"]["position"] = joint_pos
+                    jpw["calculation_basis"] += (
+                        f"; table_clamp_lift=+{lift*1000:.1f}mm "
+                        f"(attach_amin_z={attach_amin_z:.4f}, base_amin_z={base_amin_z:.4f}, "
+                        f"floor={TABLE_TOP_Z + TABLE_TOP_SAFETY_MARGIN_M:.4f})"
+                    )
+                    if base_name in current_positions and joint_pos:
+                        base_c = current_positions[base_name]["center"]
+                        rel_off = [round(joint_pos[i] - base_c[i], 6) for i in range(3)]
+                        step_result["relative_offset_from_base"] = rel_off
 
             # functional_role 주입 (디버깅/논문 서술용)
             step_result["functional_roles"] = {

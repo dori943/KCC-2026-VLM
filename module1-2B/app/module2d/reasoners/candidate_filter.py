@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import os
+import re
 from typing import Any
 
 from openai import OpenAI
@@ -12,6 +14,86 @@ from app.module2d.models import (
     EvaluatedCandidate, FeedbackDecision, Module2DInput,
     RepairAnalysis, StageScores, WeakPoint,
 )
+
+
+# ── Emergence margin: derived_constraints 자동 완화 ──────────────
+# Module 2-B 가 LLM 으로 산출하는 lower_bound/upper_bound 가 너무 빡빡해서
+# 창의적 후보들이 environment_filter 단계에서 일괄 탈락하는 문제를 완화한다.
+# 원본 임계값은 보존하고, Module 2-D 가 LLM 에 보낼 때만 ±0.5 단계 풀어준다.
+#
+# 예) "min_effective_reach lower_bound 4.5level_1_to_5"
+#       → "min_effective_reach lower_bound 4.0level_1_to_5"
+#     "max_tool_body_width upper_bound 2.5level_1_to_5"
+#       → "max_tool_body_width upper_bound 3.0level_1_to_5"
+_EMERGENCE_DELTA = 0.5
+_LEVEL_MIN = 1.0
+_LEVEL_MAX = 5.0
+# 'level_1_to_5' 단위 항목만 매칭한다.
+# (deg / m 등 절대단위 항목은 emergence margin 적용 대상 아님 — 의미가 다르고
+#  clamp 범위도 [1,5] 가 아니다.)
+# 예: "lower_bound:4.5level_1_to_5" / "upper_bound 2.5level_1_to_5"
+_BOUND_RE = re.compile(
+    r"(?P<kind>lower_bound|upper_bound)\s*[:\s]\s*"
+    r"(?P<val>\d+(?:\.\d+)?)\s*level_1_to_5",
+    re.IGNORECASE,
+)
+
+
+def _relax_bound_string(s: str) -> tuple[str, str | None]:
+    """문자열 안의 첫 lower_bound/upper_bound 수치를 ±0.5단계 완화.
+
+    Returns: (relaxed_string, change_summary or None)
+    """
+    if not isinstance(s, str):
+        return s, None
+    m = _BOUND_RE.search(s)
+    if not m:
+        return s, None
+    kind = m.group("kind").lower()
+    old_val = float(m.group("val"))
+    if kind == "lower_bound":
+        new_val = max(_LEVEL_MIN, old_val - _EMERGENCE_DELTA)
+    else:  # upper_bound
+        new_val = min(_LEVEL_MAX, old_val + _EMERGENCE_DELTA)
+    if new_val == old_val:
+        return s, None
+    # 정수면 정수로, 아니면 소수로 (4.0 → "4", 3.5 → "3.5")
+    new_str = f"{int(new_val)}" if new_val == int(new_val) else f"{new_val:g}"
+    relaxed = s[: m.start("val")] + new_str + s[m.end("val") :]
+    return relaxed, f"{kind} {old_val} → {new_val}"
+
+
+def _relax_tool_constraints(
+    tc: Any,
+) -> tuple[Any, list[str]]:
+    """tool_constraints 의 derived_constraints / global_constraints 에 emergence margin 적용.
+
+    원본 dict 는 건드리지 않는다 (deepcopy).
+    """
+    if not isinstance(tc, dict):
+        return tc, []
+    relaxed = copy.deepcopy(tc)
+    changes: list[str] = []
+
+    # global_constraints: list[str] 형식
+    gc = relaxed.get("global_constraints")
+    if isinstance(gc, list):
+        for i, item in enumerate(gc):
+            new_item, change = _relax_bound_string(item)
+            if change:
+                gc[i] = new_item
+                changes.append(f"global_constraints[{i}] {change}")
+
+    # derived_constraints: dict[str, str] 형식
+    dc = relaxed.get("derived_constraints")
+    if isinstance(dc, dict):
+        for key, val in list(dc.items()):
+            new_val, change = _relax_bound_string(val)
+            if change:
+                dc[key] = new_val
+                changes.append(f"derived_constraints[{key}] {change}")
+
+    return relaxed, changes
 
 CANDIDATE_SYSTEM_PROMPT = """너는 Module 2-D: 로봇 task를 위한 도구 조합 후보를 평가하는 전문가다.
 하나의 후보만 평가한다. 아래 절차를 순서대로 따르라.
@@ -250,6 +332,19 @@ def filter_candidates(
     if isinstance(sg_raw, list):
         subgoal_constraints = [s for s in sg_raw if isinstance(s, dict)]
 
+    # ── Emergence margin: derived_constraints 자동 완화 (LLM 입력용) ──
+    # 원본 input_data.tool_constraints 는 보존하고, LLM 에 보내는 사본만 풀어준다.
+    relaxed_tool_constraints, emergence_changes = _relax_tool_constraints(
+        input_data.tool_constraints
+    )
+    if emergence_changes:
+        print(
+            f"[2D emergence_margin] derived_constraints {len(emergence_changes)}개 항목 "
+            f"±{_EMERGENCE_DELTA} 단계 완화 적용:"
+        )
+        for ch in emergence_changes:
+            print(f"             - {ch}")
+
     # scene_objects 의 실제 이름 화이트리스트
     # Module 3 의 _init_positions 가 이 이름들로만 위치를 색인하므로,
     # used_objects 가 이 집합 밖이면 Module 3 에서 unknown_base 가 발생한다.
@@ -313,7 +408,7 @@ def filter_candidates(
 
         user_payload = {
             "task": input_data.task,
-            "tool_constraints": input_data.tool_constraints,
+            "tool_constraints": relaxed_tool_constraints,
             "candidate": candidate,
             "object_physical_properties": [prop_map[n] for n in used_names if n in prop_map],
             "scene_objects": [geo_map[n] for n in used_names if n in geo_map],
@@ -408,6 +503,11 @@ def filter_candidates(
         "subgoal_coverage_checked_count": len(subgoal_constraints),
         "rejected_for_unknown_names": rejected_for_unknown_names,
         "allowed_scene_names_count": len(allowed_scene_names),
+        "emergence_margin": {
+            "delta": _EMERGENCE_DELTA,
+            "applied_changes": emergence_changes,
+            "applied_count": len(emergence_changes),
+        },
     }
 
     return evaluated, selected_id, feedback, trace
