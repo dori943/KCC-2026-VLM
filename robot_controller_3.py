@@ -597,13 +597,17 @@ class PandaController:
         grasp_z_ratio = float(self._active_grasp_profile.get("grasp_z_ratio", 0.85))
         grasp_z_ratio = _clamp(grasp_z_ratio, 0.45, 0.98)
         FINGER_TIP_OFFSET = 0.058
-        target_grasp_z = bottom_z + size_z * grasp_z_ratio + FINGER_TIP_OFFSET + grasp_clearance
+        target_grasp_z = top_z + FINGER_TIP_OFFSET + grasp_clearance
+        # 하강 종료 안전선: finger tip이 물체 바닥 아래로 내려가지 않을 EE z
+        safe_floor_z = bottom_z + FINGER_TIP_OFFSET - 0.003
         return {
             "target_xy": target_xy,
             "top_z": top_z,
+            "bottom_z": bottom_z,
             "size_z": size_z,
             "span_xy": span_xy,
             "target_grasp_z": target_grasp_z,
+            "safe_floor_z": safe_floor_z,
         }
 
     def _compose_grasp_candidate(
@@ -617,6 +621,7 @@ class PandaController:
         target_xy = np.array(grasp_frame["target_xy"], dtype=float)
         span_xy = float(grasp_frame["span_xy"])
         top_z = float(grasp_frame["top_z"])
+        # 수정 후
         target_grasp_z = float(grasp_frame["target_grasp_z"])
 
         width_axis = np.array([np.cos(yaw), np.sin(yaw)], dtype=float)
@@ -627,8 +632,10 @@ class PandaController:
         approach = [
             float(pregrasp_xy[0]),
             float(pregrasp_xy[1]),
-            float(max(top_z, target_grasp_z) + approach_height + safety_z_lift),
+            float(top_z + approach_height + safety_z_lift),
         ]
+        # grasp = 물체 xy 정중앙, z = target_grasp_z (top 바로 위)
+        # 실제 하강은 _descend_until_precontact가 담당
         grasp = [
             float(target_xy[0]),
             float(target_xy[1]),
@@ -1018,7 +1025,7 @@ class PandaController:
             if next_z < safe_floor_z:
                 return
             next_pos = [float(ee_pos[0]), float(ee_pos[1]), next_z]
-            self.move_end_effector_to(next_pos, orientation=orientation, steps=60, hold_companion=hold_companion)
+            self.move_end_effector_to(next_pos, orientation=orientation, steps=50, hold_companion=hold_companion)
 
     def get_end_effector_pose(self) -> tuple[np.ndarray, np.ndarray]:
         self._ensure_loaded()

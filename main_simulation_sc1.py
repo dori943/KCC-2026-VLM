@@ -524,7 +524,7 @@ def load_ycb_objects(ycb_dir: str = YCB_DIR, table_body_id=None) -> dict:
             basePosition=spawn_pos,
             baseOrientation=p.getQuaternionFromEuler([0.0, 0.0, 0.0]),
             # YCB URDF는 실물 스케일(미터) 기준이므로 축소하지 않는다.
-            globalScaling=1.0,
+            globalScaling=0.1,
             flags=flags,
         )
         loaded[label] = body_id
@@ -817,41 +817,79 @@ def run_optional_affordance_probe(
             else:
                 cx_full, cy_full = cx_crop, cy_crop
 
+            # 수정 후
             # 3-d. 2D pixel → 3D world 좌표 변환
-            world_pos = _pixel_depth_to_world(
-                px=cx_full, py=cy_full,
-                depth_buf=depth_buf,
-                proj_matrix=proj_matrix,
-                view_matrix=view_matrix,
-                img_w=IMG_W,
-                img_h=IMG_H,
-            )
+            # center 1점이 배경에 걸릴 수 있으므로 bbox 내 9점을 샘플링해 유효한 값 사용
+            _sample_pts = []
+            _bpx = top["bbox_pixel"]  # crop 기준
+            for _sy in [0.25, 0.5, 0.75]:
+                for _sx in [0.25, 0.5, 0.75]:
+                    _scx = _bpx[0] + (_bpx[2] - _bpx[0]) * _sx
+                    _scy = _bpx[1] + (_bpx[3] - _bpx[1]) * _sy
+                    # crop → full 역변환
+                    if crop_w > 0 and crop_h > 0:
+                        _fx = crop_bbox[0] + _scx * (crop_w / max(crop_img.shape[1], 1))
+                        _fy = crop_bbox[1] + _scy * (crop_h / max(crop_img.shape[0], 1))
+                    else:
+                        _fx, _fy = _scx, _scy
+                    _wp = _pixel_depth_to_world(
+                        px=_fx, py=_fy,
+                        depth_buf=depth_buf,
+                        proj_matrix=proj_matrix,
+                        view_matrix=view_matrix,
+                        img_w=IMG_W,
+                        img_h=IMG_H,
+                    )
+                    if _wp is not None:
+                        _sample_pts.append(_wp)
 
-            if world_pos is None:
-                # depth 실패 → AABB center fallback
-                try:
-                    aabb_min, aabb_max = p.getAABB(body_id)
-                    world_pos = np.array([
-                        (float(aabb_min[0]) + float(aabb_max[0])) / 2.0,
-                        (float(aabb_min[1]) + float(aabb_max[1])) / 2.0,
-                        float(aabb_max[2]),   # top surface
-                    ])
-                    print(f"[R1] '{label}' depth miss → AABB center fallback: {world_pos.tolist()}")
-                except Exception:
-                    print(f"[R1][WARN] '{label}' could not compute world_pos, skipping.")
-                    continue
-
-            # 3-e. orientation: crop bbox 종횡비로 긴 축 방향 추정 → yaw 계산
-            bbox_w = top["bbox_pixel"][2] - top["bbox_pixel"][0]
-            bbox_h = top["bbox_pixel"][3] - top["bbox_pixel"][1]
-            # bbox가 가로로 길면 물체의 긴 축이 X방향 → yaw=0
-            # bbox가 세로로 길면 물체의 긴 축이 Y방향 → yaw=90deg
-            if bbox_h > bbox_w * 1.2:
-                grasp_yaw = np.pi / 2.0
-            elif bbox_w > bbox_h * 1.2:
-                grasp_yaw = 0.0
+            if _sample_pts:
+                # 유효한 샘플들의 중앙값 사용 (이상치 제거)
+                world_pos = np.median(np.array(_sample_pts), axis=0)
             else:
-                grasp_yaw = 0.0   # 정방형: 기본값
+                # 모든 샘플이 배경 → body center pixel로 직접 재시도
+                _cp = _project_body_to_pixel(body_id, proj_matrix, view_matrix, IMG_W, IMG_H)
+                if _cp is not None:
+                    world_pos = _pixel_depth_to_world(
+                        px=float(_cp[0]), py=float(_cp[1]),
+                        depth_buf=depth_buf,
+                        proj_matrix=proj_matrix,
+                        view_matrix=view_matrix,
+                        img_w=IMG_W,
+                        img_h=IMG_H,
+                    )
+                if world_pos is None:
+                    # 최종 fallback: AABB top center
+                    try:
+                        aabb_min, aabb_max = p.getAABB(body_id)
+                        world_pos = np.array([
+                            (float(aabb_min[0]) + float(aabb_max[0])) / 2.0,
+                            (float(aabb_min[1]) + float(aabb_max[1])) / 2.0,
+                            float(aabb_max[2]),
+                        ])
+                        print(f"[R1] '{label}' depth miss (9-sample) → AABB fallback")
+                    except Exception:
+                        print(f"[R1][WARN] '{label}' could not compute world_pos, skipping.")
+                        continue
+
+            try:
+                _aabb_min, _aabb_max = p.getAABB(body_id)
+                _dx = float(_aabb_max[0] - _aabb_min[0])
+                _dy = float(_aabb_max[1] - _aabb_min[1])
+                _, _body_orn = p.getBasePositionAndOrientation(body_id)
+                _pose_yaw = float(p.getEulerFromQuaternion(_body_orn)[2])
+                if _dx > _dy * 1.15:
+                    # 긴 축 X → gripper finger를 Y방향으로 벌려야 옆면 잡음 → yaw=90°
+                    grasp_yaw = np.pi / 2.0
+                elif _dy > _dx * 1.15:
+                    # 긴 축 Y → gripper finger를 X방향으로 벌려야 옆면 잡음 → yaw=0°
+                    grasp_yaw = 0.0
+                else:
+                    # 정방형: pose yaw 그대로
+                    grasp_yaw = _pose_yaw
+                print(f"[R1] '{label}' AABB yaw: dx={_dx:.3f} dy={_dy:.3f} → yaw={np.degrees(grasp_yaw):.1f}°")
+            except Exception:
+                grasp_yaw = 0.0
             grasp_orientation = p.getQuaternionFromEuler([np.pi, 0.0, grasp_yaw])
 
             print(
