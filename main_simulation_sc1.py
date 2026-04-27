@@ -465,7 +465,7 @@ def summarize_applied_dynamics(applied: dict) -> dict:
 
 
 def configure_simulation() -> None:
-    p.connect(p.GUI)
+    p.connect(p.DIRECT)
     p.resetDebugVisualizerCamera(
         cameraDistance=1.0,
         cameraYaw=70,
@@ -1278,6 +1278,24 @@ def main() -> None:
  
     # 수정 후
     stabilize_scene()
+
+     # 안정화 후 YCB 물체들의 실제 시뮬레이션 좌표 출력
+    print("[Boot] === YCB 물체 실제 좌표 (안정화 후) ===")
+    for label, body_id in ycb_object_ids.items():
+        pos, orn = p.getBasePositionAndOrientation(body_id)
+        aabb_min, aabb_max = p.getAABB(body_id)
+        aabb_center = [
+            (aabb_min[0] + aabb_max[0]) / 2,
+            (aabb_min[1] + aabb_max[1]) / 2,
+            (aabb_min[2] + aabb_max[2]) / 2,
+        ]
+        print(
+            f"  [{label}] body_id={body_id} "
+            f"pos=[{pos[0]:.4f}, {pos[1]:.4f}, {pos[2]:.4f}] "
+            f"aabb_center=[{aabb_center[0]:.4f}, {aabb_center[1]:.4f}, {aabb_center[2]:.4f}] "
+            f"size=[{aabb_max[0]-aabb_min[0]:.4f}, {aabb_max[1]-aabb_min[1]:.4f}, {aabb_max[2]-aabb_min[2]:.4f}]"
+        )
+    print("[Boot] ==========================================")
 
     # module3 대상 물체 labels를 R1 probe에 전달
     _m3_labels = _load_module3_object_labels(_MODULE3_JSON_PATH)
