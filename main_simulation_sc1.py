@@ -779,6 +779,44 @@ def _save_binary_mask_png(mask: np.ndarray, out_path: str) -> tuple[bool, str | 
         return False, str(exc)
 
 
+def _save_r1_view_debug_pngs(
+    rgb: np.ndarray,
+    depth_buf: np.ndarray,
+    seg_obj_id: np.ndarray,
+    out_dir: str,
+) -> tuple[bool, list[str], str | None]:
+    """Save the exact R1 camera view as RGB, depth, and segmentation PNGs."""
+    try:
+        from PIL import Image as _PILImage
+
+        os.makedirs(out_dir, exist_ok=True)
+        saved_paths = []
+
+        rgb_path = os.path.join(out_dir, "r1_view_rgb.png")
+        _PILImage.fromarray(np.asarray(rgb, dtype=np.uint8), mode="RGB").save(rgb_path)
+        saved_paths.append(rgb_path)
+
+        depth = np.asarray(depth_buf, dtype=np.float32)
+        depth_vis = np.clip((1.0 - depth) * 255.0, 0.0, 255.0).astype(np.uint8)
+        depth_path = os.path.join(out_dir, "r1_view_depth.png")
+        _PILImage.fromarray(depth_vis, mode="L").save(depth_path)
+        saved_paths.append(depth_path)
+
+        ids = np.asarray(seg_obj_id, dtype=np.int32)
+        seg_rgb = np.zeros((*ids.shape, 3), dtype=np.uint8)
+        seg_rgb[:, :, 0] = ((ids * 37) % 255).astype(np.uint8)
+        seg_rgb[:, :, 1] = ((ids * 67) % 255).astype(np.uint8)
+        seg_rgb[:, :, 2] = ((ids * 97) % 255).astype(np.uint8)
+        seg_rgb[ids <= 0] = 0
+        seg_path = os.path.join(out_dir, "r1_view_seg.png")
+        _PILImage.fromarray(seg_rgb, mode="RGB").save(seg_path)
+        saved_paths.append(seg_path)
+
+        return True, saved_paths, None
+    except Exception as exc:
+        return False, [], str(exc)
+
+
 def _project_body_to_pixel(
     body_id: int,
     proj_matrix: tuple,
@@ -980,6 +1018,7 @@ def run_optional_affordance_probe(
                 return int(default_value)
 
         save_mask_png = env_flag("SAVE_R1_MASK_PNG", default=True)
+        save_view_png = env_flag("SAVE_R1_VIEW_PNG", default=True)
         mask_debug_dir = _os.getenv("R1_MASK_DEBUG_DIR") or os.path.join(
             os.path.dirname(os.path.abspath(__file__)), "r1_mask_debug"
         )
@@ -994,13 +1033,26 @@ def run_optional_affordance_probe(
             "phillipsscrewdriver",
             "flatscrewdriver",
         }
-        if save_mask_png:
+        if save_mask_png or save_view_png:
             try:
                 os.makedirs(mask_debug_dir, exist_ok=True)
-                print(f"[R1] mask debug PNGs: {mask_debug_dir}")
+                print(f"[R1] debug PNGs: {mask_debug_dir}")
             except Exception as _mk_exc:
                 print(f"[R1][WARN] could not create mask debug dir ({_mk_exc})")
                 save_mask_png = False
+                save_view_png = False
+
+        if save_view_png:
+            ok_view, view_paths, view_err = _save_r1_view_debug_pngs(
+                rgb=rgb_full,
+                depth_buf=depth_buf,
+                seg_obj_id=seg_obj_id,
+                out_dir=mask_debug_dir,
+            )
+            if ok_view:
+                print(f"[R1] view PNGs saved: {view_paths}")
+            elif view_err:
+                print(f"[R1][WARN] view PNG save failed: {view_err}")
 
         device_env = (_os.getenv("AFFORDANCE_R1_DEVICE") or "cuda").strip().lower()
         if device_env in {"", "cuda", "gpu"}:
