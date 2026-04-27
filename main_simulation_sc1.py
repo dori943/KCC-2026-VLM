@@ -950,6 +950,134 @@ def _grasp_with_orientation_sweep(
     return False
 
 
+def _compute_aabb_grasp_pose(body_id: int) -> tuple[list[float], list[float], dict]:
+    """Fallback grasp pose derived from PyBullet AABB.
+
+    Returns (world_pos, orientation, info_dict) where world_pos is the AABB
+    center (xy) at AABB top z minus a small clearance, and orientation is a
+    top-down gripper aligned to the object's long/short axis (yaw).
+    """
+    aabb_min, aabb_max = p.getAABB(body_id)
+    cx = (float(aabb_min[0]) + float(aabb_max[0])) / 2.0
+    cy = (float(aabb_min[1]) + float(aabb_max[1])) / 2.0
+    cz_center = (float(aabb_min[2]) + float(aabb_max[2])) / 2.0
+    # Bias slightly toward the object top so the gripper approaches from above
+    # and contacts on the object body, not below the table surface.
+    cz_top = float(aabb_max[2])
+    cz = max(cz_center, cz_top - 0.02)
+    world_pos = [cx, cy, cz]
+    orientation, info = _estimate_topdown_grasp_orientation(body_id)
+    info = dict(info)
+    info["aabb_min"] = [float(v) for v in aabb_min]
+    info["aabb_max"] = [float(v) for v in aabb_max]
+    info["world_pos"] = world_pos
+    return world_pos, orientation, info
+
+
+def _grasp_with_r1_then_aabb_fallback(
+    controller,
+    body_id: int,
+    object_label: str,
+    r1_hint: dict | None,
+    hold_companion=None,
+) -> tuple[bool, str]:
+    """Try R1 grasp pose first; on failure, retry with AABB-based pose.
+
+    Returns (success, source) where source is one of
+    {"r1", "aabb_fallback", "none"}.
+    """
+    r1_world_pos: list[float] | None = None
+    r1_orientation: list[float] | None = None
+    if isinstance(r1_hint, dict):
+        wp = r1_hint.get("world_pos")
+        orn = r1_hint.get("orientation")
+        if (
+            isinstance(wp, (list, tuple))
+            and len(wp) >= 3
+            and isinstance(orn, (list, tuple))
+            and len(orn) >= 4
+        ):
+            r1_world_pos = [float(v) for v in wp[:3]]
+            r1_orientation = [float(v) for v in orn[:4]]
+
+    if r1_world_pos is not None and r1_orientation is not None:
+        print(
+            f"[Grasp] {object_label}: trying R1 pose "
+            f"world_pos={[round(v, 4) for v in r1_world_pos]}, "
+            f"orn={[round(v, 4) for v in r1_orientation]}"
+        )
+        # Limit R1 attempts to 3 small yaw offsets, then bail out to AABB
+        # fallback. R1 coords often miss by a small offset that yaw alone
+        # cannot recover, so wide yaw sweeps just waste time.
+        r1_yaw_offsets_deg = [0.0, 12.0, -12.0]
+        r1_success = False
+        for r1_attempt_idx, yaw_offset_deg in enumerate(r1_yaw_offsets_deg, start=1):
+            try_orientation = _offset_orientation_yaw(r1_orientation, yaw_offset_deg)
+            print(
+                f"[Grasp-R1] {object_label} attempt={r1_attempt_idx}/"
+                f"{len(r1_yaw_offsets_deg)} yaw_offset={yaw_offset_deg:+.1f} deg"
+            )
+            try:
+                ok_attempt = controller.grasp_body(
+                    body_id=body_id,
+                    object_label=object_label,
+                    r1_world_pos=r1_world_pos,
+                    orientation=try_orientation,
+                    hold_companion=hold_companion,
+                )
+            except Exception as exc:
+                print(f"[Grasp-R1][WARN] attempt failed with exception: {exc}")
+                ok_attempt = False
+            if ok_attempt:
+                print(
+                    f"[Grasp-R1] {object_label} success "
+                    f"(attempt={r1_attempt_idx}, yaw_offset={yaw_offset_deg:+.1f} deg)"
+                )
+                r1_success = True
+                break
+            try:
+                controller.release_grasp(open_after=True, steps=60)
+            except Exception:
+                pass
+        if r1_success:
+            return True, "r1"
+        print(
+            f"[Grasp] {object_label}: R1 pose failed after "
+            f"{len(r1_yaw_offsets_deg)} attempts; falling back to AABB-based pose."
+        )
+    else:
+        print(
+            f"[Grasp] {object_label}: R1 hint unavailable; "
+            "using AABB-based pose directly."
+        )
+
+    # Make sure gripper is fully open before retrying.
+    try:
+        controller.release_grasp(open_after=True, steps=60)
+    except Exception:
+        pass
+
+    aabb_world_pos, aabb_orientation, aabb_info = _compute_aabb_grasp_pose(body_id)
+    print(
+        f"[Grasp-Fallback] {object_label}: AABB pose "
+        f"world_pos={[round(v, 4) for v in aabb_world_pos]}, "
+        f"axis_mode={aabb_info.get('axis_mode')}, "
+        f"yaw={float(aabb_info.get('grasp_yaw_deg', 0.0)):.1f} deg"
+    )
+    ok = _grasp_with_orientation_sweep(
+        controller=controller,
+        body_id=body_id,
+        object_label=object_label,
+        seed_world_pos=aabb_world_pos,
+        seed_orientation=aabb_orientation,
+        axis_mode=str(aabb_info.get("axis_mode", "near_square")),
+        hold_companion=hold_companion,
+    )
+    if ok:
+        return True, "aabb_fallback"
+    return False, "none"
+
+
 def run_optional_affordance_probe(
     enable_affordance_r1: bool,
     enable_sam2_refinement: bool = False,
@@ -1518,36 +1646,19 @@ def run_sequential_demo(
     # ?섏젙 ??
     print(f"[Demo] left-arm grasp target: {left_target_label}")
     _left_hint = r1_hints.get(left_target_label, {})
-    _left_world_pos = _left_hint.get("world_pos")
-    _left_pregrasp_orn = _left_hint.get("orientation")
-    if not (
-        isinstance(_left_world_pos, (list, tuple))
-        and len(_left_world_pos) >= 3
-        and isinstance(_left_pregrasp_orn, (list, tuple))
-        and len(_left_pregrasp_orn) >= 4
-    ):
-        raise RuntimeError(
-            f"[R1][ERROR] mandatory grasp pose missing for '{left_target_label}'. "
-            "PyBullet object-state fallback is disabled."
-        )
-    print(
-        f"[R1] mandatory grasp pose for '{left_target_label}': "
-        f"world_pos={[round(float(v),4) for v in _left_world_pos[:3]]}, "
-        f"orientation={[round(float(v),4) for v in _left_pregrasp_orn[:4]]}"
-    )
-    # Use R1 grasp planner pose only.
-    # JSON object pose and PyBullet object pose are not used for grasp pose generation.
-    left_ok = _grasp_with_orientation_sweep(
+    left_ok, left_grasp_src = _grasp_with_r1_then_aabb_fallback(
         controller=left,
         body_id=left_body_id,
         object_label=left_target_label,
-        seed_world_pos=[float(v) for v in _left_world_pos[:3]],
-        seed_orientation=[float(v) for v in _left_pregrasp_orn[:4]],
-        axis_mode="r1_pose",
+        r1_hint=_left_hint,
     )
     if not left_ok:
-        print(f"[Demo][WARN] left-arm grasp failed for '{left_target_label}'")
+        print(
+            f"[Demo][WARN] left-arm grasp failed for '{left_target_label}' "
+            "(R1 + AABB fallback both failed)"
+        )
     else:
+        print(f"[Demo] left-arm grasp succeeded via source={left_grasp_src}")
         left.maintain_grasp_hold(steps=120)
         print("[Demo] left arm holding ??waiting for right arm grasp.")
  
@@ -1557,37 +1668,20 @@ def run_sequential_demo(
     # ?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧
     print(f"[Demo] right-arm grasp target: {right_target_label}")
     _right_hint = r1_hints.get(right_target_label, {})
-    _right_world_pos = _right_hint.get("world_pos")
-    _right_pregrasp_orn = _right_hint.get("orientation")
-    if not (
-        isinstance(_right_world_pos, (list, tuple))
-        and len(_right_world_pos) >= 3
-        and isinstance(_right_pregrasp_orn, (list, tuple))
-        and len(_right_pregrasp_orn) >= 4
-    ):
-        raise RuntimeError(
-            f"[R1][ERROR] mandatory grasp pose missing for '{right_target_label}'. "
-            "PyBullet object-state fallback is disabled."
-        )
-    print(
-        f"[R1] mandatory grasp pose for '{right_target_label}': "
-        f"world_pos={[round(float(v),4) for v in _right_world_pos[:3]]}, "
-        f"orientation={[round(float(v),4) for v in _right_pregrasp_orn[:4]]}"
-    )
-    # Use R1 grasp planner pose only.
-    # JSON object pose and PyBullet object pose are not used for grasp pose generation.
-    right_ok = _grasp_with_orientation_sweep(
+    right_ok, right_grasp_src = _grasp_with_r1_then_aabb_fallback(
         controller=right,
         body_id=right_body_id,
         object_label=right_target_label,
-        seed_world_pos=[float(v) for v in _right_world_pos[:3]],
-        seed_orientation=[float(v) for v in _right_pregrasp_orn[:4]],
-        axis_mode="r1_pose",
+        r1_hint=_right_hint,
         hold_companion=left if left_ok else None,
     )
     if not right_ok:
-        print(f"[Demo][WARN] right-arm grasp failed for '{right_target_label}'")
+        print(
+            f"[Demo][WARN] right-arm grasp failed for '{right_target_label}' "
+            "(R1 + AABB fallback both failed)"
+        )
     else:
+        print(f"[Demo] right-arm grasp succeeded via source={right_grasp_src}")
         right.maintain_grasp_hold(steps=120)
         print("[Demo] right arm holding ??both arms ready.")
  
