@@ -1324,6 +1324,12 @@ def run_optional_affordance_probe(
                 print(f"[R1][WARN] '{label}' inference failed: {r1_result.get('error')}")
                 continue
 
+            # Always log raw_output so per-object behavior is comparable across runs.
+            _raw_out = str(r1_result.get("raw_output") or "").replace("\n", " ").strip()
+            if len(_raw_out) > 240:
+                _raw_out = _raw_out[:240] + "...<truncated>"
+            print(f"[R1] '{label}' raw_output: {_raw_out}")
+
             candidates = r1_result.get("grasp_candidates") or []
             if not candidates:
                 print(f"[R1][INFO] '{label}' no candidate parsed from output: {r1_result.get('raw_output')}")
@@ -1430,6 +1436,35 @@ def run_optional_affordance_probe(
                     max_radius=20,
                     valid_mask=object_mask,
                 )
+                if world_pos is None and object_mask is not None:
+                    # Last-resort: pick any valid-depth pixel that lies inside the
+                    # object segmentation mask. Prevents silently dropping the
+                    # whole object hint just because the R1 bbox barely missed
+                    # the mask. Pose validation downstream still corrects outliers.
+                    try:
+                        depth_valid = depth_buf < 0.999
+                        candidate_mask = np.logical_and(object_mask, depth_valid)
+                        if bool(np.any(candidate_mask)):
+                            ys, xs = np.where(candidate_mask)
+                            cy_mask = float(np.mean(ys))
+                            cx_mask = float(np.mean(xs))
+                            world_pos = _pixel_depth_to_world_with_local_search(
+                                px=cx_mask, py=cy_mask,
+                                depth_buf=depth_buf,
+                                proj_matrix=proj_matrix,
+                                view_matrix=view_matrix,
+                                img_w=IMG_W,
+                                img_h=IMG_H,
+                                max_radius=4,
+                                valid_mask=object_mask,
+                            )
+                            if world_pos is not None:
+                                print(
+                                    f"[R1][INFO] '{label}' world_pos recovered from object-mask "
+                                    f"centroid pixel=({cx_mask:.1f}, {cy_mask:.1f})"
+                                )
+                    except Exception as _mc_exc:
+                        print(f"[R1][WARN] '{label}' mask-centroid fallback failed: {_mc_exc}")
                 if world_pos is None:
                     print(
                         f"[R1][WARN] '{label}' could not compute world_pos from R1 pixel/depth, skipping "
