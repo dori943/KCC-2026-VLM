@@ -958,6 +958,35 @@ def main() -> None:
     print(f"[Boot] robot IDs: {robot_ids}")
  
     stabilize_scene()
+
+    print("[Boot] === 안정화 후 테이블 상태 ===")
+    table_id = scene_ids.get("table_id")
+    if table_id is not None:
+        pos, orn = p.getBasePositionAndOrientation(table_id)
+        aabb_min, aabb_max = p.getAABB(table_id)
+        print(f"[Boot] table pos={[round(v,4) for v in pos]} "
+            f"aabb_top_z={aabb_max[2]:.4f} "
+            f"aabb_size=[{aabb_max[0]-aabb_min[0]:.4f}, {aabb_max[1]-aabb_min[1]:.4f}, {aabb_max[2]-aabb_min[2]:.4f}]")
+
+     # 안정화 후 YCB 물체들의 실제 시뮬레이션 좌표 출력
+    print("[Boot] === YCB 물체 실제 좌표 (안정화 후) ===")
+    for label, body_id in ycb_object_ids.items():
+        pos, orn = p.getBasePositionAndOrientation(body_id)
+        aabb_min, aabb_max = p.getAABB(body_id)
+        aabb_center = [
+            (aabb_min[0] + aabb_max[0]) / 2,
+            (aabb_min[1] + aabb_max[1]) / 2,
+            (aabb_min[2] + aabb_max[2]) / 2,
+        ]
+        print(
+            f"  [{label}] body_id={body_id} "
+            f"pos=[{pos[0]:.4f}, {pos[1]:.4f}, {pos[2]:.4f}] "
+            f"aabb_center=[{aabb_center[0]:.4f}, {aabb_center[1]:.4f}, {aabb_center[2]:.4f}] "
+            f"size=[{aabb_max[0]-aabb_min[0]:.4f}, {aabb_max[1]-aabb_min[1]:.4f}, {aabb_max[2]-aabb_min[2]:.4f}]"
+        )
+    print("[Boot] ==========================================")
+
+
     run_optional_affordance_probe(
         enable_affordance_r1=enable_affordance_r1,
         enable_sam2_refinement=enable_sam2_refinement,

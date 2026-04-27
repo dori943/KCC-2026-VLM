@@ -465,7 +465,7 @@ def summarize_applied_dynamics(applied: dict) -> dict:
 
 
 def configure_simulation() -> None:
-    p.connect(p.DIRECT)
+    p.connect(p.GUI)
     p.resetDebugVisualizerCamera(
         cameraDistance=1.0,
         cameraYaw=70,
@@ -1278,6 +1278,15 @@ def main() -> None:
  
     # 수정 후
     stabilize_scene()
+
+    print("[Boot] === 안정화 후 테이블 상태 ===")
+    table_id = scene_ids.get("table_id")
+    if table_id is not None:
+        pos, orn = p.getBasePositionAndOrientation(table_id)
+        aabb_min, aabb_max = p.getAABB(table_id)
+        print(f"[Boot] table pos={[round(v,4) for v in pos]} "
+            f"aabb_top_z={aabb_max[2]:.4f} "
+            f"aabb_size=[{aabb_max[0]-aabb_min[0]:.4f}, {aabb_max[1]-aabb_min[1]:.4f}, {aabb_max[2]-aabb_min[2]:.4f}]")
 
      # 안정화 후 YCB 물체들의 실제 시뮬레이션 좌표 출력
     print("[Boot] === YCB 물체 실제 좌표 (안정화 후) ===")
