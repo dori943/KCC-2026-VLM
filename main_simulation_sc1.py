@@ -975,7 +975,7 @@ def run_optional_affordance_probe(
 
             candidates = r1_result.get("grasp_candidates") or []
             if not candidates:
-                print(f"[R1][INFO] '{label}' ??no candidate parsed from output: {r1_result.get('raw_output')}")
+                print(f"[R1][INFO] '{label}' no candidate parsed from output: {r1_result.get('raw_output')}")
                 continue
 
             top = candidates[0]
@@ -1059,7 +1059,7 @@ def run_optional_affordance_probe(
 
             print(
                 f"[R1] '{label}' world_pos={[round(v, 4) for v in world_pos.tolist()]}, "
-                f"yaw={np.degrees(grasp_yaw):.1f}째"
+                f"yaw={np.degrees(grasp_yaw):.1f} deg"
             )
 
             hint_payload = {
