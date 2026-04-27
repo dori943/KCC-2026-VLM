@@ -58,8 +58,8 @@ YCB_OBJECT_SPECS = [
 
 def _load_module3_object_labels(json_path: str) -> list[str]:
     """
-    module3_output.json?먯꽌 ?ъ슜??臾쇱껜 ?대쫫 紐⑸줉???뚯떛??諛섑솚.
-    base_object / attach_object 紐⑤몢 ?섏쭛?섎ŉ ?쒖꽌瑜??좎??쒕떎.
+    Parse object labels used in module3_output.json.
+    Collect both base_object and attach_object while preserving order.
     """
     import json as _json
     try:
@@ -81,12 +81,12 @@ _YCB_SPEC_BY_LABEL = {label: (label, urdf, pos) for label, urdf, pos in YCB_OBJE
 
 def _build_ycb_object_specs(json_path: str) -> list[tuple]:
     """
-    module3_output.json 臾쇱껜 紐⑸줉??湲곕컲?쇰줈 YCB_OBJECT_SPECS瑜??숈쟻 ?앹꽦.
-    JSON???녿뒗 臾쇱껜??留ㅽ븨???녿뒗 寃쎌슦 寃쎄퀬 ??嫄대꼫?.
+    Build YCB_OBJECT_SPECS dynamically from module3_output.json labels.
+    Skip unknown labels with a warning.
     """
     labels = _load_module3_object_labels(json_path)
     if not labels:
-        # fallback: 湲곗〈 YCB ?꾩껜 濡쒕뱶
+        # Fallback: load full default YCB set.
         return [
             ("cracker_box", "003_cracker_box.urdf", [1.2, 0.3, 0.82]),
             ("sugar_box", "004_sugar_box.urdf", [1.2, 0.10, 0.82]),
@@ -108,16 +108,16 @@ def _build_ycb_object_specs(json_path: str) -> list[tuple]:
     for raw_label in labels:
         entry = _YCB_SPEC_BY_LABEL.get(raw_label)
         if entry is None:
-            print(f"[Boot][WARN] '{raw_label}' is not in YCB_OBJECT_SPECS ??skipping load.")
+            print(f"[Boot][WARN] '{raw_label}' is not in YCB_OBJECT_SPECS - skipping load.")
             continue
         specs.append(entry)
     return list(YCB_OBJECT_SPECS)
 
 
-# JSON 寃쎈줈瑜?誘몃━ 寃곗젙 (main() ?몄텧 ?꾩뿉???ъ슜)
+# Resolve JSON path once for reuse before main().
 _MODULE3_JSON_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "module3_task1_output.json")
 
-# ?숈쟻?쇰줈 寃곗젙??YCB_OBJECT_SPECS
+# Dynamically resolved YCB object specs.
 YCB_OBJECT_SPECS: list[tuple] = _build_ycb_object_specs(_MODULE3_JSON_PATH)
 
 MODULE1_FALLBACK_MAP = {
