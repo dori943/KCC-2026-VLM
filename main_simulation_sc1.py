@@ -1,4 +1,4 @@
-"""
+﻿"""
 main_simulation_3.py
 Boot-only dual-arm Panda simulation orchestration.
 
@@ -9,6 +9,7 @@ Notes:
 """
 
 import os
+import re
 import time
 
 import numpy as np
@@ -58,8 +59,8 @@ YCB_OBJECT_SPECS = [
 
 def _load_module3_object_labels(json_path: str) -> list[str]:
     """
-    module3_output.json에서 사용된 물체 이름 목록을 파싱해 반환.
-    base_object / attach_object 모두 수집하며 순서를 유지한다.
+    Parse object labels used in module3_output.json.
+    Collect both base_object and attach_object while preserving order.
     """
     import json as _json
     try:
@@ -81,12 +82,12 @@ _YCB_SPEC_BY_LABEL = {label: (label, urdf, pos) for label, urdf, pos in YCB_OBJE
 
 def _build_ycb_object_specs(json_path: str) -> list[tuple]:
     """
-    module3_output.json 물체 목록을 기반으로 YCB_OBJECT_SPECS를 동적 생성.
-    JSON에 없는 물체나 매핑이 없는 경우 경고 후 건너뜀.
+    Build YCB_OBJECT_SPECS dynamically from module3_output.json labels.
+    Skip unknown labels with a warning.
     """
     labels = _load_module3_object_labels(json_path)
     if not labels:
-        # fallback: 기존 YCB 전체 로드
+        # Fallback: load full default YCB set.
         return [
             ("cracker_box", "003_cracker_box.urdf", [1.2, 0.3, 0.82]),
             ("sugar_box", "004_sugar_box.urdf", [1.2, 0.10, 0.82]),
@@ -108,16 +109,16 @@ def _build_ycb_object_specs(json_path: str) -> list[tuple]:
     for raw_label in labels:
         entry = _YCB_SPEC_BY_LABEL.get(raw_label)
         if entry is None:
-            print(f"[Boot][WARN] '{raw_label}' is not in YCB_OBJECT_SPECS — skipping load.")
+            print(f"[Boot][WARN] '{raw_label}' is not in YCB_OBJECT_SPECS - skipping load.")
             continue
         specs.append(entry)
     return list(YCB_OBJECT_SPECS)
 
 
-# JSON 경로를 미리 결정 (main() 호출 전에도 사용)
+# Resolve JSON path once for reuse before main().
 _MODULE3_JSON_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "module3_task1_output.json")
 
-# 동적으로 결정된 YCB_OBJECT_SPECS
+# Dynamically resolved YCB object specs.
 YCB_OBJECT_SPECS: list[tuple] = _build_ycb_object_specs(_MODULE3_JSON_PATH)
 
 MODULE1_FALLBACK_MAP = {
@@ -189,6 +190,10 @@ def env_flag(env_name: str, default: bool = False) -> bool:
     if raw is None:
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on", "y"}
+
+
+def _normalize_label_token(label: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(label).lower())
 
 
 def clamp_value(value: float, lower: float, upper: float) -> float:
@@ -494,7 +499,7 @@ def load_static_scene() -> dict:
     }
 
 def _get_table_surface_z(table_body_id=None) -> float:
-    """테이블 AABB 상단 z를 반환. 모르면 기본값 사용."""
+    """?뚯씠釉?AABB ?곷떒 z瑜?諛섑솚. 紐⑤Ⅴ硫?湲곕낯媛??ъ슜."""
     if table_body_id is not None:
         try:
             _, aabb_max = p.getAABB(table_body_id)
@@ -510,7 +515,7 @@ def load_ycb_objects(ycb_dir: str = YCB_DIR, table_body_id=None) -> dict:
             "Extract data.zip first."
         )
  
-    # globalScaling 제거: YCB URDF는 이미 미터 단위 실물 크기.
+    # globalScaling ?쒓굅: YCB URDF???대? 誘명꽣 ?⑥쐞 ?ㅻЪ ?ш린.
     flags = p.URDF_USE_INERTIA_FROM_FILE
     loaded = {}
  
@@ -523,7 +528,7 @@ def load_ycb_objects(ycb_dir: str = YCB_DIR, table_body_id=None) -> dict:
             urdf_path,
             basePosition=spawn_pos,
             baseOrientation=p.getQuaternionFromEuler([0.0, 0.0, 0.0]),
-            # YCB URDF는 실물 스케일(미터) 기준이므로 축소하지 않는다.
+            # YCB URDF???ㅻЪ ?ㅼ???誘명꽣) 湲곗??대?濡?異뺤냼?섏? ?딅뒗??
             globalScaling=0.1,
             flags=flags,
         )
@@ -582,7 +587,7 @@ def capture_affordance_rgb(
     return rgba_np[:, :, :3]
 
 
-# 수정 후
+# ?섏젙 ??
 def _pixel_depth_to_world(
     px: float,
     py: float,
@@ -593,23 +598,23 @@ def _pixel_depth_to_world(
     img_h: int,
 ) -> np.ndarray | None:
     """
-    2D 이미지 픽셀 (px, py) + PyBullet depth buffer → world 3D 좌표 변환.
-    depth_buf: getCameraImage의 depthBuffer (float32 [H, W], 0~1 NDC)
+    2D ?대?吏 ?쎌? (px, py) + PyBullet depth buffer ??world 3D 醫뚰몴 蹂??
+    depth_buf: getCameraImage??depthBuffer (float32 [H, W], 0~1 NDC)
     """
     ix = int(np.clip(px, 0, img_w - 1))
     iy = int(np.clip(py, 0, img_h - 1))
     depth_ndc = float(depth_buf[iy, ix])
-    if depth_ndc >= 0.9999:   # 배경/무한대
+    if depth_ndc >= 0.9999:   # 諛곌꼍/臾댄븳?
         return None
 
-    # NDC → clip → view → world
-    # PyBullet projection은 OpenGL 컨벤션 (column-major, z [-1,1])
+    # NDC ??clip ??view ??world
+    # PyBullet projection? OpenGL 而⑤깽??(column-major, z [-1,1])
     proj = np.array(proj_matrix).reshape(4, 4).T
     view = np.array(view_matrix).reshape(4, 4).T
 
-    # pixel → NDC
+    # pixel ??NDC
     ndc_x = (px / img_w) * 2.0 - 1.0
-    ndc_y = 1.0 - (py / img_h) * 2.0   # y축 반전
+    ndc_y = 1.0 - (py / img_h) * 2.0   # y異?諛섏쟾
     ndc_z = 2.0 * depth_ndc - 1.0
 
     clip = np.array([ndc_x, ndc_y, ndc_z, 1.0])
@@ -622,21 +627,156 @@ def _pixel_depth_to_world(
     return world[:3]
 
 
+def _pixel_depth_to_world_with_local_search(
+    px: float,
+    py: float,
+    depth_buf: np.ndarray,
+    proj_matrix: tuple,
+    view_matrix: tuple,
+    img_w: int,
+    img_h: int,
+    max_radius: int = 10,
+    valid_mask: np.ndarray | None = None,
+) -> np.ndarray | None:
+    """
+    Robust world-point lookup around a target pixel.
+
+    This keeps the R1 path (pixel/depth based) while reducing misses when the
+    exact pixel falls on background for thin objects.
+    """
+    ix0 = int(np.clip(round(px), 0, img_w - 1))
+    iy0 = int(np.clip(round(py), 0, img_h - 1))
+    direct_allowed = valid_mask is None or bool(valid_mask[iy0, ix0])
+    if direct_allowed:
+        direct = _pixel_depth_to_world(
+            px=px,
+            py=py,
+            depth_buf=depth_buf,
+            proj_matrix=proj_matrix,
+            view_matrix=view_matrix,
+            img_w=img_w,
+            img_h=img_h,
+        )
+        if direct is not None:
+            return direct
+
+    best = None
+    best_depth = None
+    cx = ix0
+    cy = iy0
+    for r in range(1, max_radius + 1):
+        x1 = max(0, cx - r)
+        x2 = min(img_w - 1, cx + r)
+        y1 = max(0, cy - r)
+        y2 = min(img_h - 1, cy + r)
+        for iy in range(y1, y2 + 1):
+            for ix in range(x1, x2 + 1):
+                if valid_mask is not None and not bool(valid_mask[iy, ix]):
+                    continue
+                depth_ndc = float(depth_buf[iy, ix])
+                if depth_ndc >= 0.9999:
+                    continue
+                world = _pixel_depth_to_world(
+                    px=float(ix),
+                    py=float(iy),
+                    depth_buf=depth_buf,
+                    proj_matrix=proj_matrix,
+                    view_matrix=view_matrix,
+                    img_w=img_w,
+                    img_h=img_h,
+                )
+                if world is None:
+                    continue
+                if best_depth is None or depth_ndc < best_depth:
+                    best_depth = depth_ndc
+                    best = world
+        if best is not None:
+            return best
+    return None
+
+
 def _crop_object_rgb(
     rgb: np.ndarray,
     depth: np.ndarray,
     bbox_pixel: list[int],
     pad: int = 8,
-) -> np.ndarray:
-    """bbox_pixel 영역을 잘라 R1 개별 추론용 crop 이미지 반환."""
+) -> tuple[np.ndarray, list[int]]:
+    """Return padded crop image and crop bounds for a bbox."""
     h, w = rgb.shape[:2]
     x1 = max(0, bbox_pixel[0] - pad)
     y1 = max(0, bbox_pixel[1] - pad)
     x2 = min(w, bbox_pixel[2] + pad)
     y2 = min(h, bbox_pixel[3] + pad)
     if x2 <= x1 or y2 <= y1:
-        return rgb
-    return rgb[y1:y2, x1:x2].copy()
+        return rgb, [0, 0, w, h]
+    return rgb[y1:y2, x1:x2].copy(), [x1, y1, x2, y2]
+
+
+def _binary_dilate(mask: np.ndarray, radius: int = 1) -> np.ndarray:
+    """Simple binary dilation without external dependencies."""
+    out = np.asarray(mask, dtype=bool)
+    if radius <= 0 or not bool(np.any(out)):
+        return out
+    for _ in range(int(radius)):
+        padded = np.pad(out, 1, mode="constant", constant_values=False)
+        out = (
+            padded[:-2, :-2] | padded[:-2, 1:-1] | padded[:-2, 2:] |
+            padded[1:-1, :-2] | padded[1:-1, 1:-1] | padded[1:-1, 2:] |
+            padded[2:, :-2] | padded[2:, 1:-1] | padded[2:, 2:]
+        )
+    return out
+
+
+def _mask_bbox_xyxy(mask: np.ndarray) -> list[int] | None:
+    ys, xs = np.where(np.asarray(mask, dtype=bool))
+    if xs.size == 0 or ys.size == 0:
+        return None
+    # xyxy (x2, y2 are exclusive)
+    return [int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1]
+
+
+def _crop_object_rgb_by_mask(
+    rgb: np.ndarray,
+    object_mask: np.ndarray,
+    pad: int = 8,
+    mask_only: bool = True,
+) -> tuple[np.ndarray, list[int], np.ndarray]:
+    """
+    Build a tight crop around object mask.
+    If mask_only=True, keep target object pixels and zero background.
+    """
+    h, w = rgb.shape[:2]
+    mask = np.asarray(object_mask, dtype=bool)
+    bbox = _mask_bbox_xyxy(mask)
+    if bbox is None:
+        full_bounds = [0, 0, w, h]
+        full_mask = np.ones((h, w), dtype=bool)
+        return rgb.copy(), full_bounds, full_mask
+
+    x1 = max(0, int(bbox[0]) - int(pad))
+    y1 = max(0, int(bbox[1]) - int(pad))
+    x2 = min(w, int(bbox[2]) + int(pad))
+    y2 = min(h, int(bbox[3]) + int(pad))
+    if x2 <= x1 or y2 <= y1:
+        full_bounds = [0, 0, w, h]
+        full_mask = np.ones((h, w), dtype=bool)
+        return rgb.copy(), full_bounds, full_mask
+
+    crop_img = rgb[y1:y2, x1:x2].copy()
+    crop_mask = mask[y1:y2, x1:x2]
+    if mask_only:
+        crop_img[~crop_mask] = 0
+    return crop_img, [x1, y1, x2, y2], crop_mask
+
+
+def _save_binary_mask_png(mask: np.ndarray, out_path: str) -> tuple[bool, str | None]:
+    try:
+        from PIL import Image as _PILImage
+        mask_u8 = (np.asarray(mask, dtype=np.uint8) * 255)
+        _PILImage.fromarray(mask_u8, mode="L").save(out_path)
+        return True, None
+    except Exception as exc:
+        return False, str(exc)
 
 
 def _project_body_to_pixel(
@@ -646,7 +786,7 @@ def _project_body_to_pixel(
     img_w: int,
     img_h: int,
 ) -> list[int] | None:
-    """PyBullet body의 world pos를 카메라 픽셀 좌표로 투영."""
+    """PyBullet body??world pos瑜?移대찓???쎌? 醫뚰몴濡??ъ쁺."""
     try:
         pos, _ = p.getBasePositionAndOrientation(body_id)
         proj = np.array(proj_matrix).reshape(4, 4).T
@@ -665,6 +805,110 @@ def _project_body_to_pixel(
     return None
 
 
+def _normalize_angle_rad(angle: float) -> float:
+    return float(np.arctan2(np.sin(angle), np.cos(angle)))
+
+
+def _estimate_topdown_grasp_orientation(body_id: int) -> tuple[list[float], dict]:
+    """
+    Estimate top-down grasp orientation from current PyBullet object state.
+
+    Before grasping, this computes object in-plane yaw (or long/short axis cue)
+    and returns a gripper orientation aligned to object width.
+    """
+    aabb_min, aabb_max = p.getAABB(body_id)
+    dx = float(aabb_max[0] - aabb_min[0])
+    dy = float(aabb_max[1] - aabb_min[1])
+    _, body_orn = p.getBasePositionAndOrientation(body_id)
+    pose_yaw = float(p.getEulerFromQuaternion(body_orn)[2])
+
+    if dx > dy * 1.2:
+        long_axis_angle = np.pi / 2.0
+        axis_mode = "x_long"
+    elif dy > dx * 1.2:
+        long_axis_angle = 0.0
+        axis_mode = "y_long"
+    else:
+        long_axis_angle = pose_yaw
+        axis_mode = "near_square"
+
+    grasp_yaw = _normalize_angle_rad(long_axis_angle + pose_yaw)
+    grasp_orientation = list(p.getQuaternionFromEuler([np.pi, 0.0, grasp_yaw]))
+    return grasp_orientation, {
+        "dx": dx,
+        "dy": dy,
+        "pose_yaw_deg": float(np.degrees(pose_yaw)),
+        "grasp_yaw_deg": float(np.degrees(grasp_yaw)),
+        "axis_mode": axis_mode,
+    }
+
+
+def _offset_orientation_yaw(orientation: list[float], yaw_offset_deg: float) -> list[float]:
+    roll, pitch, yaw = p.getEulerFromQuaternion(orientation)
+    yaw_next = _normalize_angle_rad(float(yaw) + float(np.radians(yaw_offset_deg)))
+    return list(p.getQuaternionFromEuler([float(roll), float(pitch), yaw_next]))
+
+
+def _grasp_with_orientation_sweep(
+    controller,
+    body_id: int,
+    object_label: str,
+    seed_world_pos: list[float],
+    seed_orientation: list[float],
+    axis_mode: str,
+    hold_companion=None,
+) -> bool:
+    """
+    Try grasp with yaw sweep if initial grasp fails.
+
+    Stage-wise offsets broaden angle ranges progressively:
+    1) narrow around estimated yaw
+    2) medium offsets
+    3) wide offsets (including opposite direction)
+    """
+    if axis_mode == "near_square":
+        yaw_offset_stages = [
+            [0.0, 45.0, -45.0, 90.0, -90.0],
+            [22.5, -22.5, 67.5, -67.5, 135.0, -135.0],
+            [180.0],
+        ]
+    else:
+        yaw_offset_stages = [
+            [0.0, 12.0, -12.0, 24.0, -24.0],
+            [36.0, -36.0, 50.0, -50.0, 70.0, -70.0],
+            [90.0, -90.0, 135.0, -135.0, 180.0],
+        ]
+
+    attempt_idx = 0
+    for stage_idx, stage_offsets in enumerate(yaw_offset_stages):
+        for yaw_offset_deg in stage_offsets:
+            attempt_idx += 1
+            try_orientation = _offset_orientation_yaw(seed_orientation, yaw_offset_deg)
+            print(
+                f"[Grasp-Retry] {object_label} attempt={attempt_idx} "
+                f"stage={stage_idx + 1} yaw_offset={yaw_offset_deg:+.1f} deg"
+            )
+            ok = controller.grasp_body(
+                body_id=body_id,
+                object_label=object_label,
+                r1_world_pos=seed_world_pos,
+                orientation=try_orientation,
+                hold_companion=hold_companion,
+            )
+            if ok:
+                print(
+                    f"[Grasp-Retry] {object_label} success "
+                    f"(stage={stage_idx + 1}, yaw_offset={yaw_offset_deg:+.1f} deg)"
+                )
+                return True
+            try:
+                controller.release_grasp(open_after=True, steps=60)
+            except Exception:
+                pass
+
+    return False
+
+
 def run_optional_affordance_probe(
     enable_affordance_r1: bool,
     enable_sam2_refinement: bool = False,
@@ -673,7 +917,7 @@ def run_optional_affordance_probe(
     target_labels: list[str] | None = None,
 ) -> dict[str, dict]:
     """
-    R1 추론을 물체별로 실행해 각 controller에 3D grasp hint를 주입.
+    Run R1 per target object and inject 3D grasp hints into controllers.
 
     Returns:
         { label: { "world_pos": [x,y,z], "orientation": quaternion, "bbox_pixel": [...] } }
@@ -685,6 +929,10 @@ def run_optional_affordance_probe(
         return results
 
     print("[R1] optional affordance probe enabled")
+    print(
+        "[R1] safeguards enabled: "
+        "target-label validation, object-mask depth sampling, sim-pose outlier correction"
+    )
 
     try:
         from affordancegrasp_r1_adapter import AffordanceGraspR1Adapter
@@ -693,7 +941,7 @@ def run_optional_affordance_probe(
         return results
 
     try:
-        # ── 1. 카메라 설정 (depth 포함) ──────────────────────────────────────
+        # Step 1. Camera setup (RGB + depth + segmentation).
         IMG_W = AFFORDANCE_CAPTURE_WIDTH
         IMG_H = AFFORDANCE_CAPTURE_HEIGHT
         view_matrix = p.computeViewMatrix(
@@ -707,7 +955,7 @@ def run_optional_affordance_probe(
             nearVal=0.01,
             farVal=5.0,
         )
-        _, _, rgba_raw, depth_raw, _ = p.getCameraImage(
+        _, _, rgba_raw, depth_raw, seg_raw = p.getCameraImage(
             width=IMG_W,
             height=IMG_H,
             viewMatrix=view_matrix,
@@ -716,14 +964,56 @@ def run_optional_affordance_probe(
         )
         rgb_full = np.asarray(rgba_raw, dtype=np.uint8).reshape(IMG_H, IMG_W, 4)[:, :, :3]
         depth_buf = np.asarray(depth_raw, dtype=np.float32).reshape(IMG_H, IMG_W)
+        seg_buf = np.asarray(seg_raw, dtype=np.int32).reshape(IMG_H, IMG_W)
+        seg_obj_id = np.bitwise_and(seg_buf, (1 << 24) - 1)
 
-        # ── 2. R1 adapter 로드 (CPU 강제) ────────────────────────────────────
+        # Step 2. Load R1 adapter with selectable runtime device.
+        # Do not force CPU here: keep model inputs on the same device as the model.
         import os as _os
-        _os.environ["CUDA_VISIBLE_DEVICES"] = ""   # GPU 비활성화 → device mismatch 방지
+        def _safe_env_int(env_name: str, default_value: int) -> int:
+            raw = _os.getenv(env_name)
+            if raw is None:
+                return int(default_value)
+            try:
+                return int(raw)
+            except Exception:
+                return int(default_value)
+
+        save_mask_png = env_flag("SAVE_R1_MASK_PNG", default=True)
+        mask_debug_dir = _os.getenv("R1_MASK_DEBUG_DIR") or os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "r1_mask_debug"
+        )
+        mask_crop_pad_px = max(0, _safe_env_int("R1_MASK_CROP_PAD_PX", 8))
+        thin_mask_dilate_px = max(0, _safe_env_int("R1_THIN_MASK_DILATION_PX", 2))
+        default_mask_dilate_px = max(0, _safe_env_int("R1_MASK_DILATION_PX", 0))
+        thin_object_tokens = {
+            "knife",
+            "largemarker",
+            "fork",
+            "spoon",
+            "phillipsscrewdriver",
+            "flatscrewdriver",
+        }
+        if save_mask_png:
+            try:
+                os.makedirs(mask_debug_dir, exist_ok=True)
+                print(f"[R1] mask debug PNGs: {mask_debug_dir}")
+            except Exception as _mk_exc:
+                print(f"[R1][WARN] could not create mask debug dir ({_mk_exc})")
+                save_mask_png = False
+
+        device_env = (_os.getenv("AFFORDANCE_R1_DEVICE") or "cuda").strip().lower()
+        if device_env in {"", "cuda", "gpu"}:
+            adapter_device = "cuda"
+        elif device_env in {"auto", "default"}:
+            adapter_device = None
+        else:
+            adapter_device = device_env
+        print(f"[R1] adapter device request: {device_env or 'cuda'}")
 
         adapter = AffordanceGraspR1Adapter(
             model_id=AFFORDANCE_MODEL_ID,
-            device="cpu",
+            device=adapter_device,
             local_model_dir=_os.getenv("AFFORDANCE_R1_LOCAL_DIR"),
             local_files_only=env_flag("AFFORDANCE_R1_LOCAL_ONLY", default=False),
         )
@@ -731,8 +1021,9 @@ def run_optional_affordance_probe(
         if not adapter.is_available():
             print(f"[R1][WARN] model not available: {adapter._last_error}")
             return results
+        print(f"[R1] adapter runtime device: {adapter.device}")
 
-        # ── 3. 물체별 개별 추론 ─────────────────────────────────────────────
+        # Step 3. Per-object R1 inference.
         labels_to_probe = target_labels or (list(ycb_object_ids.keys()) if ycb_object_ids else [])
         if not labels_to_probe:
             print("[R1][WARN] no target labels to probe.")
@@ -743,43 +1034,91 @@ def run_optional_affordance_probe(
             if body_id is None:
                 print(f"[R1][WARN] label '{label}' not in ycb_object_ids, skipping.")
                 continue
+            label_norm = _normalize_label_token(label)
+            file_label = label_norm or re.sub(r"[^a-zA-Z0-9_-]+", "_", str(label))
+            object_mask_raw = (seg_obj_id == int(body_id))
+            if not bool(np.any(object_mask_raw)):
+                object_mask = None
+                dilation_px = 0
+            else:
+                dilation_px = thin_mask_dilate_px if label_norm in thin_object_tokens else default_mask_dilate_px
+                if dilation_px > 0:
+                    object_mask = _binary_dilate(object_mask_raw, radius=dilation_px)
+                else:
+                    object_mask = object_mask_raw
 
             print(f"[R1] probing '{label}' (body_id={body_id})...")
 
-            # 3-a. body를 픽셀로 투영해 crop 범위 결정
-            center_px = _project_body_to_pixel(
-                body_id, proj_matrix, view_matrix, IMG_W, IMG_H
-            )
-            if center_px is not None:
-                # AABB 기반 bbox 크기 추정
-                try:
-                    aabb_min, aabb_max = p.getAABB(body_id)
-                    # 물체 크기를 픽셀 크기로 대략 환산 (FOV 기반 rough estimate)
-                    obj_span = max(
-                        float(aabb_max[0] - aabb_min[0]),
-                        float(aabb_max[1] - aabb_min[1]),
-                        float(aabb_max[2] - aabb_min[2]),
-                    )
-                    half_px = max(20, int(obj_span * IMG_W * 0.5))
-                    crop_bbox = [
-                        max(0, center_px[0] - half_px),
-                        max(0, center_px[1] - half_px),
-                        min(IMG_W, center_px[0] + half_px),
-                        min(IMG_H, center_px[1] + half_px),
-                    ]
-                except Exception:
-                    crop_bbox = [
-                        max(0, center_px[0] - 30),
-                        max(0, center_px[1] - 30),
-                        min(IMG_W, center_px[0] + 30),
-                        min(IMG_H, center_px[1] + 30),
-                    ]
-                crop_img = _crop_object_rgb(rgb_full, depth_buf, crop_bbox)
-            else:
-                crop_img = rgb_full   # fallback: 전체 이미지
-                crop_bbox = [0, 0, IMG_W, IMG_H]
+            # 3-a. Build object-only mask, then create tight crop for R1.
+            if object_mask is not None and bool(np.any(object_mask)):
+                crop_img, crop_bounds, crop_mask = _crop_object_rgb_by_mask(
+                    rgb=rgb_full,
+                    object_mask=object_mask,
+                    pad=mask_crop_pad_px,
+                    mask_only=True,
+                )
+                crop_bbox = list(crop_bounds)
+                print(
+                    f"[R1] '{label}' mask pixels={int(np.count_nonzero(object_mask))}, "
+                    f"dilation_px={int(dilation_px)}, crop_bounds={crop_bounds}"
+                )
+                if save_mask_png:
+                    raw_path = os.path.join(mask_debug_dir, f"{file_label}_mask_raw.png")
+                    ok_raw, err_raw = _save_binary_mask_png(object_mask_raw, raw_path)
+                    if ok_raw:
+                        print(f"[R1] '{label}' mask saved: {raw_path}")
+                    elif err_raw:
+                        print(f"[R1][WARN] '{label}' raw mask save failed: {err_raw}")
 
-            # 3-b. R1 추론 (물체 label을 prompt에 명시)
+                    if dilation_px > 0:
+                        dil_path = os.path.join(mask_debug_dir, f"{file_label}_mask_dilated.png")
+                        ok_dil, err_dil = _save_binary_mask_png(object_mask, dil_path)
+                        if ok_dil:
+                            print(f"[R1] '{label}' dilated mask saved: {dil_path}")
+                        elif err_dil:
+                            print(f"[R1][WARN] '{label}' dilated mask save failed: {err_dil}")
+
+                    crop_path = os.path.join(mask_debug_dir, f"{file_label}_mask_crop.png")
+                    ok_crop, err_crop = _save_binary_mask_png(crop_mask, crop_path)
+                    if ok_crop:
+                        print(f"[R1] '{label}' crop mask saved: {crop_path}")
+                    elif err_crop:
+                        print(f"[R1][WARN] '{label}' crop mask save failed: {err_crop}")
+            else:
+                # Fallback: if segmentation mask is missing, keep previous bbox-based crop.
+                center_px = _project_body_to_pixel(
+                    body_id, proj_matrix, view_matrix, IMG_W, IMG_H
+                )
+                if center_px is not None:
+                    try:
+                        aabb_min, aabb_max = p.getAABB(body_id)
+                        obj_span = max(
+                            float(aabb_max[0] - aabb_min[0]),
+                            float(aabb_max[1] - aabb_min[1]),
+                            float(aabb_max[2] - aabb_min[2]),
+                        )
+                        half_px = max(20, int(obj_span * IMG_W * 0.5))
+                        crop_bbox = [
+                            max(0, center_px[0] - half_px),
+                            max(0, center_px[1] - half_px),
+                            min(IMG_W, center_px[0] + half_px),
+                            min(IMG_H, center_px[1] + half_px),
+                        ]
+                    except Exception:
+                        crop_bbox = [
+                            max(0, center_px[0] - 30),
+                            max(0, center_px[1] - 30),
+                            min(IMG_W, center_px[0] + 30),
+                            min(IMG_H, center_px[1] + 30),
+                        ]
+                    crop_img, crop_bounds = _crop_object_rgb(rgb_full, depth_buf, crop_bbox)
+                else:
+                    crop_img = rgb_full
+                    crop_bbox = [0, 0, IMG_W, IMG_H]
+                    crop_bounds = [0, 0, IMG_W, IMG_H]
+                print(f"[R1][WARN] '{label}' object mask unavailable; using bbox fallback crop.")
+
+            # 3-b. R1 inference with explicit target label in prompt.
             r1_result = adapter.predict(
                 image=crop_img,
                 prompt=(
@@ -801,100 +1140,163 @@ def run_optional_affordance_probe(
 
             candidates = r1_result.get("grasp_candidates") or []
             if not candidates:
-                print(f"[R1][INFO] '{label}' — no candidate parsed from output: {r1_result.get('raw_output')}")
+                print(f"[R1][INFO] '{label}' no candidate parsed from output: {r1_result.get('raw_output')}")
                 continue
 
-            top = candidates[0]
-            print(f"[R1] '{label}' top candidate: {top}")
+            target_norm = label_norm
+            matched = []
+            generic = []
+            mismatched_parts = []
+            for cand in candidates:
+                part_raw = str(cand.get("part", "")).strip().lower()
+                part_norm = _normalize_label_token(part_raw)
+                if part_norm in {"", "object"}:
+                    generic.append(cand)
+                    continue
+                if part_norm == target_norm:
+                    matched.append(cand)
+                else:
+                    mismatched_parts.append(part_raw)
 
-            # 3-c. crop 내 픽셀 좌표 → 전체 이미지 픽셀 좌표로 역변환
+            if matched:
+                top = matched[0]
+            elif generic:
+                top = generic[0]
+                if mismatched_parts:
+                    print(
+                        f"[R1][WARN] '{label}' candidate labels mismatched {mismatched_parts}; "
+                        "using generic candidate after validation."
+                    )
+            else:
+                print(
+                    f"[R1][WARN] '{label}' candidates rejected by target-label validation: "
+                    f"{mismatched_parts}"
+                )
+                continue
+            print(f"[R1] '{label}' top candidate: {top}")
+            top_part_raw = str(top.get("part", "")).strip().lower()
+            top_part_norm = _normalize_label_token(top_part_raw)
+
+            # 3-c. Map crop pixel coordinates back to full-image pixels.
             cx_crop, cy_crop = top["center_pixel"]
-            crop_w = crop_bbox[2] - crop_bbox[0]
-            crop_h = crop_bbox[3] - crop_bbox[1]
+            # IMPORTANT: use the actual padded crop bounds for reverse mapping.
+            crop_w = crop_bounds[2] - crop_bounds[0]
+            crop_h = crop_bounds[3] - crop_bounds[1]
             if crop_w > 0 and crop_h > 0:
-                cx_full = crop_bbox[0] + cx_crop * (crop_w / max(crop_img.shape[1], 1))
-                cy_full = crop_bbox[1] + cy_crop * (crop_h / max(crop_img.shape[0], 1))
+                cx_full = crop_bounds[0] + cx_crop * (crop_w / max(crop_img.shape[1], 1))
+                cy_full = crop_bounds[1] + cy_crop * (crop_h / max(crop_img.shape[0], 1))
             else:
                 cx_full, cy_full = cx_crop, cy_crop
 
-            # 수정 후
-            # 3-d. 2D pixel → 3D world 좌표 변환
-            # center 1점이 배경에 걸릴 수 있으므로 bbox 내 9점을 샘플링해 유효한 값 사용
+            # 3-d. Convert 2D pixels to world 3D points.
+            # Use 3x3 bbox samples first; fallback to center search if needed.
             _sample_pts = []
-            _bpx = top["bbox_pixel"]  # crop 기준
+            _bpx = top["bbox_pixel"]  # crop-space bbox
             for _sy in [0.25, 0.5, 0.75]:
                 for _sx in [0.25, 0.5, 0.75]:
                     _scx = _bpx[0] + (_bpx[2] - _bpx[0]) * _sx
                     _scy = _bpx[1] + (_bpx[3] - _bpx[1]) * _sy
-                    # crop → full 역변환
+                    # crop -> full-image coordinate mapping
                     if crop_w > 0 and crop_h > 0:
-                        _fx = crop_bbox[0] + _scx * (crop_w / max(crop_img.shape[1], 1))
-                        _fy = crop_bbox[1] + _scy * (crop_h / max(crop_img.shape[0], 1))
+                        _fx = crop_bounds[0] + _scx * (crop_w / max(crop_img.shape[1], 1))
+                        _fy = crop_bounds[1] + _scy * (crop_h / max(crop_img.shape[0], 1))
                     else:
                         _fx, _fy = _scx, _scy
-                    _wp = _pixel_depth_to_world(
+                    _wp = _pixel_depth_to_world_with_local_search(
                         px=_fx, py=_fy,
                         depth_buf=depth_buf,
                         proj_matrix=proj_matrix,
                         view_matrix=view_matrix,
                         img_w=IMG_W,
                         img_h=IMG_H,
+                        max_radius=8,
+                        valid_mask=object_mask,
                     )
                     if _wp is not None:
                         _sample_pts.append(_wp)
 
             if _sample_pts:
-                # 유효한 샘플들의 중앙값 사용 (이상치 제거)
+                # Use median of valid samples for robustness.
                 world_pos = np.median(np.array(_sample_pts), axis=0)
             else:
-                # 모든 샘플이 배경 → body center pixel로 직접 재시도
-                _cp = _project_body_to_pixel(body_id, proj_matrix, view_matrix, IMG_W, IMG_H)
-                if _cp is not None:
-                    world_pos = _pixel_depth_to_world(
-                        px=float(_cp[0]), py=float(_cp[1]),
-                        depth_buf=depth_buf,
-                        proj_matrix=proj_matrix,
-                        view_matrix=view_matrix,
-                        img_w=IMG_W,
-                        img_h=IMG_H,
-                    )
+                # If all samples fail, retry around center pixel.
+                world_pos = _pixel_depth_to_world_with_local_search(
+                    px=float(cx_full), py=float(cy_full),
+                    depth_buf=depth_buf,
+                    proj_matrix=proj_matrix,
+                    view_matrix=view_matrix,
+                    img_w=IMG_W,
+                    img_h=IMG_H,
+                    max_radius=20,
+                    valid_mask=object_mask,
+                )
                 if world_pos is None:
-                    # 최종 fallback: AABB top center
-                    try:
-                        aabb_min, aabb_max = p.getAABB(body_id)
-                        world_pos = np.array([
-                            (float(aabb_min[0]) + float(aabb_max[0])) / 2.0,
-                            (float(aabb_min[1]) + float(aabb_max[1])) / 2.0,
-                            float(aabb_max[2]),
-                        ])
-                        print(f"[R1] '{label}' depth miss (9-sample) → AABB fallback")
-                    except Exception:
-                        print(f"[R1][WARN] '{label}' could not compute world_pos, skipping.")
-                        continue
+                    print(
+                        f"[R1][WARN] '{label}' could not compute world_pos from R1 pixel/depth, skipping "
+                        "(PyBullet pose fallback disabled)."
+                    )
+                    continue
+            actual_pos, _ = p.getBasePositionAndOrientation(body_id)
+            aabb_min, aabb_max = p.getAABB(body_id)
+            aabb_center = np.array(
+                [
+                    (float(aabb_min[0]) + float(aabb_max[0])) / 2.0,
+                    (float(aabb_min[1]) + float(aabb_max[1])) / 2.0,
+                    (float(aabb_min[2]) + float(aabb_max[2])) / 2.0,
+                ],
+                dtype=float,
+            )
+            world_pos = np.array(world_pos, dtype=float)
+            dist_to_sim = float(np.linalg.norm(world_pos - np.array(actual_pos, dtype=float)))
+            in_expanded_aabb = (
+                (float(aabb_min[0]) - 0.08) <= float(world_pos[0]) <= (float(aabb_max[0]) + 0.08)
+                and (float(aabb_min[1]) - 0.08) <= float(world_pos[1]) <= (float(aabb_max[1]) + 0.08)
+                and (float(aabb_min[2]) - 0.05) <= float(world_pos[2]) <= (float(aabb_max[2]) + 0.12)
+            )
 
-            try:
-                _aabb_min, _aabb_max = p.getAABB(body_id)
-                _dx = float(_aabb_max[0] - _aabb_min[0])
-                _dy = float(_aabb_max[1] - _aabb_min[1])
-                _, _body_orn = p.getBasePositionAndOrientation(body_id)
-                _pose_yaw = float(p.getEulerFromQuaternion(_body_orn)[2])
-                if _dx > _dy * 1.15:
-                    # 긴 축 X → gripper finger를 Y방향으로 벌려야 옆면 잡음 → yaw=90°
-                    grasp_yaw = np.pi / 2.0
-                elif _dy > _dx * 1.15:
-                    # 긴 축 Y → gripper finger를 X방향으로 벌려야 옆면 잡음 → yaw=0°
-                    grasp_yaw = 0.0
+            if top_part_norm not in {"", "object", target_norm} and dist_to_sim > 0.25:
+                print(
+                    f"[R1][WARN] '{label}' candidate part '{top_part_raw}' mismatches target and "
+                    f"is far from sim object (dist={dist_to_sim:.3f}m). Skipping."
+                )
+                continue
+
+            if (not in_expanded_aabb) or dist_to_sim > 0.40:
+                corrected = aabb_center.copy()
+                corrected[2] = max(float(aabb_center[2]), float(aabb_min[2]) + 0.01)
+                print(
+                    f"[R1][WARN] '{label}' world_pos outlier detected "
+                    f"(dist={dist_to_sim:.3f}m, in_aabb={in_expanded_aabb}). "
+                    f"Correcting to sim-aabb center {corrected.tolist()}."
+                )
+                world_pos = corrected
+                dist_to_sim = float(np.linalg.norm(world_pos - np.array(actual_pos, dtype=float)))
+
+            grasp_yaw = 0.0
+            for _yaw_key in ("grasp_yaw_deg", "yaw_deg", "angle_deg", "theta_deg", "yaw", "angle", "theta"):
+                if _yaw_key not in top:
+                    continue
+                try:
+                    _raw_yaw = float(top[_yaw_key])
+                except Exception:
+                    continue
+                if _yaw_key.endswith("_deg"):
+                    grasp_yaw = float(np.radians(_raw_yaw))
                 else:
-                    # 정방형: pose yaw 그대로
-                    grasp_yaw = _pose_yaw
-                print(f"[R1] '{label}' AABB yaw: dx={_dx:.3f} dy={_dy:.3f} → yaw={np.degrees(grasp_yaw):.1f}°")
-            except Exception:
-                grasp_yaw = 0.0
+                    # Heuristic: small magnitude values are likely radians.
+                    if abs(_raw_yaw) <= (2.0 * np.pi + 1e-6):
+                        grasp_yaw = _raw_yaw
+                    else:
+                        grasp_yaw = float(np.radians(_raw_yaw))
+                break
             grasp_orientation = p.getQuaternionFromEuler([np.pi, 0.0, grasp_yaw])
 
             print(
                 f"[R1] '{label}' world_pos={[round(v, 4) for v in world_pos.tolist()]}, "
-                f"yaw={np.degrees(grasp_yaw):.1f}°"
+                f"sim_pos={[round(float(v), 4) for v in actual_pos]}, "
+                f"sim_aabb_center={[round(float(v), 4) for v in aabb_center.tolist()]}, "
+                f"delta={dist_to_sim:.4f}m, "
+                f"yaw={np.degrees(grasp_yaw):.1f} deg"
             )
 
             hint_payload = {
@@ -906,7 +1308,7 @@ def run_optional_affordance_probe(
             }
             results[label] = hint_payload
 
-            # SAM2 refinement (선택)
+            # SAM2 refinement (?좏깮)
             if enable_sam2_refinement:
                 try:
                     from sam2_segmenter_adapter import SAM2SegmentationAdapter
@@ -921,11 +1323,11 @@ def run_optional_affordance_probe(
                 except Exception as sam_exc:
                     print(f"[SAM2][WARN] '{label}' refinement failed: {sam_exc}")
 
-            # 3-f. controller에 hint 주입
+            # 3-f. controller??hint 二쇱엯
             if isinstance(controllers, dict):
                 for arm_name, controller in controllers.items():
-                    # 이 label이 해당 arm의 타겟인지는 run_sequential_demo에서 결정
-                    # 여기서는 전체 inference_result에 world_pos 포함해서 저장
+                    # ??label???대떦 arm???寃잛씤吏??run_sequential_demo?먯꽌 寃곗젙
+                    # ?ш린?쒕뒗 ?꾩껜 inference_result??world_pos ?ы븿?댁꽌 ???
                     r1_result_with_3d = dict(r1_result)
                     r1_result_with_3d["world_pos"] = world_pos.tolist()
                     r1_result_with_3d["orientation"] = list(grasp_orientation)
@@ -944,12 +1346,13 @@ def run_optional_affordance_probe(
 def run_sequential_demo(
     controllers: dict,
     ycb_object_ids: dict,
-    r1_hints: dict | None = None,   # ← run_optional_affordance_probe 결과
+    r1_hints: dict | None = None,   # ??run_optional_affordance_probe 寃곌낵
 ) -> None:
     left = controllers["left"]
     right = controllers["right"]
     down_orn = p.getQuaternionFromEuler([np.pi, 0.0, 0.0])
     r1_hints = r1_hints or {}
+    print(f"[R1] hint labels available: {sorted(list(r1_hints.keys()))}")
  
     CAM_CONFIG = {
     "cam_target":   [1.0, 0.0, 0.8],
@@ -958,13 +1361,13 @@ def run_sequential_demo(
     "cam_pitch":    -60,
     }
  
-    print("\n[3] 가상 카메라 렌더링 중...")
+    print("\n[3] 媛??移대찓???뚮뜑留?以?..")
     rgb, depth, proj_matrix, view_matrix = render_camera(**CAM_CONFIG)
  
     try:
         from PIL import Image as PILImage
         PILImage.fromarray(rgb).save("scene_capture.png")
-        print("[3] scene_capture.png 저장 완료")
+        print("[3] scene_capture.png ????꾨즺")
     except Exception:
         pass
  
@@ -980,24 +1383,24 @@ def run_sequential_demo(
         print("[Demo][WARN] no YCB objects were loaded, skipping grasp demo.")
         return
  
-    # ── module3_output.json에서 grasp 대상 결정 ────────────────────────────
-    # 물체 y 좌표 기준으로 팔 할당:
-    #   left  base y=-0.35 → spawn y가 더 작은(음수에 가까운) 물체 담당
-    #   right base y=+0.35 → spawn y가 더 큰(양수에 가까운) 물체 담당
-    # 이렇게 하면 팔이 서로 교차하지 않음.
+    # ?? module3_output.json?먯꽌 grasp ???寃곗젙 ????????????????????????????
+    # 臾쇱껜 y 醫뚰몴 湲곗??쇰줈 ???좊떦:
+    #   left  base y=-0.35 ??spawn y媛 ???묒?(?뚯닔??媛源뚯슫) 臾쇱껜 ?대떦
+    #   right base y=+0.35 ??spawn y媛 ?????묒닔??媛源뚯슫) 臾쇱껜 ?대떦
+    # ?대젃寃??섎㈃ ?붿씠 ?쒕줈 援먯감?섏? ?딆쓬.
     _m3_labels = _load_module3_object_labels(_MODULE3_JSON_PATH)
     _loaded_labels = list(ycb_object_ids.keys())
  
-    # YCB_OBJECT_SPECS에서 label→spawn_y 매핑
+    # YCB_OBJECT_SPECS?먯꽌 label?뭩pawn_y 留ㅽ븨
     _label_to_y = {lbl: pos[1] for lbl, _, pos in YCB_OBJECT_SPECS}
  
-    # JSON 물체 중 실제 로드된 것만 후보
+    # JSON 臾쇱껜 以??ㅼ젣 濡쒕뱶??寃껊쭔 ?꾨낫
     _candidates = [lbl for lbl in _m3_labels if lbl in ycb_object_ids]
     if not _candidates:
         _candidates = _loaded_labels[:2]
  
     if len(_candidates) >= 2:
-        # y 기준 정렬: 작은 y → left, 큰 y → right
+        # y 湲곗? ?뺣젹: ?묒? y ??left, ??y ??right
         _candidates_sorted = sorted(_candidates, key=lambda l: _label_to_y.get(l, 0.0))
         left_target_label  = _candidates_sorted[0]
         right_target_label = _candidates_sorted[1]
@@ -1015,124 +1418,172 @@ def run_sequential_demo(
     left_body_id  = ycb_object_ids[left_target_label]
     right_body_id = ycb_object_ids[right_target_label]
  
-    print(f"[Demo] grasp targets — left: '{left_target_label}', right: '{right_target_label}'")
+    print(f"[Demo] grasp targets ??left: '{left_target_label}', right: '{right_target_label}'")
  
-    # 조립·배치 위치 (두 팔이 서로 다른 Y 방향에서 접근)
+    # 議곕┰쨌諛곗튂 ?꾩튂 (???붿씠 ?쒕줈 ?ㅻⅨ Y 諛⑺뼢?먯꽌 ?묎렐)
     ASSEMBLY_POS_LEFT  = [0.62, -0.10, 0.97]
     ASSEMBLY_POS_RIGHT = [0.62,  0.10, 1.13]
     PLACE_POS          = [0.62,  0.00, 0.85]
+
+    # Parse module3 assembly plan once so we can reuse JSON joint/assembly pose
+    # for assembly movement (not for grasping).
+    assembly_manager = AssemblyManager()
+    _plan_path = _MODULE3_JSON_PATH
+    _plan_loaded = False
+    _transport_targets = {}
+    if os.path.isfile(_plan_path):
+        try:
+            assembly_manager.load_plan_from_json(_plan_path)
+            _m3_all_labels = _load_module3_object_labels(_plan_path)
+            _body_map = {lbl: ycb_object_ids[lbl] for lbl in _m3_all_labels if lbl in ycb_object_ids}
+            if not _body_map:
+                _body_map = {left_target_label: left_body_id, right_target_label: right_body_id}
+            assembly_manager.register_bodies(_body_map)
+            _transport_targets = assembly_manager.get_object_transport_targets()
+            _plan_loaded = True
+            print(f"[Demo] assembly transport targets: {_transport_targets}")
+        except Exception as exc:
+            print(f"[Demo][WARN] module3 plan load failed ({exc}), using fallback attach.")
+    else:
+        print(f"[Demo][WARN] module3_output.json not found at {_plan_path}, using fallback attach.")
+
+    _left_transport_target = _transport_targets.get(left_target_label, {})
+    _right_transport_target = _transport_targets.get(right_target_label, {})
+    left_assembly_pos = _left_transport_target.get("position", ASSEMBLY_POS_LEFT)
+    left_assembly_orn = _left_transport_target.get("orientation", down_orn)
+    right_assembly_pos = _right_transport_target.get("position", ASSEMBLY_POS_RIGHT)
+    right_assembly_orn = _right_transport_target.get("orientation", down_orn)
  
-    # ══════════════════════════════════════════════════════
-    # Step 1-L. Left arm: base_object 파지 → 제자리 대기
-    # ══════════════════════════════════════════════════════
-    # 수정 후
+    # ?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧
+    # Step 1-L. Left arm: base_object ?뚯? ???쒖옄由??湲?
+    # ?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧
+    # ?섏젙 ??
     print(f"[Demo] left-arm grasp target: {left_target_label}")
     _left_hint = r1_hints.get(left_target_label, {})
-    _left_orn = _left_hint.get("orientation") or down_orn
-    _left_r1_pos = _left_hint.get("world_pos")  # R1 world_pos (없으면 None → AABB fallback)
-    if _left_hint.get("orientation"):
-        print(f"[R1] using R1 orientation for '{left_target_label}': {[round(v,4) for v in _left_orn]}")
-    if _left_r1_pos:
-        print(f"[R1] using R1 world_pos for '{left_target_label}': {[round(v,4) for v in _left_r1_pos]}")
-    left_ok = left.grasp_body(
+    _left_world_pos = _left_hint.get("world_pos")
+    _left_pregrasp_orn = _left_hint.get("orientation")
+    if not (
+        isinstance(_left_world_pos, (list, tuple))
+        and len(_left_world_pos) >= 3
+        and isinstance(_left_pregrasp_orn, (list, tuple))
+        and len(_left_pregrasp_orn) >= 4
+    ):
+        raise RuntimeError(
+            f"[R1][ERROR] mandatory grasp pose missing for '{left_target_label}'. "
+            "PyBullet object-state fallback is disabled."
+        )
+    print(
+        f"[R1] mandatory grasp pose for '{left_target_label}': "
+        f"world_pos={[round(float(v),4) for v in _left_world_pos[:3]]}, "
+        f"orientation={[round(float(v),4) for v in _left_pregrasp_orn[:4]]}"
+    )
+    # Use R1 grasp planner pose only.
+    # JSON object pose and PyBullet object pose are not used for grasp pose generation.
+    left_ok = _grasp_with_orientation_sweep(
+        controller=left,
         body_id=left_body_id,
         object_label=left_target_label,
-        orientation=list(_left_orn),
-        r1_world_pos=_left_r1_pos,
+        seed_world_pos=[float(v) for v in _left_world_pos[:3]],
+        seed_orientation=[float(v) for v in _left_pregrasp_orn[:4]],
+        axis_mode="r1_pose",
     )
     if not left_ok:
         print(f"[Demo][WARN] left-arm grasp failed for '{left_target_label}'")
     else:
         left.maintain_grasp_hold(steps=120)
-        print("[Demo] left arm holding — waiting for right arm grasp.")
+        print("[Demo] left arm holding ??waiting for right arm grasp.")
  
-    # ══════════════════════════════════════════════════════
-    # Step 1-R. Right arm: attach_object 파지 → 제자리 대기
-    #           left가 들고 있는 동안 hold_companion으로 보호
-    # ══════════════════════════════════════════════════════
+    # ?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧
+    # Step 1-R. Right arm: attach_object ?뚯? ???쒖옄由??湲?
+    #           left媛 ?ㅺ퀬 ?덈뒗 ?숈븞 hold_companion?쇰줈 蹂댄샇
+    # ?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧
     print(f"[Demo] right-arm grasp target: {right_target_label}")
     _right_hint = r1_hints.get(right_target_label, {})
-    _right_orn = _right_hint.get("orientation") or down_orn
-    _right_r1_pos = _right_hint.get("world_pos")
-    if _right_hint.get("orientation"):
-        print(f"[R1] using R1 orientation for '{right_target_label}': {[round(v,4) for v in _right_orn]}")
-    if _right_r1_pos:
-        print(f"[R1] using R1 world_pos for '{right_target_label}': {[round(v,4) for v in _right_r1_pos]}")
-    right_ok = right.grasp_body(
+    _right_world_pos = _right_hint.get("world_pos")
+    _right_pregrasp_orn = _right_hint.get("orientation")
+    if not (
+        isinstance(_right_world_pos, (list, tuple))
+        and len(_right_world_pos) >= 3
+        and isinstance(_right_pregrasp_orn, (list, tuple))
+        and len(_right_pregrasp_orn) >= 4
+    ):
+        raise RuntimeError(
+            f"[R1][ERROR] mandatory grasp pose missing for '{right_target_label}'. "
+            "PyBullet object-state fallback is disabled."
+        )
+    print(
+        f"[R1] mandatory grasp pose for '{right_target_label}': "
+        f"world_pos={[round(float(v),4) for v in _right_world_pos[:3]]}, "
+        f"orientation={[round(float(v),4) for v in _right_pregrasp_orn[:4]]}"
+    )
+    # Use R1 grasp planner pose only.
+    # JSON object pose and PyBullet object pose are not used for grasp pose generation.
+    right_ok = _grasp_with_orientation_sweep(
+        controller=right,
         body_id=right_body_id,
         object_label=right_target_label,
-        orientation=list(_right_orn),
+        seed_world_pos=[float(v) for v in _right_world_pos[:3]],
+        seed_orientation=[float(v) for v in _right_pregrasp_orn[:4]],
+        axis_mode="r1_pose",
         hold_companion=left if left_ok else None,
-        r1_world_pos=_right_r1_pos,
     )
     if not right_ok:
         print(f"[Demo][WARN] right-arm grasp failed for '{right_target_label}'")
     else:
         right.maintain_grasp_hold(steps=120)
-        print("[Demo] right arm holding — both arms ready.")
+        print("[Demo] right arm holding ??both arms ready.")
  
-    # ══════════════════════════════════════════════════════
-    # Step 2-L. Left arm: 조립 위치로 이동
-    #           right가 들고 있는 동안 hold_companion으로 보호
-    # ══════════════════════════════════════════════════════
-    # move_end_effector_to 내부에서 매 스텝 _update_grasp_hold_feedback() +
-    # _set_gripper_target()이 호출되므로 slip 감지 시 자동으로 force가 증가함.
+    # ?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧
+    # Step 2-L. Left arm: 議곕┰ ?꾩튂濡??대룞
+    #           right媛 ?ㅺ퀬 ?덈뒗 ?숈븞 hold_companion?쇰줈 蹂댄샇
+    # ?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧
+    # move_end_effector_to ?대??먯꽌 留??ㅽ뀦 _update_grasp_hold_feedback() +
+    # _set_gripper_target()???몄텧?섎?濡?slip 媛먯? ???먮룞?쇰줈 force媛 利앷???
     if left_ok:
+        print(
+            f"[Demo] left assembly move from JSON joint/assembly pose: "
+            f"pos={[round(v, 4) for v in left_assembly_pos]}"
+        )
         left.move_end_effector_to(
-            ASSEMBLY_POS_LEFT, orientation=down_orn, steps=600,
+            left_assembly_pos, orientation=left_assembly_orn, steps=600,
             hold_companion=right if right_ok else None,
         )
         left.maintain_grasp_hold(steps=60)
         print("[Demo] left arm at assembly position.")
  
-    # ══════════════════════════════════════════════════════
-    # Step 2-R. Right arm: 조립 위치로 이동
-    #           left hold_companion으로 보호
-    # ══════════════════════════════════════════════════════
+    # ?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧
+    # Step 2-R. Right arm: 議곕┰ ?꾩튂濡??대룞
+    #           left hold_companion?쇰줈 蹂댄샇
+    # ?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧
     if right_ok:
+        print(
+            f"[Demo] right assembly move from JSON joint/assembly pose: "
+            f"pos={[round(v, 4) for v in right_assembly_pos]}"
+        )
         right.move_end_effector_to(
-            ASSEMBLY_POS_RIGHT, orientation=down_orn, steps=600,
+            right_assembly_pos, orientation=right_assembly_orn, steps=600,
             hold_companion=left if left_ok else None,
         )
         right.maintain_grasp_hold(steps=80)
         print("[Demo] right arm at assembly position.")
  
-    # 수정 후
-    # ══════════════════════════════════════════════════════
-    # Step 3. Assembly — module3_output.json 계획 기반 실행
-    # ══════════════════════════════════════════════════════
-    assembly_manager = AssemblyManager()
- 
-    # JSON 계획 로드 (파일이 없으면 fallback으로 직접 attach)
-    _plan_path = _MODULE3_JSON_PATH
-    _plan_loaded = False
-    if os.path.isfile(_plan_path):
-        try:
-            assembly_manager.load_plan_from_json(_plan_path)
-            # JSON에 등장하는 모든 물체 label → pybullet body_id 매핑 등록
-            # ycb_object_ids 키는 MODULE3_LABEL_TO_YCB의 urdf_label(=raw json label)과 일치
-            _m3_all_labels = _load_module3_object_labels(_plan_path)
-            _body_map = {lbl: ycb_object_ids[lbl] for lbl in _m3_all_labels if lbl in ycb_object_ids}
-            if not _body_map:
-                # fallback: 로드된 두 물체만 등록
-                _body_map = {left_target_label: left_body_id, right_target_label: right_body_id}
-            assembly_manager.register_bodies(_body_map)
-            _plan_loaded = True
-        except Exception as exc:
-            print(f"[Demo][WARN] module3 plan load failed ({exc}), using fallback attach.")
-    else:
-        print(f"[Demo][WARN] module3_output.json not found at {_plan_path}, using fallback attach.")
+    # ?섏젙 ??
+    # ?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧
+    # Step 3. Assembly ??module3_output.json 怨꾪쉷 湲곕컲 ?ㅽ뻾
+    # ?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧
+    # assembly_manager/_plan_loaded are prepared before grasp so JSON
+    # joint_position/joint_orientation can also be used for assembly movement.
  
     assembly_results = []
     if left_ok and right_ok:
-        # ── attach 전 두 물체 간 거리 확인 및 nudge ─────────────────────────
+        # ?? attach ????臾쇱껜 媛?嫄곕━ ?뺤씤 諛?nudge ?????????????????????????
         main_pos, main_orn = p.getBasePositionAndOrientation(left_body_id)
         aux_pos,  _        = p.getBasePositionAndOrientation(right_body_id)
         body_dist = float(np.linalg.norm(np.array(aux_pos) - np.array(main_pos)))
         print(f"[Demo] pre-attach body distance: {body_dist:.3f} m")
  
         if body_dist > 0.35:
-            print("[Demo] bodies too far apart — nudging right arm closer...")
+            print("[Demo] bodies too far apart ??nudging right arm closer...")
             left_aabb_min, left_aabb_max   = p.getAABB(left_body_id)
             right_aabb_min, right_aabb_max = p.getAABB(right_body_id)
             left_top_z     = float(left_aabb_max[2])
@@ -1148,19 +1599,19 @@ def run_sequential_demo(
         print("[Demo] assembling parts...")
  
         if _plan_loaded:
-            # ── module3 JSON 계획 실행 ──────────────────────────────────────
-            # step1(position-only)은 배치 기록만, step2 이후 attach 실행
+            # ?? module3 JSON 怨꾪쉷 ?ㅽ뻾 ??????????????????????????????????????
+            # step1(position-only)? 諛곗튂 湲곕줉留? step2 ?댄썑 attach ?ㅽ뻾
             assembly_results = assembly_manager.execute_plan(settle_steps=60, max_force=500)
             attach_results = [r for r in assembly_results if r.get("constraint_id") is not None]
             if attach_results:
                 print(f"[Demo] assembly successful via module3 plan "
                       f"({len(attach_results)} constraint(s) created).")
             else:
-                print("[Demo][WARN] module3 plan produced no constraints — falling back.")
-                _plan_loaded = False   # fallback으로 전환
+                print("[Demo][WARN] module3 plan produced no constraints ??falling back.")
+                _plan_loaded = False   # fallback?쇰줈 ?꾪솚
  
         if not _plan_loaded:
-            # ── fallback: 현재 실제 위치 기반 직접 attach ──────────────────
+            # ?? fallback: ?꾩옱 ?ㅼ젣 ?꾩튂 湲곕컲 吏곸젒 attach ??????????????????
             main_orn_inv = p.invertTransform([0, 0, 0], list(main_orn))[1]
             contact_offset, _ = p.multiplyTransforms(
                 [0, 0, 0], main_orn_inv,
@@ -1182,7 +1633,7 @@ def run_sequential_demo(
             else:
                 print("[Demo][WARN] fallback assembly also failed.")
  
-        # 안정화
+        # ?덉젙??
         for _ in range(DEMO_HOLD_STEPS):
             left._tick_gripper_hold()
             right._tick_gripper_hold()
@@ -1192,9 +1643,9 @@ def run_sequential_demo(
     else:
         print("[Demo][WARN] skipping assembly (one or both grasps failed).")
  
-    # ══════════════════════════════════════════════════════
-    # Step 4. 결합체 내려놓기 & release
-    # ══════════════════════════════════════════════════════
+    # ?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧
+    # Step 4. 寃고빀泥??대젮?볤린 & release
+    # ?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧
     if left_ok:
         left.move_end_effector_to(
             PLACE_POS, orientation=down_orn, steps=400,
@@ -1202,7 +1653,7 @@ def run_sequential_demo(
         )
         left.maintain_grasp_hold(steps=60)
  
-    # (carry_constraint 없음 — gripper force 유지로 이동)
+    # (carry_constraint ?놁쓬 ??gripper force ?좎?濡??대룞)
  
     if left_ok:
         left.release_grasp(open_after=True, steps=120)
@@ -1215,8 +1666,8 @@ def run_sequential_demo(
         right.maintain_grasp_hold(steps=60)
         right.release_grasp(open_after=True, steps=120)
  
-    # assembly constraint는 release 후에도 두 물체가 붙어있게 유지
-    # 분리하려면: p.removeConstraint(assembly_constraint)
+    # assembly constraint??release ?꾩뿉????臾쇱껜媛 遺숈뼱?덇쾶 ?좎?
+    # 遺꾨━?섎젮硫? p.removeConstraint(assembly_constraint)
  
     print("[Demo] return to home")
     left.reset_to_home(steps=600)
@@ -1256,6 +1707,10 @@ def main() -> None:
     print(f"[Boot] module1 dynamics enabled: {enable_module1_dynamics}")
     print(f"[Boot] module1 profile inference enabled: {enable_module1_profile_inference}")
     print("[Boot] grasp mode: contact-based (no fixed constraint)")
+    print(
+        "[Boot] grasp safety policy: "
+        "R1 target validation + sim outlier guard + descend z-floor clamp"
+    )
     configure_simulation()
     scene_ids = load_static_scene()
     ycb_object_ids = load_ycb_objects(table_body_id=scene_ids.get("table_id"))
@@ -1276,7 +1731,6 @@ def main() -> None:
     print(f"[Boot] ycb objects: {ycb_object_ids}")
     print(f"[Boot] robot IDs: {robot_ids}")
  
-    # 수정 후
     stabilize_scene()
 
     print("[Boot] === 안정화 후 테이블 상태 ===")
@@ -1306,7 +1760,25 @@ def main() -> None:
         )
     print("[Boot] ==========================================")
 
-    # module3 대상 물체 labels를 R1 probe에 전달
+    # 안정화 후 YCB 물체들의 실제 시뮬레이션 좌표 출력
+    print("[Boot] === YCB 물체 실제 좌표 (안정화 후) ===")
+    for label, body_id in ycb_object_ids.items():
+        pos, orn = p.getBasePositionAndOrientation(body_id)
+        aabb_min, aabb_max = p.getAABB(body_id)
+        aabb_center = [
+            (aabb_min[0] + aabb_max[0]) / 2,
+            (aabb_min[1] + aabb_max[1]) / 2,
+            (aabb_min[2] + aabb_max[2]) / 2,
+        ]
+        print(
+            f"  [{label}] body_id={body_id} "
+            f"pos=[{pos[0]:.4f}, {pos[1]:.4f}, {pos[2]:.4f}] "
+            f"aabb_center=[{aabb_center[0]:.4f}, {aabb_center[1]:.4f}, {aabb_center[2]:.4f}] "
+            f"size=[{aabb_max[0]-aabb_min[0]:.4f}, {aabb_max[1]-aabb_min[1]:.4f}, {aabb_max[2]-aabb_min[2]:.4f}]"
+        )
+    print("[Boot] ==========================================")
+
+    # module3 object labels are passed to R1 probe.
     _m3_labels = _load_module3_object_labels(_MODULE3_JSON_PATH)
     r1_hints = run_optional_affordance_probe(
         enable_affordance_r1=enable_affordance_r1,
@@ -1326,3 +1798,4 @@ def main() -> None:
  
 if __name__ == "__main__":
     main()
+

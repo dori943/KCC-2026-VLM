@@ -61,10 +61,131 @@ def _world_pos_to_parent_local(
     return list(local_pos)
 
 
+def _coerce_vec3(value, default: list[float]) -> list[float]:
+    if isinstance(value, (list, tuple)) and len(value) >= 3:
+        try:
+            return [float(value[0]), float(value[1]), float(value[2])]
+        except (TypeError, ValueError):
+            return list(default)
+    return list(default)
+
+
+def _coerce_orientation_quaternion(value, default_rpy_deg: list[float] | None = None) -> list[float]:
+    if isinstance(value, (list, tuple)):
+        if len(value) >= 4:
+            try:
+                return [float(value[0]), float(value[1]), float(value[2]), float(value[3])]
+            except (TypeError, ValueError):
+                pass
+        if len(value) >= 3:
+            try:
+                return _rpy_deg_to_quaternion([float(value[0]), float(value[1]), float(value[2])])
+            except (TypeError, ValueError):
+                pass
+    if isinstance(value, dict):
+        for key in ("quaternion", "orientation_quaternion", "joint_orientation"):
+            if key in value:
+                return _coerce_orientation_quaternion(value.get(key), default_rpy_deg=default_rpy_deg)
+        for key in ("rpy_deg", "orientation_rpy_deg"):
+            if key in value:
+                return _coerce_orientation_quaternion(value.get(key), default_rpy_deg=default_rpy_deg)
+    if default_rpy_deg is None:
+        default_rpy_deg = [0.0, 0.0, 0.0]
+    return _rpy_deg_to_quaternion(default_rpy_deg)
+
+
+def parse_assembly_instruction(instruction: dict) -> dict:
+    """
+    Parse assembly-related information from module3_task1_output.json.
+
+    joint/assembly fields are preserved for assembly movement and relation
+    application. This parser does not provide grasp pose inputs.
+    """
+    source_object = instruction.get("source_object") or instruction.get("attach_object")
+    target_object = instruction.get("target_object") or instruction.get("base_object")
+
+    joint_position = instruction.get("joint_position")
+    joint_orientation_raw = instruction.get("joint_orientation")
+
+    joint_position_world = instruction.get("joint_position_world", {})
+    if joint_position is None and isinstance(joint_position_world, dict):
+        joint_position = joint_position_world.get("position")
+    if joint_orientation_raw is None and isinstance(joint_position_world, dict):
+        joint_orientation_raw = (
+            joint_position_world.get("orientation")
+            or joint_position_world.get("orientation_quaternion")
+        )
+
+    target_pose_world = instruction.get("target_pose_world", {})
+    target_position = None
+    target_orientation_raw = None
+    target_rpy_deg = [0.0, 0.0, 0.0]
+    if isinstance(target_pose_world, dict):
+        target_position = target_pose_world.get("position")
+        target_orientation_raw = (
+            target_pose_world.get("orientation")
+            or target_pose_world.get("orientation_quaternion")
+            or target_pose_world.get("orientation_rpy_deg")
+        )
+        target_rpy_deg = _coerce_vec3(target_pose_world.get("orientation_rpy_deg"), [0.0, 0.0, 0.0])
+
+    joint_position = _coerce_vec3(
+        joint_position if joint_position is not None else target_position,
+        [0.0, 0.0, 0.0],
+    )
+    joint_orientation = _coerce_orientation_quaternion(
+        joint_orientation_raw if joint_orientation_raw is not None else target_orientation_raw,
+        default_rpy_deg=target_rpy_deg,
+    )
+
+    attachment_position = instruction.get("attachment_position")
+    if attachment_position is None:
+        attachment_position = instruction.get("relative_offset_from_base")
+    attachment_position = _coerce_vec3(attachment_position, [0.0, 0.0, 0.0])
+
+    attachment_orientation = _coerce_orientation_quaternion(
+        instruction.get("attachment_orientation")
+        or instruction.get("attachment_orientation_quaternion")
+        or instruction.get("attachment_orientation_rpy_deg"),
+        default_rpy_deg=[0.0, 0.0, 0.0],
+    )
+
+    connection_relationship = (
+        instruction.get("connection_relationship")
+        or instruction.get("contact_type")
+    )
+    assembly_relationship = (
+        instruction.get("assembly_relationship")
+        or instruction.get("functional_roles")
+    )
+
+    return {
+        "source_object": source_object,
+        "target_object": target_object,
+        "joint_position": joint_position,
+        "joint_orientation": joint_orientation,
+        "target_position": _coerce_vec3(target_position, joint_position),
+        "target_orientation": _coerce_orientation_quaternion(
+            target_orientation_raw,
+            default_rpy_deg=target_rpy_deg,
+        ),
+        "attachment_position": attachment_position,
+        "attachment_orientation": attachment_orientation,
+        "connection_relationship": connection_relationship,
+        "assembly_relationship": assembly_relationship,
+        "joint_calc_basis": (
+            joint_position_world.get("calculation_basis", "")
+            if isinstance(joint_position_world, dict)
+            else ""
+        ),
+    }
+
+
 class AssemblyStep:
     """module3_output.json의 assembly_steps 항목 하나를 표현."""
 
     def __init__(self, raw: dict):
+        parsed = parse_assembly_instruction(raw)
         self.step: int                  = int(raw["step"])
         self.base_object: str           = str(raw["base_object"])
         self.attach_object: str | None  = raw.get("attach_object")  # null 가능
@@ -73,13 +194,18 @@ class AssemblyStep:
         self.contact_type: str          = str(raw.get("contact_type", "surface"))
         self.functional_roles: dict     = raw.get("functional_roles", {})
 
-        jp = raw.get("joint_position_world", {})
-        self.joint_pos_world: list[float] = list(jp.get("position", [0.0, 0.0, 0.0]))
-        self.joint_calc_basis: str      = str(jp.get("calculation_basis", ""))
-
-        tp = raw.get("target_pose_world", {})
-        self.target_position: list[float] = list(tp.get("position", self.joint_pos_world))
-        self.target_rpy_deg: list[float]  = list(tp.get("orientation_rpy_deg", [0.0, 0.0, 0.0]))
+        self.source_object: str | None = parsed["source_object"]
+        self.target_object: str | None = parsed["target_object"]
+        self.joint_pos_world: list[float] = list(parsed["joint_position"])
+        self.joint_orientation: list[float] = list(parsed["joint_orientation"])
+        self.joint_calc_basis: str      = str(parsed["joint_calc_basis"])
+        self.target_position: list[float] = list(parsed["target_position"])
+        self.target_orientation: list[float] = list(parsed["target_orientation"])
+        self.target_rpy_deg: list[float]  = list(p.getEulerFromQuaternion(self.target_orientation))
+        self.attachment_position: list[float] = list(parsed["attachment_position"])
+        self.attachment_orientation: list[float] = list(parsed["attachment_orientation"])
+        self.connection_relationship = parsed["connection_relationship"]
+        self.assembly_relationship = parsed["assembly_relationship"]
 
         self.reason: str                = str(raw.get("reason", ""))
         self.expected_function: str     = str(raw.get("expected_function_after_step", ""))
@@ -148,6 +274,59 @@ class AssemblyManager:
         """dict에서 직접 로드 (테스트·인라인 사용)."""
         self._plan = AssemblyPlan(raw)
         return self._plan
+
+    def parse_assembly_instruction(self, instruction: dict) -> dict:
+        """
+        Parse one assembly step and preserve joint/assembly fields.
+        """
+        return parse_assembly_instruction(instruction)
+
+    def get_object_transport_targets(self) -> dict[str, dict]:
+        """
+        Build per-object transport targets for the assembly move stage.
+
+        Returns:
+            {
+                object_label: {
+                    "position": [x, y, z],
+                    "orientation": [x, y, z, w],
+                    "step": int,
+                    "role": "base" | "attach",
+                },
+                ...
+            }
+        """
+        targets: dict[str, dict] = {}
+        if self._plan is None:
+            return targets
+
+        for step in self._plan.steps:
+            if not step.has_attach():
+                targets[step.base_object] = {
+                    "position": list(step.joint_pos_world),
+                    "orientation": list(step.joint_orientation),
+                    "step": int(step.step),
+                    "role": "base",
+                }
+                continue
+
+            # For attach steps, move attach object to joint pose from JSON.
+            targets[step.attach_object] = {
+                "position": list(step.joint_pos_world),
+                "orientation": list(step.joint_orientation),
+                "step": int(step.step),
+                "role": "attach",
+            }
+
+            # Keep a base target as well if one was not set by standalone step.
+            if step.base_object not in targets:
+                targets[step.base_object] = {
+                    "position": list(step.target_position),
+                    "orientation": list(step.target_orientation),
+                    "step": int(step.step),
+                    "role": "base",
+                }
+        return targets
 
     # ── body 매핑 등록 ────────────────────────────────────────────────────────
 
@@ -231,6 +410,10 @@ class AssemblyManager:
                 "reason": "position_only",
                 "constraint_id": None,
                 "label": step.label(),
+                "joint_pos_world": step.joint_pos_world,
+                "joint_orientation": step.joint_orientation,
+                "target_position": step.target_position,
+                "target_orientation": step.target_orientation,
             }
 
         # attach_object가 있는 step → constraint 생성
@@ -272,6 +455,11 @@ class AssemblyManager:
             "base_object": step.base_object,
             "attach_object": step.attach_object,
             "joint_pos_world": step.joint_pos_world,
+            "joint_orientation": step.joint_orientation,
+            "target_position": step.target_position,
+            "target_orientation": step.target_orientation,
+            "connection_relationship": step.connection_relationship,
+            "assembly_relationship": step.assembly_relationship,
             "contact_offset_local": contact_offset,
         }
 

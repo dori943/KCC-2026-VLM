@@ -23,7 +23,11 @@ class AffordanceGraspR1Adapter:
     """Thin adapter around AffordanceGrasp-R1 style VLM inference."""
 
     ANSWER_PATTERN = re.compile(r"<answer>\s*(.*?)\s*</answer>", re.IGNORECASE | re.DOTALL)
-    BBOX_PATTERN = re.compile(r"\[\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\]")
+    BBOX_PATTERN = re.compile(
+        r"\[\s*([-+]?\d+(?:\.\d+)?)\s*,\s*([-+]?\d+(?:\.\d+)?)\s*,\s*"
+        r"([-+]?\d+(?:\.\d+)?)\s*,\s*([-+]?\d+(?:\.\d+)?)"
+        r"(?:\s*,\s*(?:\"[^\"]*\"|'[^']*'|[^\]]+))?\s*\]"
+    )
 
     def __init__(
         self,
@@ -64,6 +68,40 @@ class AffordanceGraspR1Adapter:
 
     def is_available(self) -> bool:
         return self._model is not None and self._processor is not None
+
+    @staticmethod
+    def _normalize_requested_device(device: Optional[str]) -> Optional[str]:
+        if device is None:
+            return None
+        value = str(device).strip().lower()
+        if value in {"", "auto", "default"}:
+            return None
+        if value == "gpu":
+            return "cuda"
+        return value
+
+    def _resolve_runtime_device(self, torch_module: Any) -> str:
+        requested = self._normalize_requested_device(self.requested_device)
+        if requested is None:
+            return "cuda" if torch_module.cuda.is_available() else "cpu"
+        if requested.startswith("cuda") and not torch_module.cuda.is_available():
+            return "cpu"
+        return requested
+
+    def _get_model_input_device(self) -> str:
+        if self._model is None:
+            return self.device
+        try:
+            model_device = getattr(self._model, "device", None)
+            if model_device is not None:
+                return str(model_device)
+        except Exception:
+            pass
+        try:
+            first_param = next(self._model.parameters())
+            return str(first_param.device)
+        except Exception:
+            return self.device
 
     def load(self) -> None:
         if self.is_available():
@@ -212,7 +250,7 @@ class AffordanceGraspR1Adapter:
         self._processor_cls = AutoProcessor
         self._model_cls = model_cls
         self._vision_info_fn = process_vision_info
-        self.device = self.requested_device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = self._resolve_runtime_device(torch)
 
     def _build_source_candidates(self) -> list[dict[str, Any]]:
         candidates: list[dict[str, Any]] = []
@@ -407,7 +445,7 @@ class AffordanceGraspR1Adapter:
             )
 
         if hasattr(inputs, "to"):
-            inputs = inputs.to(self.device)
+            inputs = inputs.to(self._get_model_input_device())
 
         with self._torch.no_grad():
             generated_ids = self._model.generate(
@@ -439,16 +477,43 @@ class AffordanceGraspR1Adapter:
         summary = "No grasp candidate parsed from model output."
 
         if bbox_match:
-            x1, y1, x2, y2 = [int(v) for v in bbox_match.groups()]
-            part_text = answer_text[bbox_match.end() :].strip()
-            part = part_text.split()[0].strip(".,:;").lower() if part_text else "object"
+            x1, y1, x2, y2 = [float(v) for v in bbox_match.groups()]
+            max_abs = max(abs(x1), abs(y1), abs(x2), abs(y2))
+            use_norm_1000 = max_abs <= 1000.0
 
-            bbox_pixel = [
-                int(x1 / 1000.0 * img_w),
-                int(y1 / 1000.0 * img_h),
-                int(x2 / 1000.0 * img_w),
-                int(y2 / 1000.0 * img_h),
-            ]
+            if use_norm_1000:
+                px1 = int(round(x1 / 1000.0 * img_w))
+                py1 = int(round(y1 / 1000.0 * img_h))
+                px2 = int(round(x2 / 1000.0 * img_w))
+                py2 = int(round(y2 / 1000.0 * img_h))
+            else:
+                # Fallback: accept raw pixel outputs as-is if model returns image-space coords.
+                px1, py1, px2, py2 = [int(round(v)) for v in (x1, y1, x2, y2)]
+
+            # Keep bbox sane for downstream crop/world conversion.
+            px1, px2 = sorted((px1, px2))
+            py1, py2 = sorted((py1, py2))
+            px1 = max(0, min(img_w - 1, px1))
+            py1 = max(0, min(img_h - 1, py1))
+            px2 = max(px1 + 1, min(img_w - 1, px2))
+            py2 = max(py1 + 1, min(img_h - 1, py2))
+
+            # Support outputs like: [x1, y1, x2, y2, "knife"].
+            part = "object"
+            list_match = re.search(r"\[\s*[^\]]+\]", answer_text)
+            if list_match:
+                try:
+                    payload = json.loads(list_match.group(0))
+                    if isinstance(payload, list) and len(payload) >= 5 and isinstance(payload[4], str):
+                        part = payload[4].strip().lower() or part
+                except Exception:
+                    pass
+            if part == "object":
+                part_text = answer_text[bbox_match.end() :].strip()
+                if part_text:
+                    part = part_text.split()[0].strip(".,:;").strip("'\"").lower() or "object"
+
+            bbox_pixel = [px1, py1, px2, py2]
             candidate = {
                 "part": part,
                 "bbox_norm": [x1, y1, x2, y2],
@@ -461,7 +526,11 @@ class AffordanceGraspR1Adapter:
                 "score": 1.0,
             }
             candidates.append(candidate)
-            summary = f"Top candidate: part={part}, bbox_norm={[x1, y1, x2, y2]}"
+            summary = (
+                f"Top candidate: part={part}, bbox="
+                f"{[round(x1, 3), round(y1, 3), round(x2, 3), round(y2, 3)]}, "
+                f"coord_mode={'norm1000' if use_norm_1000 else 'pixel'}"
+            )
 
         return {"grasp_candidates": candidates, "summary": summary}
 

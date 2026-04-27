@@ -1,4 +1,4 @@
-"""
+﻿"""
 robot_controller_3.py
 Lightweight Panda controller module for simulation boot/demo.
 
@@ -552,15 +552,22 @@ class PandaController:
         object_angle: float,
         orientation_hint,
     ) -> list[float]:
-        base = [
-            object_angle,
-            object_angle + np.pi / 2.0,
-            object_angle - np.pi / 2.0,
-            object_angle + np.pi,
-        ]
         if orientation_hint is not None:
             hinted_yaw = float(p.getEulerFromQuaternion(orientation_hint)[2])
-            base.append(hinted_yaw)
+            # R1 orientation이 주어지면 yaw 후보도 R1 기준으로 구성한다.
+            base = [
+                hinted_yaw,
+                hinted_yaw + np.pi / 2.0,
+                hinted_yaw - np.pi / 2.0,
+                hinted_yaw + np.pi,
+            ]
+        else:
+            base = [
+                object_angle,
+                object_angle + np.pi / 2.0,
+                object_angle - np.pi / 2.0,
+                object_angle + np.pi,
+            ]
 
         unique = []
         min_gap = np.deg2rad(12.0)
@@ -586,7 +593,7 @@ class PandaController:
             (float(aabb_min[0]) + float(aabb_max[0])) / 2.0,
             (float(aabb_min[1]) + float(aabb_max[1])) / 2.0,
         ], dtype=float)
-        # R1 world_pos가 있으면 xy는 R1 기준, 없으면 AABB center fallback
+        # R1 world_pos가 있으면 grasp seed를 R1 기준으로 사용
         if r1_world_pos is not None:
             base_xy = np.array([float(r1_world_pos[0]), float(r1_world_pos[1])], dtype=float)
             print(f"[{self.name}] grasp xy from R1 world_pos: {base_xy.tolist()}")
@@ -602,7 +609,21 @@ class PandaController:
         # approach 기준점: top_z 바로 위
         # 실제 contact z는 _descend_until_precontact가 contact 감지로 결정
         FINGER_TIP_OFFSET = 0.058
-        target_grasp_z = top_z + FINGER_TIP_OFFSET + grasp_clearance
+        nominal_grasp_z = top_z + FINGER_TIP_OFFSET + grasp_clearance
+        target_grasp_z = nominal_grasp_z
+        if r1_world_pos is not None and len(r1_world_pos) >= 3:
+            requested_grasp_z = float(r1_world_pos[2])
+            # Safety clamp:
+            # keep R1 z usable but never allow deep downward targets that can drive
+            # the gripper below the table/object region.
+            z_low = nominal_grasp_z - 0.015
+            z_high = nominal_grasp_z + 0.060
+            target_grasp_z = _clamp(requested_grasp_z, z_low, z_high)
+            print(
+                f"[{self.name}] grasp z from R1 world_pos: {requested_grasp_z:.4f} "
+                f"-> clamped {target_grasp_z:.4f} (nominal={nominal_grasp_z:.4f})"
+            )
+        safe_descend_floor_z = float(bottom_z + 0.006)
         return {
             "target_xy": target_xy,
             "top_z": top_z,
@@ -610,6 +631,7 @@ class PandaController:
             "size_z": size_z,
             "span_xy": span_xy,
             "target_grasp_z": target_grasp_z,
+            "safe_descend_floor_z": safe_descend_floor_z,
         }
 
     def _compose_grasp_candidate(
@@ -652,6 +674,7 @@ class PandaController:
             "grasp": grasp,
             "lift": lift,
             "size_z": float(grasp_frame["size_z"]),
+            "safe_descend_floor_z": float(grasp_frame.get("safe_descend_floor_z", grasp_frame["bottom_z"] + 0.006)),
             "probe": [
                 float(target_xy[0]),
                 float(target_xy[1]),
@@ -761,12 +784,15 @@ class PandaController:
             xy_offset=xy_offset,
             r1_world_pos=r1_world_pos,
         )
-        object_angle = self._estimate_object_inplane_angle(body_id=body_id)
+        if orientation_hint is not None:
+            object_angle = float(p.getEulerFromQuaternion(orientation_hint)[2])
+        else:
+            object_angle = self._estimate_object_inplane_angle(body_id=body_id)
         yaw_candidates = self._build_grasp_yaw_candidates(
             object_angle=object_angle,
             orientation_hint=orientation_hint,
         )
-        print(f"[{self.name}] object angle={np.degrees(object_angle):.1f} deg")
+        print(f"[{self.name}] seed grasp angle={np.degrees(object_angle):.1f} deg")
 
         best = None
         best_rank = None
@@ -1009,6 +1035,7 @@ class PandaController:
         orientation,
         drop_step: float = 0.004,
         max_drop: float = 0.25,
+        min_ee_z: float | None = None,
         hold_companion: "PandaController | None" = None,
     ) -> None:
         checks = int(max_drop / drop_step)
@@ -1017,7 +1044,14 @@ class PandaController:
             if summary["total"] > 0:
                 return
             ee_pos, _ = self.get_end_effector_pose()
-            next_pos = [float(ee_pos[0]), float(ee_pos[1]), float(ee_pos[2] - drop_step)]
+            next_z = float(ee_pos[2] - drop_step)
+            if min_ee_z is not None and next_z <= float(min_ee_z):
+                print(
+                    f"[{self.name}] descend stop at safety floor "
+                    f"(next_z={next_z:.4f} <= min_ee_z={float(min_ee_z):.4f})"
+                )
+                return
+            next_pos = [float(ee_pos[0]), float(ee_pos[1]), next_z]
             self.move_end_effector_to(next_pos, orientation=orientation, steps=50, hold_companion=hold_companion)
 
     def get_end_effector_pose(self) -> tuple[np.ndarray, np.ndarray]:
@@ -1116,6 +1150,7 @@ class PandaController:
         grasp = candidate["grasp"]
         lift = candidate["lift"]
         size_z = float(candidate.get("size_z", 0.10))
+        safe_descend_floor_z = float(candidate.get("safe_descend_floor_z", 0.0))
 
         print(f"[{self.name}] grasp coords: approach={[round(v,4) for v in approach]}, grasp={[round(v,4) for v in grasp]}")
         aabb_min_dbg, aabb_max_dbg = p.getAABB(body_id)
@@ -1128,7 +1163,12 @@ class PandaController:
         # grasp 위치 도달 직후 이미 contact인지 확인 — 있으면 descend 생략
         _pre_summary = self._finger_contact_summary(body_id)
         if _pre_summary["total"] == 0:
-            self._descend_until_precontact(body_id=body_id, orientation=selected_orientation, hold_companion=hold_companion)
+            self._descend_until_precontact(
+                body_id=body_id,
+                orientation=selected_orientation,
+                min_ee_z=safe_descend_floor_z,
+                hold_companion=hold_companion,
+            )
         ee_pos_dbg2, _ = self.get_end_effector_pose()
         print(f"[{self.name}] EE after descend: {[round(v,4) for v in ee_pos_dbg2]}")
 
@@ -1138,7 +1178,8 @@ class PandaController:
             body_id=body_id, start_open=_finger_open, hold_companion=hold_companion)
         if not contact_found:
             extra_drop = _clamp(0.18 * size_z, 0.008, 0.025)
-            fallback_grasp = [grasp[0], grasp[1], grasp[2] - extra_drop]
+            fallback_z = max(float(grasp[2] - extra_drop), safe_descend_floor_z)
+            fallback_grasp = [grasp[0], grasp[1], fallback_z]
             self.move_end_effector_to(fallback_grasp, orientation=selected_orientation, steps=140, hold_companion=hold_companion)
             contact_found, hold_target, summary = self._close_until_contact(
                 body_id=body_id, start_open=_finger_open, hold_companion=hold_companion)
@@ -1253,25 +1294,25 @@ class PandaController:
             object_label=object_label,
         )
 
-        # flat_like 물체(납작한 물체)는 top-grasp 불가 → side-grasp로 자동 전환
-        # height_ratio = size_z / span_xy < 0.55 이면 flat_like
-        if orientation is None:
-            features = self._active_body_features or {}
-            if features.get("flat_like", False):
-                # 물체 긴 축(span_xy 방향) 기준으로 side에서 접근
-                # roll=pi/2: gripper를 옆으로 눕혀서 납작한 면의 측면을 잡음
-                aabb_min_f, aabb_max_f = p.getAABB(body_id)
-                dx = float(aabb_max_f[0] - aabb_min_f[0])
-                dy = float(aabb_max_f[1] - aabb_min_f[1])
-                if dy > dx:
-                    # y가 긴 축 → x방향(roll=pi/2, pitch=0)에서 옆으로 접근
-                    orientation = p.getQuaternionFromEuler([np.pi / 2.0, 0.0, 0.0])
-                else:
-                    # x가 긴 축 → y방향(roll=pi/2, pitch=pi/2)에서 옆으로 접근
-                    orientation = p.getQuaternionFromEuler([np.pi / 2.0, 0.0, np.pi / 2.0])
-                print(f"[{self.name}] flat_like detected → side-grasp orientation (dx={dx:.3f}, dy={dy:.3f})")
-            else:
-                orientation = p.getQuaternionFromEuler([np.pi, 0.0, 0.0])
+        # Mandatory mode: use only R1 planner grasp pose.
+        # JSON/PyBullet object pose fallback is intentionally disabled.
+        if orientation is None or len(orientation) < 4:
+            raise ValueError(
+                f"[{self.name}] R1 grasp orientation is required; "
+                "PyBullet object-state fallback is disabled."
+            )
+        if r1_world_pos is None or len(r1_world_pos) < 3:
+            raise ValueError(
+                f"[{self.name}] R1 grasp world_pos is required; "
+                "PyBullet object-state fallback is disabled."
+            )
+        orientation = [float(v) for v in orientation[:4]]
+        r1_world_pos = [float(v) for v in r1_world_pos[:3]]
+        print(
+            f"[{self.name}] mandatory R1 grasp pose: "
+            f"world_pos={[round(v,4) for v in r1_world_pos]}, "
+            f"orientation={[round(v,4) for v in orientation]}"
+        )
         if use_constraint:
             print(f"[{self.name}] use_constraint=True is deprecated; using contact-based grasp.")
 
@@ -1301,10 +1342,8 @@ class PandaController:
         retry_offsets = self._build_retry_offsets(max_attempts=max_attempts)
         attempts = len(retry_offsets)
         for attempt_idx in range(attempts):
-            # 첫 시도는 R1 world_pos 사용, retry부터는 AABB fallback
-            _r1_pos = r1_world_pos if attempt_idx == 0 else None
-            if attempt_idx > 0 and r1_world_pos is not None:
-                print(f"[{self.name}] retry {attempt_idx}: R1 world_pos 포기 → AABB fallback")
+            # Keep using the R1 grasp pose across retries.
+            _r1_pos = r1_world_pos
             ok = self._grasp_body_no_constraint(
                 body_id=body_id,
                 orientation=orientation,
@@ -1329,3 +1368,4 @@ class PandaController:
                     hold_companion=hold_companion,
                 )
         return False
+
