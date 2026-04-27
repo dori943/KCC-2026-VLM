@@ -472,10 +472,10 @@ def summarize_applied_dynamics(applied: dict) -> dict:
 def configure_simulation() -> None:
     p.connect(p.GUI)
     p.resetDebugVisualizerCamera(
-        cameraDistance=1.0,
-        cameraYaw=70,
-        cameraPitch=-60,
-        cameraTargetPosition=[1.3, 0.0, 0.6],
+        cameraDistance=1.3,
+        cameraYaw=45,
+        cameraPitch=-45,
+        cameraTargetPosition=[0.55, -0.35, 0.8],
     )
     p.setAdditionalSearchPath(pybullet_data.getDataPath())
     p.setTimeStep(SIM_TIMESTEP)
@@ -566,10 +566,10 @@ def capture_affordance_rgb(
     height: int = AFFORDANCE_CAPTURE_HEIGHT,
 ) -> np.ndarray:
     view_matrix = p.computeViewMatrixFromYawPitchRoll(
-        cameraTargetPosition=[1.3, 0.0, 0.6], # 물체들이 모여있는 중앙점 (조정됨)
+        cameraTargetPosition=[0.55, -0.35, 0.8], # 물체들이 모여있는 중앙점 (조정됨)
         distance=1.2,                        # 약간 더 멀리서 찍어 잘림 방지
-        yaw=70,                              # 좌우 각도
-        pitch=-60,                           # 위아래 각도
+        yaw=45,                              # 좌우 각도
+        pitch=-45,                           # 위아래 각도
         roll=0,
         upAxisIndex=2                        # Z축이 위쪽
     )
@@ -986,10 +986,10 @@ def run_optional_affordance_probe(
         IMG_W = AFFORDANCE_CAPTURE_WIDTH
         IMG_H = AFFORDANCE_CAPTURE_HEIGHT
         view_matrix = p.computeViewMatrixFromYawPitchRoll(
-        cameraTargetPosition=[1.3, 0.0, 0.6], # 위 함수와 동일하게 맞춤
+        cameraTargetPosition=[0.55, -0.35, 0.8], # 위 함수와 동일하게 맞춤
         distance=1.2,
-        yaw=70,
-        pitch=-60,
+        yaw=45,
+        pitch=-45,
         roll=0,
         upAxisIndex=2
     )
@@ -1413,10 +1413,10 @@ def run_sequential_demo(
     print(f"[R1] hint labels available: {sorted(list(r1_hints.keys()))}")
  
     CAM_CONFIG = {
-    "cam_target":   [1.0, 0.0, 0.8],
+    "cam_target":   [0.55, -0.35, 0.8],
     "cam_distance": 1.2,
-    "cam_yaw":      70,
-    "cam_pitch":    -60,
+    "cam_yaw":      45,
+    "cam_pitch":    -45,
     }
  
     print("\n[3] 媛??移대찓???뚮뜑留?以?..")
