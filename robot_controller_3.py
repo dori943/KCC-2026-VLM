@@ -450,12 +450,12 @@ class PandaController:
         if features["round_like"]:
             grasp_clearance = _clamp(grasp_clearance - 0.0007, 0.0012, 0.0050)
         grasp_z_ratio = 0.85
-        if features["round_like"]:
+        if features.get("slender_like"):
             grasp_z_ratio = 0.62
-        elif features["slender_like"]:
-            grasp_z_ratio = 0.72
-        elif features["flat_like"]:
-            grasp_z_ratio = 0.50  # side-grasp: 물체 중간 높이에서 옆면 접근
+        elif features.get("flat_like"):
+            grasp_z_ratio = 0.85   # 0.72 → 0.85: flat 물체도 top 근처를 잡아야 함
+        elif features.get("round_like") and not features.get("slender_like"):
+            grasp_z_ratio = 0.92
         approach_height = _clamp(0.12 + size_z * 0.65, 0.12, 0.24)
         lift_height = _clamp(0.08 + 0.045 * mass_factor + 0.02 * width_factor, 0.08, 0.18)
         min_lift_gain = _clamp(size_z * 0.22, 0.012, 0.030)
@@ -594,11 +594,11 @@ class PandaController:
         size_x = max(1e-4, float(aabb_max[0] - aabb_min[0]))
         size_y = max(1e-4, float(aabb_max[1] - aabb_min[1]))
         span_xy = max(size_x, size_y)
-        grasp_z_ratio = float(self._active_grasp_profile.get("grasp_z_ratio", 0.50))
+        grasp_z_ratio = float(self._active_grasp_profile.get("grasp_z_ratio", 0.85))
         grasp_z_ratio = _clamp(grasp_z_ratio, 0.45, 0.98)
         FINGER_TIP_OFFSET = 0.058
         tip_compensation = _clamp(FINGER_TIP_OFFSET - size_z * grasp_z_ratio, 0.0, FINGER_TIP_OFFSET)
-        target_grasp_z = bottom_z + size_z * grasp_z_ratio + grasp_clearance + tip_compensation
+        target_grasp_z = bottom_z + size_z * grasp_z_ratio + FINGER_TIP_OFFSET + grasp_clearance
         return {
             "target_xy": target_xy,
             "top_z": top_z,

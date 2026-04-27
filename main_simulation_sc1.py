@@ -523,7 +523,8 @@ def load_ycb_objects(ycb_dir: str = YCB_DIR, table_body_id=None) -> dict:
             urdf_path,
             basePosition=spawn_pos,
             baseOrientation=p.getQuaternionFromEuler([0.0, 0.0, 0.0]),
-            globalScaling=0.1,
+            # YCB URDF는 실물 스케일(미터) 기준이므로 축소하지 않는다.
+            globalScaling=1.0,
             flags=flags,
         )
         loaded[label] = body_id
