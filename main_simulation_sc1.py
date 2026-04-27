@@ -885,16 +885,14 @@ def run_optional_affordance_probe(
         # Step 2. Load R1 adapter with selectable runtime device.
         # Do not force CPU here: keep model inputs on the same device as the model.
         import os as _os
-        device_env = (_os.getenv("AFFORDANCE_R1_DEVICE") or "cpu").strip().lower()
-        if device_env in {"", "cpu"}:
-            adapter_device = "cpu"
+        device_env = (_os.getenv("AFFORDANCE_R1_DEVICE") or "cuda").strip().lower()
+        if device_env in {"", "cuda", "gpu"}:
+            adapter_device = "cuda"
         elif device_env in {"auto", "default"}:
             adapter_device = None
-        elif device_env == "gpu":
-            adapter_device = "cuda"
         else:
             adapter_device = device_env
-        print(f"[R1] adapter device request: {device_env or 'cpu'}")
+        print(f"[R1] adapter device request: {device_env or 'cuda'}")
 
         adapter = AffordanceGraspR1Adapter(
             model_id=AFFORDANCE_MODEL_ID,
