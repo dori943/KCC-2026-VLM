@@ -850,7 +850,7 @@ def run_optional_affordance_probe(
     target_labels: list[str] | None = None,
 ) -> dict[str, dict]:
     """
-    R1 異붾줎??臾쇱껜蹂꾨줈 ?ㅽ뻾??媛?controller??3D grasp hint瑜?二쇱엯.
+    Run R1 per target object and inject 3D grasp hints into controllers.
 
     Returns:
         { label: { "world_pos": [x,y,z], "orientation": quaternion, "bbox_pixel": [...] } }
@@ -862,6 +862,10 @@ def run_optional_affordance_probe(
         return results
 
     print("[R1] optional affordance probe enabled")
+    print(
+        "[R1] safeguards enabled: "
+        "target-label validation, object-mask depth sampling, sim-pose outlier correction"
+    )
 
     try:
         from affordancegrasp_r1_adapter import AffordanceGraspR1Adapter
@@ -870,7 +874,7 @@ def run_optional_affordance_probe(
         return results
 
     try:
-        # ?? 1. 移대찓???ㅼ젙 (depth ?ы븿) ??????????????????????????????????????
+        # Step 1. Camera setup (RGB + depth + segmentation).
         IMG_W = AFFORDANCE_CAPTURE_WIDTH
         IMG_H = AFFORDANCE_CAPTURE_HEIGHT
         view_matrix = p.computeViewMatrix(
@@ -920,7 +924,7 @@ def run_optional_affordance_probe(
             return results
         print(f"[R1] adapter runtime device: {adapter.device}")
 
-        # ?? 3. 臾쇱껜蹂?媛쒕퀎 異붾줎 ?????????????????????????????????????????????
+        # Step 3. Per-object R1 inference.
         labels_to_probe = target_labels or (list(ycb_object_ids.keys()) if ycb_object_ids else [])
         if not labels_to_probe:
             print("[R1][WARN] no target labels to probe.")
@@ -937,15 +941,15 @@ def run_optional_affordance_probe(
 
             print(f"[R1] probing '{label}' (body_id={body_id})...")
 
-            # 3-a. body瑜??쎌?濡??ъ쁺??crop 踰붿쐞 寃곗젙
+            # 3-a. Project body center and define crop bbox.
             center_px = _project_body_to_pixel(
                 body_id, proj_matrix, view_matrix, IMG_W, IMG_H
             )
             if center_px is not None:
-                # AABB 湲곕컲 bbox ?ш린 異붿젙
+                # Estimate crop size from object AABB span.
                 try:
                     aabb_min, aabb_max = p.getAABB(body_id)
-                    # 臾쇱껜 ?ш린瑜??쎌? ?ш린濡?????섏궛 (FOV 湲곕컲 rough estimate)
+                    # Rough FOV-based pixel span estimate from object metric size.
                     obj_span = max(
                         float(aabb_max[0] - aabb_min[0]),
                         float(aabb_max[1] - aabb_min[1]),
@@ -967,10 +971,10 @@ def run_optional_affordance_probe(
                     ]
                 crop_img = _crop_object_rgb(rgb_full, depth_buf, crop_bbox)
             else:
-                crop_img = rgb_full   # fallback: ?꾩껜 ?대?吏
+                crop_img = rgb_full   # fallback: full image
                 crop_bbox = [0, 0, IMG_W, IMG_H]
 
-            # 3-b. R1 異붾줎 (臾쇱껜 label??prompt??紐낆떆)
+            # 3-b. R1 inference with explicit target label in prompt.
             r1_result = adapter.predict(
                 image=crop_img,
                 prompt=(
@@ -1029,7 +1033,7 @@ def run_optional_affordance_probe(
             top_part_raw = str(top.get("part", "")).strip().lower()
             top_part_norm = _normalize_label_token(top_part_raw)
 
-            # 3-c. crop ???쎌? 醫뚰몴 ???꾩껜 ?대?吏 ?쎌? 醫뚰몴濡??????
+            # 3-c. Map crop pixel coordinates back to full-image pixels.
             cx_crop, cy_crop = top["center_pixel"]
             crop_w = crop_bbox[2] - crop_bbox[0]
             crop_h = crop_bbox[3] - crop_bbox[1]
@@ -1039,16 +1043,15 @@ def run_optional_affordance_probe(
             else:
                 cx_full, cy_full = cx_crop, cy_crop
 
-            # ?섏젙 ??
-            # 3-d. 2D pixel ??3D world 醫뚰몴 蹂??
-            # center 1?먯씠 諛곌꼍??嫄몃┫ ???덉쑝誘濡?bbox ??9?먯쓣 ?섑뵆留곹빐 ?좏슚??媛??ъ슜
+            # 3-d. Convert 2D pixels to world 3D points.
+            # Use 3x3 bbox samples first; fallback to center search if needed.
             _sample_pts = []
-            _bpx = top["bbox_pixel"]  # crop 湲곗?
+            _bpx = top["bbox_pixel"]  # crop-space bbox
             for _sy in [0.25, 0.5, 0.75]:
                 for _sx in [0.25, 0.5, 0.75]:
                     _scx = _bpx[0] + (_bpx[2] - _bpx[0]) * _sx
                     _scy = _bpx[1] + (_bpx[3] - _bpx[1]) * _sy
-                    # crop ??full ?????
+                    # crop -> full-image coordinate mapping
                     if crop_w > 0 and crop_h > 0:
                         _fx = crop_bbox[0] + _scx * (crop_w / max(crop_img.shape[1], 1))
                         _fy = crop_bbox[1] + _scy * (crop_h / max(crop_img.shape[0], 1))
@@ -1068,10 +1071,10 @@ def run_optional_affordance_probe(
                         _sample_pts.append(_wp)
 
             if _sample_pts:
-                # ?좏슚???섑뵆?ㅼ쓽 以묒븰媛??ъ슜 (?댁긽移??쒓굅)
+                # Use median of valid samples for robustness.
                 world_pos = np.median(np.array(_sample_pts), axis=0)
             else:
-                # 紐⑤뱺 ?섑뵆??諛곌꼍 ??body center pixel濡?吏곸젒 ?ъ떆??
+                # If all samples fail, retry around center pixel.
                 world_pos = _pixel_depth_to_world_with_local_search(
                     px=float(cx_full), py=float(cy_full),
                     depth_buf=depth_buf,
@@ -1559,6 +1562,10 @@ def main() -> None:
     print(f"[Boot] module1 dynamics enabled: {enable_module1_dynamics}")
     print(f"[Boot] module1 profile inference enabled: {enable_module1_profile_inference}")
     print("[Boot] grasp mode: contact-based (no fixed constraint)")
+    print(
+        "[Boot] grasp safety policy: "
+        "R1 target validation + sim outlier guard + descend z-floor clamp"
+    )
     configure_simulation()
     scene_ids = load_static_scene()
     ycb_object_ids = load_ycb_objects(table_body_id=scene_ids.get("table_id"))
