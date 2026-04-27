@@ -1,4 +1,4 @@
-"""
+﻿"""
 robot_controller_3.py
 Lightweight Panda controller module for simulation boot/demo.
 
@@ -552,15 +552,22 @@ class PandaController:
         object_angle: float,
         orientation_hint,
     ) -> list[float]:
-        base = [
-            object_angle,
-            object_angle + np.pi / 2.0,
-            object_angle - np.pi / 2.0,
-            object_angle + np.pi,
-        ]
         if orientation_hint is not None:
             hinted_yaw = float(p.getEulerFromQuaternion(orientation_hint)[2])
-            base.append(hinted_yaw)
+            # R1 orientation이 주어지면 yaw 후보도 R1 기준으로 구성한다.
+            base = [
+                hinted_yaw,
+                hinted_yaw + np.pi / 2.0,
+                hinted_yaw - np.pi / 2.0,
+                hinted_yaw + np.pi,
+            ]
+        else:
+            base = [
+                object_angle,
+                object_angle + np.pi / 2.0,
+                object_angle - np.pi / 2.0,
+                object_angle + np.pi,
+            ]
 
         unique = []
         min_gap = np.deg2rad(12.0)
@@ -586,7 +593,7 @@ class PandaController:
             (float(aabb_min[0]) + float(aabb_max[0])) / 2.0,
             (float(aabb_min[1]) + float(aabb_max[1])) / 2.0,
         ], dtype=float)
-        # R1 world_pos가 있으면 xy는 R1 기준, 없으면 AABB center fallback
+        # R1 world_pos가 있으면 grasp seed를 R1 기준으로 사용
         if r1_world_pos is not None:
             base_xy = np.array([float(r1_world_pos[0]), float(r1_world_pos[1])], dtype=float)
             print(f"[{self.name}] grasp xy from R1 world_pos: {base_xy.tolist()}")
@@ -603,6 +610,9 @@ class PandaController:
         # 실제 contact z는 _descend_until_precontact가 contact 감지로 결정
         FINGER_TIP_OFFSET = 0.058
         target_grasp_z = top_z + FINGER_TIP_OFFSET + grasp_clearance
+        if r1_world_pos is not None and len(r1_world_pos) >= 3:
+            target_grasp_z = float(r1_world_pos[2])
+            print(f"[{self.name}] grasp z from R1 world_pos: {target_grasp_z:.4f}")
         return {
             "target_xy": target_xy,
             "top_z": top_z,
@@ -761,12 +771,15 @@ class PandaController:
             xy_offset=xy_offset,
             r1_world_pos=r1_world_pos,
         )
-        object_angle = self._estimate_object_inplane_angle(body_id=body_id)
+        if orientation_hint is not None:
+            object_angle = float(p.getEulerFromQuaternion(orientation_hint)[2])
+        else:
+            object_angle = self._estimate_object_inplane_angle(body_id=body_id)
         yaw_candidates = self._build_grasp_yaw_candidates(
             object_angle=object_angle,
             orientation_hint=orientation_hint,
         )
-        print(f"[{self.name}] object angle={np.degrees(object_angle):.1f} deg")
+        print(f"[{self.name}] seed grasp angle={np.degrees(object_angle):.1f} deg")
 
         best = None
         best_rank = None
@@ -1253,25 +1266,25 @@ class PandaController:
             object_label=object_label,
         )
 
-        # flat_like 물체(납작한 물체)는 top-grasp 불가 → side-grasp로 자동 전환
-        # height_ratio = size_z / span_xy < 0.55 이면 flat_like
-        if orientation is None:
-            features = self._active_body_features or {}
-            if features.get("flat_like", False):
-                # 물체 긴 축(span_xy 방향) 기준으로 side에서 접근
-                # roll=pi/2: gripper를 옆으로 눕혀서 납작한 면의 측면을 잡음
-                aabb_min_f, aabb_max_f = p.getAABB(body_id)
-                dx = float(aabb_max_f[0] - aabb_min_f[0])
-                dy = float(aabb_max_f[1] - aabb_min_f[1])
-                if dy > dx:
-                    # y가 긴 축 → x방향(roll=pi/2, pitch=0)에서 옆으로 접근
-                    orientation = p.getQuaternionFromEuler([np.pi / 2.0, 0.0, 0.0])
-                else:
-                    # x가 긴 축 → y방향(roll=pi/2, pitch=pi/2)에서 옆으로 접근
-                    orientation = p.getQuaternionFromEuler([np.pi / 2.0, 0.0, np.pi / 2.0])
-                print(f"[{self.name}] flat_like detected → side-grasp orientation (dx={dx:.3f}, dy={dy:.3f})")
-            else:
-                orientation = p.getQuaternionFromEuler([np.pi, 0.0, 0.0])
+        # Mandatory mode: use only R1 planner grasp pose.
+        # JSON/PyBullet object pose fallback is intentionally disabled.
+        if orientation is None or len(orientation) < 4:
+            raise ValueError(
+                f"[{self.name}] R1 grasp orientation is required; "
+                "PyBullet object-state fallback is disabled."
+            )
+        if r1_world_pos is None or len(r1_world_pos) < 3:
+            raise ValueError(
+                f"[{self.name}] R1 grasp world_pos is required; "
+                "PyBullet object-state fallback is disabled."
+            )
+        orientation = [float(v) for v in orientation[:4]]
+        r1_world_pos = [float(v) for v in r1_world_pos[:3]]
+        print(
+            f"[{self.name}] mandatory R1 grasp pose: "
+            f"world_pos={[round(v,4) for v in r1_world_pos]}, "
+            f"orientation={[round(v,4) for v in orientation]}"
+        )
         if use_constraint:
             print(f"[{self.name}] use_constraint=True is deprecated; using contact-based grasp.")
 
@@ -1301,10 +1314,8 @@ class PandaController:
         retry_offsets = self._build_retry_offsets(max_attempts=max_attempts)
         attempts = len(retry_offsets)
         for attempt_idx in range(attempts):
-            # 첫 시도는 R1 world_pos 사용, retry부터는 AABB fallback
-            _r1_pos = r1_world_pos if attempt_idx == 0 else None
-            if attempt_idx > 0 and r1_world_pos is not None:
-                print(f"[{self.name}] retry {attempt_idx}: R1 world_pos 포기 → AABB fallback")
+            # Keep using the R1 grasp pose across retries.
+            _r1_pos = r1_world_pos
             ok = self._grasp_body_no_constraint(
                 body_id=body_id,
                 orientation=orientation,
@@ -1329,3 +1340,4 @@ class PandaController:
                     hold_companion=hold_companion,
                 )
         return False
+

@@ -65,6 +65,40 @@ class AffordanceGraspR1Adapter:
     def is_available(self) -> bool:
         return self._model is not None and self._processor is not None
 
+    @staticmethod
+    def _normalize_requested_device(device: Optional[str]) -> Optional[str]:
+        if device is None:
+            return None
+        value = str(device).strip().lower()
+        if value in {"", "auto", "default"}:
+            return None
+        if value == "gpu":
+            return "cuda"
+        return value
+
+    def _resolve_runtime_device(self, torch_module: Any) -> str:
+        requested = self._normalize_requested_device(self.requested_device)
+        if requested is None:
+            return "cuda" if torch_module.cuda.is_available() else "cpu"
+        if requested.startswith("cuda") and not torch_module.cuda.is_available():
+            return "cpu"
+        return requested
+
+    def _get_model_input_device(self) -> str:
+        if self._model is None:
+            return self.device
+        try:
+            model_device = getattr(self._model, "device", None)
+            if model_device is not None:
+                return str(model_device)
+        except Exception:
+            pass
+        try:
+            first_param = next(self._model.parameters())
+            return str(first_param.device)
+        except Exception:
+            return self.device
+
     def load(self) -> None:
         if self.is_available():
             return
@@ -212,7 +246,7 @@ class AffordanceGraspR1Adapter:
         self._processor_cls = AutoProcessor
         self._model_cls = model_cls
         self._vision_info_fn = process_vision_info
-        self.device = self.requested_device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = self._resolve_runtime_device(torch)
 
     def _build_source_candidates(self) -> list[dict[str, Any]]:
         candidates: list[dict[str, Any]] = []
@@ -407,7 +441,7 @@ class AffordanceGraspR1Adapter:
             )
 
         if hasattr(inputs, "to"):
-            inputs = inputs.to(self.device)
+            inputs = inputs.to(self._get_model_input_device())
 
         with self._torch.no_grad():
             generated_ids = self._model.generate(
