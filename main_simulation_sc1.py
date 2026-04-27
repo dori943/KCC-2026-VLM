@@ -1029,12 +1029,16 @@ def run_sequential_demo(
     print(f"[Demo] left-arm grasp target: {left_target_label}")
     _left_hint = r1_hints.get(left_target_label, {})
     _left_orn = _left_hint.get("orientation") or down_orn
+    _left_r1_pos = _left_hint.get("world_pos")  # R1 world_pos (없으면 None → AABB fallback)
     if _left_hint.get("orientation"):
         print(f"[R1] using R1 orientation for '{left_target_label}': {[round(v,4) for v in _left_orn]}")
+    if _left_r1_pos:
+        print(f"[R1] using R1 world_pos for '{left_target_label}': {[round(v,4) for v in _left_r1_pos]}")
     left_ok = left.grasp_body(
         body_id=left_body_id,
         object_label=left_target_label,
         orientation=list(_left_orn),
+        r1_world_pos=_left_r1_pos,
     )
     if not left_ok:
         print(f"[Demo][WARN] left-arm grasp failed for '{left_target_label}'")
@@ -1049,13 +1053,17 @@ def run_sequential_demo(
     print(f"[Demo] right-arm grasp target: {right_target_label}")
     _right_hint = r1_hints.get(right_target_label, {})
     _right_orn = _right_hint.get("orientation") or down_orn
+    _right_r1_pos = _right_hint.get("world_pos")
     if _right_hint.get("orientation"):
         print(f"[R1] using R1 orientation for '{right_target_label}': {[round(v,4) for v in _right_orn]}")
+    if _right_r1_pos:
+        print(f"[R1] using R1 world_pos for '{right_target_label}': {[round(v,4) for v in _right_r1_pos]}")
     right_ok = right.grasp_body(
         body_id=right_body_id,
         object_label=right_target_label,
         orientation=list(_right_orn),
         hold_companion=left if left_ok else None,
+        r1_world_pos=_right_r1_pos,
     )
     if not right_ok:
         print(f"[Demo][WARN] right-arm grasp failed for '{right_target_label}'")

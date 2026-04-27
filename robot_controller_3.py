@@ -579,27 +579,30 @@ class PandaController:
         body_id: int,
         grasp_clearance: float,
         xy_offset: tuple[float, float] = (0.0, 0.0),
+        r1_world_pos: list[float] | None = None,
     ) -> dict:
         aabb_min, aabb_max = p.getAABB(body_id)
-        # body_pos 대신 AABB center를 사용: globalScaling 환경에서 pose origin과
-        # 실제 물체 중심이 미세하게 달라 contact 실패하는 문제 방지
         aabb_center_xy = np.array([
             (float(aabb_min[0]) + float(aabb_max[0])) / 2.0,
             (float(aabb_min[1]) + float(aabb_max[1])) / 2.0,
         ], dtype=float)
-        target_xy = aabb_center_xy + np.array(xy_offset, dtype=float)
+        # R1 world_pos가 있으면 xy는 R1 기준, 없으면 AABB center fallback
+        if r1_world_pos is not None:
+            base_xy = np.array([float(r1_world_pos[0]), float(r1_world_pos[1])], dtype=float)
+            print(f"[{self.name}] grasp xy from R1 world_pos: {base_xy.tolist()}")
+        else:
+            base_xy = aabb_center_xy
+        target_xy = base_xy + np.array(xy_offset, dtype=float)
         top_z = float(aabb_max[2])
         bottom_z = float(aabb_min[2])
         size_z = max(1e-4, top_z - bottom_z)
         size_x = max(1e-4, float(aabb_max[0] - aabb_min[0]))
         size_y = max(1e-4, float(aabb_max[1] - aabb_min[1]))
         span_xy = max(size_x, size_y)
-        grasp_z_ratio = float(self._active_grasp_profile.get("grasp_z_ratio", 0.85))
-        grasp_z_ratio = _clamp(grasp_z_ratio, 0.45, 0.98)
+        # approach 기준점: top_z 바로 위
+        # 실제 contact z는 _descend_until_precontact가 contact 감지로 결정
         FINGER_TIP_OFFSET = 0.058
         target_grasp_z = top_z + FINGER_TIP_OFFSET + grasp_clearance
-        # 하강 종료 안전선: finger tip이 물체 바닥 아래로 내려가지 않을 EE z
-        safe_floor_z = bottom_z + FINGER_TIP_OFFSET - 0.003
         return {
             "target_xy": target_xy,
             "top_z": top_z,
@@ -607,7 +610,6 @@ class PandaController:
             "size_z": size_z,
             "span_xy": span_xy,
             "target_grasp_z": target_grasp_z,
-            "safe_floor_z": safe_floor_z,
         }
 
     def _compose_grasp_candidate(
@@ -751,11 +753,13 @@ class PandaController:
         grasp_clearance: float,
         lift_height: float,
         xy_offset: tuple[float, float] = (0.0, 0.0),
+        r1_world_pos: list[float] | None = None,
     ) -> dict:
         grasp_frame = self._build_object_grasp_frame(
             body_id=body_id,
             grasp_clearance=grasp_clearance,
             xy_offset=xy_offset,
+            r1_world_pos=r1_world_pos,
         )
         object_angle = self._estimate_object_inplane_angle(body_id=body_id)
         yaw_candidates = self._build_grasp_yaw_candidates(
@@ -1003,28 +1007,17 @@ class PandaController:
         self,
         body_id: int,
         orientation,
-        drop_step: float = 0.005,
-        max_drop: float = 0.30,
+        drop_step: float = 0.004,
+        max_drop: float = 0.25,
         hold_companion: "PandaController | None" = None,
     ) -> None:
-        # finger tip이 물체 bottom 아래로 내려가지 않도록 safe_floor 설정
-        # EE_z >= bottom_z + FINGER_TIP_OFFSET - 여유 0.002
-        try:
-            aabb_min, _ = p.getAABB(body_id)
-            safe_floor_z = float(aabb_min[2]) + 0.058 - 0.002
-        except Exception:
-            safe_floor_z = -999.0
-
         checks = int(max_drop / drop_step)
         for _ in range(checks):
             summary = self._finger_contact_summary(body_id)
             if summary["total"] > 0:
                 return
             ee_pos, _ = self.get_end_effector_pose()
-            next_z = float(ee_pos[2]) - drop_step
-            if next_z < safe_floor_z:
-                return
-            next_pos = [float(ee_pos[0]), float(ee_pos[1]), next_z]
+            next_pos = [float(ee_pos[0]), float(ee_pos[1]), float(ee_pos[2] - drop_step)]
             self.move_end_effector_to(next_pos, orientation=orientation, steps=50, hold_companion=hold_companion)
 
     def get_end_effector_pose(self) -> tuple[np.ndarray, np.ndarray]:
@@ -1081,6 +1074,7 @@ class PandaController:
         lift_height: float,
         xy_offset: tuple[float, float] = (0.0, 0.0),
         hold_companion: "PandaController | None" = None,
+        r1_world_pos: list[float] | None = None,
     ) -> bool:
         start_obj_pos = np.array(p.getBasePositionAndOrientation(body_id)[0])
         self._last_grasp_failure = None
@@ -1114,6 +1108,7 @@ class PandaController:
             grasp_clearance=grasp_clearance,
             lift_height=lift_height,
             xy_offset=xy_offset,
+            r1_world_pos=r1_world_pos,
         )
 
         selected_orientation = candidate["orientation"]
@@ -1246,6 +1241,7 @@ class PandaController:
         use_constraint: bool = False,
         max_attempts: int = 3,
         hold_companion: "PandaController | None" = None,
+        r1_world_pos: list[float] | None = None,
     ) -> bool:
         """
         Contact-based grasp primitive.
@@ -1305,6 +1301,10 @@ class PandaController:
         retry_offsets = self._build_retry_offsets(max_attempts=max_attempts)
         attempts = len(retry_offsets)
         for attempt_idx in range(attempts):
+            # 첫 시도는 R1 world_pos 사용, retry부터는 AABB fallback
+            _r1_pos = r1_world_pos if attempt_idx == 0 else None
+            if attempt_idx > 0 and r1_world_pos is not None:
+                print(f"[{self.name}] retry {attempt_idx}: R1 world_pos 포기 → AABB fallback")
             ok = self._grasp_body_no_constraint(
                 body_id=body_id,
                 orientation=orientation,
@@ -1313,6 +1313,7 @@ class PandaController:
                 lift_height=lift_height,
                 xy_offset=retry_offsets[attempt_idx],
                 hold_companion=hold_companion,
+                r1_world_pos=_r1_pos,
             )
             if ok:
                 return True
