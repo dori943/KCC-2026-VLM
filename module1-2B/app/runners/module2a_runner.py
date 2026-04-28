@@ -35,6 +35,7 @@ def run_module2a_pipeline(
     task_notes: list[str] | None = None,
     reasoner_mode: str = "llm",
     output_root: Path | None = None,
+    task_scene_image_path: Path | None = None,
 ) -> dict[str, Any]:
     """Generate Module 2-A output from module2_common_input or Module 1 bridge."""
     root = project_root()
@@ -105,6 +106,7 @@ def run_module2a_pipeline(
         module2_common_input=module2_common_input,
         vocab_registry=vocab_registry,
         reasoner_mode=reasoner_mode,
+        task_scene_image_path=task_scene_image_path,
     )
     provider_metadata["module2a_reasoner"] = module2a_reasoner_metadata
 
@@ -178,6 +180,7 @@ def _generate_module2a_output(
     module2_common_input: dict[str, Any],
     vocab_registry: dict[str, Any],
     reasoner_mode: str,
+    task_scene_image_path: Path | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     if reasoner_mode != "llm":
         raise ValueError(
@@ -187,6 +190,7 @@ def _generate_module2a_output(
     return generate_module2a_output_with_llm(
         module2_common_input=module2_common_input,
         vocab_registry=vocab_registry,
+        task_scene_image_path=task_scene_image_path,
     )
 
 

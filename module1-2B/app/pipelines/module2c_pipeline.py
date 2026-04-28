@@ -53,11 +53,14 @@ def run_module2c_pipeline(
     if not resolved_api_key:
         raise ValueError("OPENAI_API_KEY 환경변수 또는 --api-key 옵션이 필요합니다.")
 
+    # task_scene_image 보조 입력 경로 (provider metadata 에 포함되어 있으면 전달)
+    task_scene_image_path = provider_result.metadata.get("task_scene_image_path")
     candidates, generation_trace = generate_candidates(
         input_data=input_data,
         api_key=resolved_api_key,
         model=model,
         temperature=temperature,
+        task_scene_image_path=task_scene_image_path,
     )
 
     output = Module2COutput(candidate_tools=candidates, generation_trace=generation_trace)

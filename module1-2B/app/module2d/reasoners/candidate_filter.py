@@ -25,7 +25,7 @@ from app.module2d.models import (
 #       → "min_effective_reach lower_bound 4.0level_1_to_5"
 #     "max_tool_body_width upper_bound 2.5level_1_to_5"
 #       → "max_tool_body_width upper_bound 3.0level_1_to_5"
-_EMERGENCE_DELTA = 0.5
+_EMERGENCE_DELTA = 1.0  # 0.5 → 1.0 (T1 검증: 너무 빡빡한 hard 제약 때문에 모든 후보 탈락하는 문제 완화)
 _LEVEL_MIN = 1.0
 _LEVEL_MAX = 5.0
 # 'level_1_to_5' 단위 항목만 매칭한다.
@@ -98,6 +98,36 @@ def _relax_tool_constraints(
 CANDIDATE_SYSTEM_PROMPT = """너는 Module 2-D: 로봇 task를 위한 도구 조합 후보를 평가하는 전문가다.
 하나의 후보만 평가한다. 아래 절차를 순서대로 따르라.
 
+# ───────── 0단계 (필수): task type 분류 ─────────
+모든 평가는 task type 분류에서 시작한다. task description 의 의도를 다음 5부류 중 하나로 분류하라.
+이 분류는 이후 task_fit 체크리스트 (TF1~TF3) 의 판단 근거가 된다.
+
+(A) 좁은 틈/구멍/구석에서 작은 물체 추출
+    · 키워드: "명함", "끼인", "낀", "좁은 틈", "구석", "유리 조각"
+    · 권장 base: 얇고 길이가 긴 강체 (knife / flat_screwdriver / phillips_screwdriver / spatula / large_marker / fork)
+    · 부적합 base: 넓은 그릇류(bowl/mug/plate), 박스류(cracker_box/sugar_box/gelatin_box/pudding_box/foam_brick/wood_block)
+
+(B) 매달려 있거나 걸린 물체 끌어내림
+    · 키워드: "매달린", "걸린", "고리", "후크"
+    · 권장 base: 끝이 후킹 가능 (spatula / fork / adjustable_wrench / 휘어진 도구)
+    · 부적합 base: 직선 평면체, 컨테이너
+
+(C) 막힌 공간 너머 손잡이/문 회전·조작
+    · 키워드: "막힌", "잠긴", "닫힌", "손잡이"
+    · 권장 base: 길고 강체 레버 (hammer / phillips_screwdriver / flat_screwdriver / adjustable_wrench)
+    · 부적합 base: 얇은 marker, 약한 plastic, 컨테이너
+
+(D) 깊은 구멍 도달 (로봇 reach 한계 초과)
+    · 키워드: "깊은", "구멍 바닥", "안쪽", "닿을 수 없는"
+    · 권장 base: 가장 긴 봉형 OR 길이 확장 가능한 결합 (chain / rope / 결합 가능한 봉형)
+    · 핵심: total reach = base length + extension. chain/rope 결합으로 reach 확장 우선.
+    · 부적합 base: 짧은 도구 단독 (hammer 등)
+
+(E) 위험한 파편/날카로운 물체 안전 추출
+    · 키워드: "유리", "파편", "날카로운", "직접 접촉 없이"
+    · 권장 base: 안전 거리 확보 가능한 도구 (긴 spatula / 긴 막대) + 끝부 집기/걷어내기
+    · 부적합 base: 짧고 직접 접촉 필요한 도구
+
 # 입력
 
 - task: 로봇이 수행할 작업
@@ -167,6 +197,20 @@ C3. required_atoms 및 required_interaction_primitives를 이 도구 조합이 �
 C4. 타겟 물체를 손상시키지 않고 task 수행 가능한가?
 C5. 주변 환경을 손상시키지 않는가?
 
+[task_fit TF1~TF3] — 0단계에서 분류한 task type (A~E) 가이드를 참조해 평가
+TF1. 후보의 **base 물체 (used_objects 의 첫 번째 또는 가장 길/얇은 강체)** 의 shape/property 가
+     이 task type 의 **권장 base 카테고리** 에 속하는가?
+     예: type (A) 좁은 틈 task → base 가 elongated_thin/elongated_flat 강체이면 true,
+          mug/bowl/plate/박스류이면 false.
+TF2. 후보가 이 task type 의 **부적합 base** 를 포함하지 않는가?
+     예: type (A) 좁은 틈 task → 후보 used_objects 안에 mug/bowl/plate/cracker_box 가
+          base 또는 핵심 역할로 들어있으면 false.
+     (보조 stabilizer 역할이면 OK)
+TF3. 후보의 **구조적 단순성** 이 task 본질에 부합하는가?
+     · 단순 task (1-2 단계 동작으로 끝나는 것) 인데 3+ object 조합으로 과복잡 → false
+     · 복잡 task (다단계 또는 길이 확장 필요) 인데 1 object 단독으로 부족 → false
+     · 그 외 (단순 task에 1-2 object 조합 / 복잡 task에 3 object 결합) → true
+
 # 4단계: 보완 분석
 
 false 항목이 있으면 repair_analysis를 채워라.
@@ -178,14 +222,17 @@ false 항목이 있으면 repair_analysis를 채워라.
 
 1. JSON만 출력하라.
 2. stage_scores/total_score/pass/failed_stage/weak_points는 출력하지 마라. 시스템이 계산한다.
-3. checklist는 반드시 G1~G7(7개) + P1~P6(6개) + C1~C5(5개) = 18개 전부 출력하라.
+3. checklist는 반드시 G1~G7(7개) + P1~P6(6개) + C1~C5(5개) + TF1~TF3(3개) = 21개 전부 출력하라.
 4. result=false인 항목만 false_reason을 채워라. true면 null.
+5. pre_analysis 에 **task_type_classification** 필드를 반드시 포함하라
+   (0단계에서 분류한 A/B/C/D/E 중 하나 + 한 줄 근거).
 
 # 출력 형식
 
 {
   "candidate_id": "...",
   "pre_analysis": {
+    "task_type_classification": "A | B | C | D | E — 한 줄 근거",
     "object_profiles": [
       {
         "name": "물체명",
@@ -230,6 +277,11 @@ false 항목이 있으면 repair_analysis를 채워라.
       {"item": "C3", "result": true, "false_reason": null},
       {"item": "C4", "result": false, "false_reason": "이유"},
       {"item": "C5", "result": true, "false_reason": null}
+    ],
+    "task_fit": [
+      {"item": "TF1", "result": true, "false_reason": null},
+      {"item": "TF2", "result": true, "false_reason": null},
+      {"item": "TF3", "result": true, "false_reason": null}
     ]
   },
   "repair_analysis": {
@@ -519,11 +571,13 @@ def _select_best_candidate(
 ) -> str | None:
     """Select best candidate.
 
-    1순위: passed=True 중 total_score 최대 (tiebreak: used_objects 길이).
+    1순위: passed=True 중 total_score 최대.
+    동점 시 tie-break:
+      a) task_fit score 높은 순 (task-type 적합성 우선)
+      b) weak_points 적은 순 (전체 결함 적은 후보 우선)
+      c) **used_objects 적은 순** (단순 우선 — 종전과 반대)
+         · 명함 꺼내기 같이 단순 task 에 3-object 조합이 우선되는 문제 해결
     Fallback: passed 가 0개이면 best-effort 로 가장 살릴 만한 후보를 1개 선택.
-       모든 후보가 hard filter 에서 탈락한 경우에도 None 을 반환하지 않는다.
-       (이전엔 None → Module 3 가 임의 후보로 폴백 → 품질 저하 + 실험 불가능.
-        이제 2-D 가 가장 위반 적은 후보를 명시적으로 선택해 Module 3 에 넘긴다.)
     """
     obj_count = {c["candidate_id"]: len(c.get("used_objects", [])) for c in candidate_tools}
 
@@ -531,7 +585,16 @@ def _select_best_candidate(
     if passed:
         max_score = max(c.total_score for c in passed)
         top = [c for c in passed if c.total_score == max_score]
-        return max(top, key=lambda c: obj_count.get(c.candidate_id, 0)).candidate_id
+
+        def _tie_key(c: EvaluatedCandidate) -> tuple:
+            tf_score = c.stage_scores.task_fit if c.stage_scores else 0.0
+            return (
+                tf_score,                           # 높을수록 좋음
+                -len(c.weak_points),                # 적을수록 좋음 (음수)
+                -obj_count.get(c.candidate_id, 0),  # 적을수록 좋음 (음수) — 단순 우선
+            )
+
+        return max(top, key=_tie_key).candidate_id
 
     # ── Fallback: passed=0 이어도 best-effort 로 1개 선택 ──
     if not evaluated:
@@ -561,6 +624,7 @@ _PASS_THRESHOLDS = {
     "geometry": 2.0,
     "physics": 1.5,
     "commonsense": 1.5,
+    "task_fit": 1.0,  # NEW: 3 항목 중 yes 1개 미만이면 fail (느슨하게)
     "total": 3.5,
 }
 
@@ -586,9 +650,12 @@ def _parse_evaluated_candidates(raw: list[dict[str, Any]]) -> list[EvaluatedCand
         geo_items = checklist.get("geometry", [])
         phys_items = checklist.get("physics", [])
         comm_items = checklist.get("commonsense", [])
+        tf_items = checklist.get("task_fit", [])  # NEW: LLM 누락 시 빈 리스트
 
         if env_failed or asm_failed:
-            stage_scores = StageScores(geometry=0.0, physics=0.0, commonsense=0.0)
+            stage_scores = StageScores(
+                geometry=0.0, physics=0.0, commonsense=0.0, task_fit=0.0
+            )
             passed = False
             failed_stage = "environment" if env_failed else "assembly"
         else:
@@ -596,7 +663,8 @@ def _parse_evaluated_candidates(raw: list[dict[str, Any]]) -> list[EvaluatedCand
             g = _score_from_checklist(geo_items)
             p = _score_from_checklist(phys_items)
             c = _score_from_checklist(comm_items)
-            stage_scores = StageScores(geometry=g, physics=p, commonsense=c)
+            tf = _score_from_checklist(tf_items) if tf_items else 0.0
+            stage_scores = StageScores(geometry=g, physics=p, commonsense=c, task_fit=tf)
             total = stage_scores.total()
 
             failed_stage = None
@@ -606,13 +674,20 @@ def _parse_evaluated_candidates(raw: list[dict[str, Any]]) -> list[EvaluatedCand
                 failed_stage = "physics"
             elif c < _PASS_THRESHOLDS["commonsense"]:
                 failed_stage = "commonsense"
+            elif tf < _PASS_THRESHOLDS["task_fit"]:
+                failed_stage = "task_fit"
             elif total < _PASS_THRESHOLDS["total"]:
                 failed_stage = "total"
             passed = failed_stage is None
 
         # Extract weak_points from checklist false items (score always 0.0)
         weak_points: list[WeakPoint] = []
-        for stage_name, stage_items in [("geometry", geo_items), ("physics", phys_items), ("commonsense", comm_items)]:
+        for stage_name, stage_items in [
+            ("geometry", geo_items),
+            ("physics", phys_items),
+            ("commonsense", comm_items),
+            ("task_fit", tf_items),  # NEW
+        ]:
             for ci in stage_items:
                 if ci.get("result") is False:
                     weak_points.append(WeakPoint(

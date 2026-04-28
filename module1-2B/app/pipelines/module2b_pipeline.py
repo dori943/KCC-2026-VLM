@@ -38,6 +38,7 @@ def run_module2b_pipeline(
     api_key: str | None = None,
     model: str = "gpt-4.1-mini",
     reasoner_mode: str = "llm",
+    task_scene_image_path: Path | None = None,
 ) -> dict[str, Any]:
     """Run Module 2-B with LLM-only reasoning and export layered artifacts."""
     if reasoner_mode != "llm":
@@ -86,6 +87,7 @@ def run_module2b_pipeline(
         normalized_context=normalized_context,
         api_key=api_key,
         model=model,
+        task_scene_image_path=task_scene_image_path,
     )
 
     output_validator = Module2BOutputValidator(root=root)

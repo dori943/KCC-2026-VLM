@@ -147,6 +147,15 @@ task_description 의 의도에 따라 base 선택 휴리스틱이 다르다. **�
 넓고 안정적이라는 이유만으로 mug/bowl/plate 를 base 로 잡는 것은 **거의 항상 오답**이다
 (이런 물체는 task 기능단(좁은 틈, 깊은 구멍, 매달린 물체)에 닿지 못한다).
 
+⚠️ **중요 — module2d filter 결과 해석 주의**:
+입력으로 받는 module2d 의 environment_filter / assembly_filter fail 정보는
+**"후보 조합 단위"** 평가일 뿐이며, 후보 내 **개별 물체의 적합성** 을 의미하지 않는다.
+예: filter 결과에 "knife tip thickness 위반"이 있어도, 그것은 후보 조합 평가의 부산물이지
+"knife 가 좁은 틈에 부적합하다"는 뜻이 **아니다**.
+→ base 선택은 위 (A)~(D) 부류 가이드의 **shape/property 기준만** 사용하라.
+"filter 가 두껍다고 했으니 thin tool 못 쓰겠다 → 안정적인 mug/bowl 을 base 로" 같은
+추론은 **절대 금지**.
+
 base_object / attach_object 정의 (중요 — 절대 혼동 금지):
 - base_object  : **이미 배치되어 있는 앵커 물체** (움직이지 않음)
 - attach_object: **새로 들어와 base에 붙이는 물체** (base 방향으로 이동)

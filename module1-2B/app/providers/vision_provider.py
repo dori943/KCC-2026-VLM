@@ -168,7 +168,7 @@ class VisionProvider:
             model
             or os.getenv("MODULE1_VISION_MODEL")
             or os.getenv("OPENAI_MODEL")
-            or "gpt-4.1-mini"
+            or "gpt-4o"  # 2026-04-28: gpt-4.1-mini → gpt-4o (더 깊은 multimodal 추론)
         )
         base = api_base or os.getenv("OPENAI_API_BASE") or "https://api.openai.com/v1"
         self.api_url = base.rstrip("/") + "/chat/completions"
@@ -1059,7 +1059,7 @@ def _infer_contact_profile_via_llm(
         os.getenv("MODULE1_CONTACT_PROFILE_MODEL")
         or os.getenv("MODULE1_VISION_MODEL")
         or os.getenv("OPENAI_MODEL")
-        or "gpt-4.1-mini"
+        or "gpt-4o"  # 2026-04-28: gpt-4.1-mini → gpt-4o
     )
     base = os.getenv("OPENAI_API_BASE") or "https://api.openai.com/v1"
     api_url = base.rstrip("/") + "/chat/completions"

@@ -325,3 +325,87 @@ def _split_top_level(text: str, delimiter: str) -> list[str]:
             start = idx + 1
     items.append(text[start:])
     return items
+
+
+# ─────────────────────────────────────────────────────────────
+# Vision input helpers — task_scene_image 보조 입력용 (2A/2B/2C)
+# ─────────────────────────────────────────────────────────────
+
+import base64 as _base64
+
+
+def _encode_image_to_base64(image_path: Path) -> tuple[str, str]:
+    """Read image file and return (base64_str, mime_type)."""
+    suffix = image_path.suffix.lower()
+    mime = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".webp": "image/webp",
+    }.get(suffix, "image/png")
+    b64 = _base64.b64encode(image_path.read_bytes()).decode("ascii")
+    return b64, mime
+
+
+def build_user_content_with_image(
+    text: str,
+    task_scene_image_path: "Path | None",
+    detail: str = "auto",
+):
+    """Build multimodal user content for chat.completions.
+
+    - task_scene_image_path 가 유효 경로이면 [{type:text}, {type:image_url}] 리스트 반환
+    - None 이거나 파일 없으면 text str 그대로 반환 (backwards compat)
+    """
+    if task_scene_image_path is None:
+        return text
+    p = Path(task_scene_image_path)
+    if not p.exists():
+        return text
+    b64, mime = _encode_image_to_base64(p)
+    return [
+        {"type": "text", "text": text},
+        {
+            "type": "image_url",
+            "image_url": {
+                "url": f"data:{mime};base64,{b64}",
+                "detail": detail,
+            },
+        },
+    ]
+
+
+# 모듈별 system prompt 에 추가할 가드 안내문 (재사용)
+
+GUARD_TEXT_2A = """\
+
+[참고 이미지 — task_scene_image 보조 자료]
+첨부된 이미지는 task가 발생하는 현실적 정황을 시각으로 보여주는 보조 자료다.
+- 정성적(qualitative) 정황 이해에만 사용. (예: 좁은 공간/깊이/접근성 직관)
+- subgoal 의 개수, id, 순서, required_atoms 를 이미지 보고 변경하지 말 것.
+- task description 이 source of truth. 이미지는 description 의 이해를 돕는 보조용일 뿐.
+"""
+
+GUARD_TEXT_2B = """\
+
+[참고 이미지 — task_scene_image 보조 자료]
+첨부된 이미지는 task 환경의 정성적(qualitative) 정황을 보여주는 보조 자료다.
+⚠ 매우 중요 — 정량 제약 산출 시 주의:
+- 이미지에서 본 수치 (예: \"틈이 2cm 정도 보임\") 를 numeric_estimates 또는
+  derived_constraints 의 max/min/lower_bound/upper_bound 에 직접 매핑하지 마라.
+- 이미지는 환경의 일반적 정황 이해 (좁은 공간, 깊은 구멍, 매달림 등) 에만 사용.
+- 정량 제약은 보수적(느슨하게) 산출하라. 너무 빡빡한 thickness/reach 제약은 후보 전멸을 유발한다.
+- task description 의 표현을 우선 신뢰하고 이미지로 구체적 수치를 강화하지 마라.
+"""
+
+GUARD_TEXT_2C = """\
+
+[참고 이미지 — task_scene_image 보조 자료]
+첨부된 이미지는 task 환경의 정성적(qualitative) 정황을 보여주는 보조 자료다.
+- 환경 직관 / 도구 결합 발상 / 창발적 후보 생성에 활용하라.
+- derived_constraints 와 subgoal_constraints 는 텍스트 입력이 source of truth.
+  이미지를 핑계로 제약을 무시하지 말 것.
+- 이미지에 보이는 객체 (소파, 하수구 등) 는 scene_objects 와 별개의 정황 자료다.
+  used_objects 는 반드시 scene_objects.name 만 사용하라.
+"""
+

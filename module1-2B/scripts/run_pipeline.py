@@ -108,6 +108,7 @@ def run_full_pipeline(
     stop_at: str,
     preloaded_dirs: dict[str, Path],
     scene_info_path: Path | None = None,
+    task_scene_image_path: Path | None = None,
 ) -> dict[str, Path]:
     """모듈 1~3 순차 실행. preloaded_dirs는 --start-from이 2a 이상일 때 필요."""
     start_idx = _stage_index(start_from)
@@ -149,6 +150,7 @@ def run_full_pipeline(
         m2a = run_module2a_pipeline(
             module2_input_path=common_input,
             user_goal=task_description or None,
+            task_scene_image_path=task_scene_image_path,
         )
         dirs["2a"] = Path(m2a["run_dir"])
         print(f"  -> run_dir: {dirs['2a']}  ({_elapsed(t0)})")
@@ -182,6 +184,7 @@ def run_full_pipeline(
             api_key=api_key,
             model=model,
             reasoner_mode="llm",
+            task_scene_image_path=task_scene_image_path,
         )
         dirs["2b"] = Path(m2b["run_dir"])
         print(f"  -> run_dir: {dirs['2b']}  ({_elapsed(t0)})")
@@ -200,6 +203,7 @@ def run_full_pipeline(
             task=task_description,
             api_key=api_key,
             scene_info_path=scene_info_path,
+            task_scene_image_path=task_scene_image_path,
         )
         if scene_info_path:
             print(f"  → scene_info: {scene_info_path}")
@@ -294,11 +298,18 @@ def main() -> int:
     scene_info_path  = Path(args.scene_info) if args.scene_info else (
         Path(preset["scene_info"]) if preset.get("scene_info") else None
     )
+    # task_scene_image: VLM 이 task 정황을 정성적으로 이해하도록 돕는 보조 이미지.
+    # cases/task_scene_images/<task>.png 형태. 2A/2B/2C 의 LLM 에 첨부됨.
+    task_scene_image_path = (
+        Path(preset["task_scene_image"]) if preset.get("task_scene_image") else None
+    )
 
     if image_path and not image_path.is_absolute():
         image_path = PROJECT_ROOT / image_path
     if scene_info_path and not scene_info_path.is_absolute():
         scene_info_path = (PROJECT_ROOT / scene_info_path).resolve()
+    if task_scene_image_path and not task_scene_image_path.is_absolute():
+        task_scene_image_path = (PROJECT_ROOT / task_scene_image_path).resolve()
 
     if task_name is None and image_path is not None:
         task_name = image_path.stem
@@ -326,6 +337,7 @@ def main() -> int:
     print(f"Stages:       {args.start_from} -> {args.stop_at}")
     print(f"Model:        {args.model}")
     print(f"SceneInfo:    {scene_info_path or '(없음 — AABB 좌표 주입 건너뜀)'}")
+    print(f"TaskSceneImg: {task_scene_image_path or '(없음 — 보조 이미지 사용 안 함)'}")
 
     total_t0 = time.time()
     try:
@@ -341,6 +353,7 @@ def main() -> int:
             stop_at=args.stop_at,
             preloaded_dirs=preloaded_dirs,
             scene_info_path=scene_info_path,
+            task_scene_image_path=task_scene_image_path,
         )
     except Exception as e:
         print(f"\n[ERROR] 파이프라인 실패: {e}", file=sys.stderr)

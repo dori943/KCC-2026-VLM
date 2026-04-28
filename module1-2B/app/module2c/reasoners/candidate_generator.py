@@ -124,10 +124,16 @@ subgoal_constraints에 위 목록에 없는 atom이 있으면 그 의미를 추�
    - 긴 물체 + 후킹 구조 결합 → 갈고리 도구
 
 5. 다양한 물체를 활용하라. 동일 후보 내에서 같은 물체를 중복 사용하지 마라.
-6. **[강제 규칙] 6개 후보 중 최소 2개는 반드시 3개 이상의 물체 조합이어야 한다.**
-   - 2개 조합만 6개 만들면 규칙 위반이다.
-   - 권장 분포: 2개 조합 3~4개, 3개 이상 조합 2~3개.
-   - 3개 이상 조합 예시:
+6. **used_objects 개수 규칙 — task 본질에 맞춰 자유롭게 결정하라**:
+   - **1-object 단독 후보는 금지** (양팔 결합 모델 전제 — 결합할 물체가 있어야 함)
+   - **3+ object 후보는 최소 1개 포함하라** (창발성 보장)
+   - 단순 task (좁은 틈 추출, 평면 sweep 등) → 2-object 결합이 자연스럽다
+   - 복잡 task (reach 한계 초과, 다단계 조작) → 3-object 결합으로 길이 확장/grip 보강
+   - **부적합 강제 결합 금지**: "결합" 자체가 목적이 아니라
+     "task 수행에 의미 있는 결합"만 만들어라.
+     의미 없는 attach (예: 좁은 틈 task에 base가 컨테이너인 후보) 만들지 마라.
+   - 권장 분포: 2-object 4~5개, 3+ object 1~2개.
+   - 3+ object 예시:
      * "긴 막대 + 클램프 + 마찰 패드" → 미끄럼 방지 집게 막대
      * "받침대 + 정렬 가이드 + 작동 팁" → 정렬 보조 도구
      * "갈고리 + 연장 막대 + 무게추" → 안정화 갈고리
@@ -150,8 +156,8 @@ subgoal_constraints에 위 목록에 없는 atom이 있으면 그 의미를 추�
 
 1. JSON만 출력하라.
 2. candidate_tools는 6개 이상 포함하라.
-3. **[강제] 6개 중 최소 2개는 used_objects 길이가 3 이상이어야 한다.**
-   used_objects 길이가 모두 2인 출력은 규칙 위반이다.
+3. used_objects 길이 규칙: **1은 금지, 2~5 자유, 3+ 길이 후보 최소 1개 포함**.
+   "결합" 자체가 목적이 아니라 "task 수행에 의미 있는 결합"만 만들어라.
 4. **[매우 중요] used_objects 는 반드시 [scene_objects].name 의 실제 물체 이름**
    (예: "fork", "plate", "spoon", "adjustable_wrench", "cracker_box") **만 사용하라.**
    - [object_physical_properties].name 이 "obj_01", "obj_03" 같은 abstract id 형태일
@@ -233,6 +239,7 @@ def generate_candidates(
     model: str = "gpt-4o",
     temperature: float = 0.3,
     max_tokens: int = 4096,
+    task_scene_image_path: "str | Path | None" = None,
 ) -> tuple[list[CandidateTool], dict[str, Any]]:
     client = OpenAI(api_key=api_key or os.environ["OPENAI_API_KEY"])
 
@@ -258,13 +265,28 @@ def generate_candidates(
         + json.dumps(user_payload, ensure_ascii=False, indent=2)
     )
 
+    # task_scene_image 보조 입력 사용 시 system prompt 에 가드 안내문 + user 에 image 첨부
+    from pathlib import Path
+    from app.utils import GUARD_TEXT_2C, build_user_content_with_image
+
+    system_prompt_with_guard = SYSTEM_PROMPT
+    image_path_obj = (
+        Path(task_scene_image_path) if task_scene_image_path else None
+    )
+    if image_path_obj is not None and image_path_obj.exists():
+        system_prompt_with_guard = SYSTEM_PROMPT + GUARD_TEXT_2C
+    user_content = build_user_content_with_image(
+        text=user_message,
+        task_scene_image_path=image_path_obj,
+    )
+
     response = client.chat.completions.create(
         model=model,
         temperature=temperature,
         max_tokens=max_tokens,
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_message},
+            {"role": "system", "content": system_prompt_with_guard},
+            {"role": "user", "content": user_content},
         ],
         response_format={"type": "json_object"},
     )

@@ -11,15 +11,21 @@ class StageScores:
     geometry: float
     physics: float
     commonsense: float
+    task_fit: float = 0.0  # NEW: task-type 적합성 (TF1~TF3). default 0.0 으로 기존 호환.
 
     def total(self) -> float:
-        return round((self.geometry + self.physics + self.commonsense) / 3, 4)
+        # task_fit 가중치 2배 (5개 후보가 G/P/C 만으로 동점 4.3889 되는 문제 해결).
+        # 분모 5 = 1+1+1+2.
+        return round(
+            (self.geometry + self.physics + self.commonsense + 2 * self.task_fit) / 5, 4
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "geometry": self.geometry,
             "physics": self.physics,
             "commonsense": self.commonsense,
+            "task_fit": self.task_fit,
         }
 
 

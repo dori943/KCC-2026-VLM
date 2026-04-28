@@ -86,6 +86,7 @@ def generate_module2b_output_with_llm(
     model: str | None = None,
     timeout_seconds: float = 180.0,
     api_base: str | None = None,
+    task_scene_image_path: Path | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Generate Module 2-B output with an OpenAI LLM and normalize it."""
     root = project_root()
@@ -108,6 +109,9 @@ def generate_module2b_output_with_llm(
         path=prompt_spec_path or (root / "specs" / "module2b_prompt_spec.md")
     )
 
+    # task_scene_image 보조 입력 사용 시 system prompt 에 가드 안내문 추가
+    from app.utils import GUARD_TEXT_2B, build_user_content_with_image
+
     system_prompt = (
         "너는 Module 2-B: Target Object 및 환경 제약 반영기(env-only)이다. "
         "user 메시지의 module2b_prompt_spec(specs/module2b_prompt_spec.md)을 "
@@ -121,6 +125,8 @@ def generate_module2b_output_with_llm(
         "(4) Module 3의 plan/assembly/실행은 절대 하지 않는다. 환경 제약만 본다. "
         "JSON only, JSON 바깥 설명 금지."
     )
+    if task_scene_image_path is not None and Path(task_scene_image_path).exists():
+        system_prompt = system_prompt + GUARD_TEXT_2B
     task_description_focus = _extract_task_focus(
         raw_bundle=raw_bundle,
         normalized_context=normalized_context,
@@ -163,12 +169,16 @@ def generate_module2b_output_with_llm(
         },
     }
     user_prompt = json.dumps(user_payload, ensure_ascii=False)
+    user_content = build_user_content_with_image(
+        text=user_prompt,
+        task_scene_image_path=task_scene_image_path,
+    )
 
     body = {
         "model": resolved_model,
         "messages": [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
+            {"role": "user", "content": user_content},
         ],
         "response_format": {"type": "json_object"},
         "temperature": 0,

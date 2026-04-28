@@ -2,34 +2,39 @@ tasks:
   task1:
     name: card_from_gap
     image: cases/images/card_from_gap.png
-    target_name: "business card"
-    description: "좁은 틈에 끼인 명함을, 구기거나 찢지 않고 꺼낸다."
+    task_scene_image: cases/task_scene_images/card_from_gap.png
+    target_name: "emergency prescription paper"
+    description: "거실 두 가구 사이의 좁은 틈에 끼인 응급 처방전을 꺼내야 한다. 종이가 구겨지거나 찢어지면 처방전이 무효 처리되어 약을 받을 수 없으므로, 평면 형태를 유지한 채로 꺼내야 한다. 좁은 틈은 사람 손가락이 들어가지 않는 폭이다."
     scene_info: ../scene_info_case1.json
 
   task2:
     name: deep_hole_reach
     image: cases/images/deep_hole_reach.png
-    target_name: "target object at hole bottom"
-    description: "아주 깊은 구멍 바닥에 있는 타겟 물체를 로봇 팔 길이의 한계를 극복하여 꺼낸다. 로봇 팔의 길이는 구멍 깊이의 절반밖에 되지 않고, 주변에 긴 막대기도 없다."
+    task_scene_image: cases/task_scene_images/deep_hole_reach.png
+    target_name: "car key in sewer drain"
+    description: "도시 길거리 하수구 격자 사이로 떨어진 자동차 키를 회수해야 한다. 격자의 슬릿은 사람 손이 들어가지 않을 정도로 좁아서, 도구 없이는 키에 접근할 수 없다. 키 없이는 차 잠금 해제가 불가능하다."
     scene_info: ../scene_info_case2.json
 
   task3:
     name: suspended_target
     image: cases/images/suspended_target.png
-    target_name: "suspended target object"
-    description: "얇은 실에 매달려 공중에 떠 있는 목표 물체를 장력을 올리지 않고 안전하게 회수한다. 실은 일정 장력 이상에서 즉시 끊어지므로 직접 당기면 실패한다."
+    task_scene_image: cases/task_scene_images/suspended_target.png
+    target_name: "suspended medicine bottle on string"
+    description: "부엌 선반 모서리의 가느다란 끈에 매달려 공중에 떠 있는 응급 약병을 안전하게 회수해야 한다. 끈은 약하기 때문에 일정 장력 이상이 가해지면 즉시 끊어지며, 그 경우 약병이 바닥으로 떨어져 깨진다. 환자가 약을 기다리고 있어 부드럽게 받쳐 회수해야 한다."
     scene_info: ../scene_info_case3.json
 
   task4:
     name: blocked_door_handle
     image: cases/images/blocked_door_handle.png
-    target_name: "door handle"
-    description: "지진 또는 재난으로 인해 장애물에 가로막힌 문을 열기 위해, 좁은 접근 공간 너머에 위치한 손잡이를 회전시킨다."
+    task_scene_image: cases/task_scene_images/blocked_door_handle.png
+    target_name: "door handle behind fallen bookshelf"
+    description: "지진으로 무너진 무거운 책장이 닫힌 방문 앞을 가로막아, 책장 위쪽으로만 좁은 공간이 남았다. 그 너머 방에 갇힌 사람을 구조하려면 책장 너머의 문 손잡이를 회전시켜 문을 열어야 한다. 책장은 너무 무거워 옮길 수 없다."
     scene_info: ../scene_info_case4.json
 
   task5:
     name: glass_shard_extract
     image: cases/images/glass_shard_extract.png
-    target_name: "key component in glass shards"
-    description: "날카로운 유리 파편 더미 속에 있는 핵심 부품을 직접 접촉 없이 안전하게 꺼낸다."
+    task_scene_image: cases/task_scene_images/glass_shard_extract.png
+    target_name: "hearing aid battery in glass shards"
+    description: "주방 바닥에 깨진 유리컵 파편 더미 속에 떨어진 노인의 보청기용 단추형 배터리를 회수해야 한다. 직접 접촉 시 유리에 베일 위험이 있고, 배터리가 손상되면 보청기를 사용할 수 없다. 안전 거리를 유지하며 부드럽게 부품만 분리해야 한다."
     scene_info: ../scene_info_case5.json

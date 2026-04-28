@@ -71,12 +71,16 @@ class Module2BOutputProvider:
         task: str | None = None,
         api_key: str | None = None,
         scene_info_path: Path | None = None,
+        task_scene_image_path: Path | None = None,
     ) -> None:
         self.image_path = Path(image_path) if image_path else None
         self.target_name = target_name
         self.task = task
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
         self.scene_info_path = Path(scene_info_path) if scene_info_path else None
+        self.task_scene_image_path = (
+            Path(task_scene_image_path) if task_scene_image_path else None
+        )
 
     def get_bundle(
         self,
@@ -138,6 +142,9 @@ class Module2BOutputProvider:
                 "material_reasoner_used": material_result is not None,
                 "scene_info_used": self.scene_info_path is not None,
                 "module1_raw_used": module1_raw is not None,
+                "task_scene_image_path": (
+                    str(self.task_scene_image_path) if self.task_scene_image_path else None
+                ),
             },
         )
 

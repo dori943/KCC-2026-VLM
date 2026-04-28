@@ -20,6 +20,7 @@ def generate_module2a_output_with_llm(
     model: str | None = None,
     timeout_seconds: float = 120.0,
     api_base: str | None = None,
+    task_scene_image_path: Path | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Generate Module 2-A output by calling an OpenAI LLM."""
     root = project_root()
@@ -34,7 +35,7 @@ def generate_module2a_output_with_llm(
         model
         or os.getenv("MODULE2A_REASONER_MODEL")
         or os.getenv("OPENAI_MODEL")
-        or "gpt-4.1-mini"
+        or "gpt-4o"  # 2026-04-28: gpt-4.1-mini → gpt-4o (복잡 subgoal 분해 추론 강화)
     )
     base = api_base or os.getenv("OPENAI_API_BASE") or "https://api.openai.com/v1"
     api_url = base.rstrip("/") + "/chat/completions"
@@ -45,10 +46,15 @@ def generate_module2a_output_with_llm(
         path=prompt_spec_path or (root / "specs" / "module2a_prompt_spec.md")
     )
 
+    # task_scene_image 보조 입력 사용 시 system prompt 에 가드 안내문 추가
+    from app.utils import GUARD_TEXT_2A, build_user_content_with_image
+
     system_prompt = (
         "You are Module 2-A task decomposition and function requirement extraction reasoner. "
         "Return only strict JSON that follows the provided JSON schema."
     )
+    if task_scene_image_path is not None and Path(task_scene_image_path).exists():
+        system_prompt = system_prompt + GUARD_TEXT_2A
     user_payload = {
         "task": "Generate module2a_output from module2_common_input.",
         "requirements": [
@@ -62,12 +68,16 @@ def generate_module2a_output_with_llm(
         "module2a_vocab": vocab_registry.get("module2a", {}),
     }
     user_prompt = json.dumps(user_payload, ensure_ascii=False)
+    user_content = build_user_content_with_image(
+        text=user_prompt,
+        task_scene_image_path=task_scene_image_path,
+    )
 
     body = {
         "model": resolved_model,
         "messages": [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
+            {"role": "user", "content": user_content},
         ],
         "response_format": {
             "type": "json_schema",
