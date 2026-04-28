@@ -1041,6 +1041,7 @@ class PandaController:
         lift_height: float,
         xy_offset: tuple[float, float] = (0.0, 0.0),
         hold_companion: "PandaController | None" = None,
+        r1_world_pos: list[float] | None = None,
     ) -> bool:
         start_obj_pos = np.array(p.getBasePositionAndOrientation(body_id)[0])
         self._last_grasp_failure = None
@@ -1059,6 +1060,15 @@ class PandaController:
         grasp = candidate["grasp"]
         lift = candidate["lift"]
         size_z = float(candidate.get("size_z", 0.10))
+
+        # r1_world_pos가 있으면 AABB 기반 xy를 R1 추론 좌표로 override
+        if r1_world_pos is not None:
+            r1_xy = [float(r1_world_pos[0]), float(r1_world_pos[1])]
+            r1_z  = float(r1_world_pos[2])
+            approach = [r1_xy[0], r1_xy[1], approach[2]]
+            grasp    = [r1_xy[0], r1_xy[1], r1_z]
+            lift     = [r1_xy[0], r1_xy[1], lift[2]]
+            print(f"[{self.name}] r1_world_pos override: xy={r1_xy}, z={r1_z:.4f}")
 
         self.move_end_effector_to(approach, orientation=selected_orientation, steps=420, hold_companion=hold_companion)
         self.move_end_effector_to(grasp, orientation=selected_orientation, steps=360, hold_companion=hold_companion)
@@ -1169,6 +1179,7 @@ class PandaController:
         use_constraint: bool = False,
         max_attempts: int = 3,
         hold_companion: "PandaController | None" = None,
+        r1_world_pos: list[float] | None = None,
     ) -> bool:
         """
         Contact-based grasp primitive.
@@ -1218,6 +1229,7 @@ class PandaController:
                 lift_height=lift_height,
                 xy_offset=retry_offsets[attempt_idx],
                 hold_companion=hold_companion,
+                r1_world_pos=r1_world_pos,
             )
             if ok:
                 return True
