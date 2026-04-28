@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -151,12 +152,22 @@ class Module2BOutputProvider:
 
 # ─── Module 1 탐색 ─────────────────────────────────────────────
 
-def _find_module1_normalized(module2b_dir: Path) -> dict[str, Any] | None:
-    search_roots = [
+def _build_upstream_search_roots(module2b_dir: Path) -> list[Path]:
+    roots: list[Path] = []
+    for root in [
+        module2b_dir,
         module2b_dir.parent,
-        module2b_dir.parent.parent / "module1-2B" / "outputs",
-        module2b_dir.parent.parent / "outputs",
-    ]
+        module2b_dir.parent.parent,
+        project_root() / "outputs",
+        project_root() / "module1-2B" / "outputs",
+    ]:
+        if root not in roots:
+            roots.append(root)
+    return roots
+
+
+def _find_module1_normalized(module2b_dir: Path) -> dict[str, Any] | None:
+    search_roots = _build_upstream_search_roots(module2b_dir)
     for root in search_roots:
         if not root.exists():
             continue
@@ -186,11 +197,7 @@ def _find_module1_raw(module2b_dir: Path) -> dict[str, Any] | None:
         except Exception:
             pass
 
-    search_roots = [
-        module2b_dir.parent,
-        module2b_dir.parent.parent / "module1-2B" / "outputs",
-        module2b_dir.parent.parent / "outputs",
-    ]
+    search_roots = _build_upstream_search_roots(module2b_dir)
     for root in search_roots:
         if not root.exists():
             continue
@@ -222,10 +229,7 @@ def _find_module2a_output(module2b_dir: Path) -> dict[str, Any] | None:
         except Exception:
             pass
 
-    search_roots = [
-        module2b_dir.parent,
-        module2b_dir.parent.parent / "module1-2B" / "outputs",
-    ]
+    search_roots = _build_upstream_search_roots(module2b_dir)
     for root in search_roots:
         if not root.exists():
             continue
@@ -358,6 +362,80 @@ _SCENE_NAME_MAP: dict[str, str] = {
     "key": "key",
 }
 
+_GENERIC_OBJ_NAME_RE = re.compile(r"^(?:obj|pb)_\d+$", re.IGNORECASE)
+_COLOR_PREFIXES: tuple[str, ...] = (
+    "red", "blue", "green", "yellow", "orange", "black", "white", "gray", "grey", "silver"
+)
+
+
+def _looks_generic_object_name(name: str | None) -> bool:
+    if not name:
+        return False
+    return _GENERIC_OBJ_NAME_RE.match(name.strip()) is not None
+
+
+def _scene_label_candidates(name: str | None) -> list[str]:
+    """Return likely canonical scene labels for a noisy detector name."""
+    if not name:
+        return []
+    raw = name.strip().lower()
+    if not raw:
+        return []
+
+    normalized = raw.replace("-", "_").replace(" ", "_")
+    tokens = [t for t in normalized.split("_") if t]
+    if tokens and tokens[0] in _COLOR_PREFIXES:
+        tokens = tokens[1:]
+    stripped = "_".join(tokens)
+
+    candidates: list[str] = []
+
+    def _push(label: str | None) -> None:
+        if label and label not in candidates:
+            candidates.append(label)
+
+    for key in (raw, normalized, stripped):
+        _push(_SCENE_NAME_MAP.get(key))
+        _push(_SCENE_NAME_MAP.get(key.replace("_", " ")))
+
+    token_set = set(tokens)
+    if "plate" in token_set:
+        _push("plate")
+    if "mug" in token_set:
+        _push("mug")
+    if "bowl" in token_set:
+        _push("bowl")
+    if "fork" in token_set:
+        _push("fork")
+    if "spoon" in token_set:
+        _push("spoon")
+    if "knife" in token_set:
+        _push("knife")
+    if "spatula" in token_set:
+        _push("spatula")
+    if "marker" in token_set or "pen" in token_set:
+        _push("large_marker")
+    if "wrench" in token_set or "opener" in token_set:
+        _push("adjustable_wrench")
+    if "screwdriver" in token_set:
+        if "phillips" in token_set or "cross" in token_set:
+            _push("phillips_screwdriver")
+        elif "flat" in token_set:
+            _push("flat_screwdriver")
+        else:
+            _push("phillips_screwdriver")
+            _push("flat_screwdriver")
+    if "cereal" in token_set and "box" in token_set:
+        _push("cracker_box")
+    if "butter" in token_set and "box" in token_set:
+        _push("sugar_box")
+    if "jello" in token_set and "box" in token_set:
+        _push("gelatin_box")
+    if "jello" in token_set and "packet" in token_set:
+        _push("pudding_box")
+
+    return candidates
+
 
 # ── Scene pose sanity 가드 ────────────────────────────────────
 # PyBullet settle 도중 collision/freefall로 테이블 밖으로 튀어나간 물체가
@@ -409,23 +487,36 @@ def _merge_scene_info(
 
     # ── 비전 결과에서 graspable_regions / functional_regions 인덱싱 ──
     # PyBullet label 기준으로 매칭해 기존 vision 메타데이터를 최대한 보존
-    vision_meta_by_label: dict[str, dict[str, Any]] = {}
+    source_entries: list[dict[str, Any]] = []
     for so in scene_objects:
-        raw_name = so.get("name", "")
-        lowered = raw_name.strip().lower()
-        snake = lowered.replace(" ", "_").replace("-", "_")
-        mapped_name = (
-            _SCENE_NAME_MAP.get(raw_name)
-            or _SCENE_NAME_MAP.get(lowered)
-            or _SCENE_NAME_MAP.get(snake)
-            or snake
-        )
-        if mapped_name and mapped_name not in vision_meta_by_label:
-            vision_meta_by_label[mapped_name] = {
-                "graspable_regions": so.get("graspable_regions", ["body"]),
-                "functional_regions": so.get("functional_regions", ["surface"]),
-                "principal_axis_hint": so.get("principal_axis_hint", "z_axis"),
-            }
+        source_entries.append({
+            "object_id": so.get("object_id"),
+            "candidate_labels": _scene_label_candidates(so.get("name", "")),
+            "graspable_regions": so.get("graspable_regions", ["body"]),
+            "functional_regions": so.get("functional_regions", ["surface"]),
+            "principal_axis_hint": so.get("principal_axis_hint", "z_axis"),
+        })
+
+    used_source_ids: set[str] = set()
+
+    def _pick_source_for_label(label: str) -> dict[str, Any] | None:
+        for entry in source_entries:
+            oid = entry.get("object_id")
+            cands = entry.get("candidate_labels", [])
+            if not oid or oid in used_source_ids or not cands:
+                continue
+            if cands[0] == label:
+                used_source_ids.add(oid)
+                return entry
+        for entry in source_entries:
+            oid = entry.get("object_id")
+            cands = entry.get("candidate_labels", [])
+            if not oid or oid in used_source_ids:
+                continue
+            if label in cands:
+                used_source_ids.add(oid)
+                return entry
+        return None
 
     # ── PyBullet 정답 기준으로 wholesale 교체 (pose sanity 가드 적용) ──
     new_scene_objects: list[dict[str, Any]] = []
@@ -442,8 +533,10 @@ def _merge_scene_info(
         if not ok:
             rejected.append((label, reason))
             continue
-        object_id = f"pb_{int(pb_id):02d}" if pb_id is not None else f"pb_{label}"
-        meta = vision_meta_by_label.get(label, {})
+        source = _pick_source_for_label(label)
+        source_id = source.get("object_id") if source else None
+        object_id = source_id or (f"pb_{int(pb_id):02d}" if pb_id is not None else f"pb_{label}")
+        meta = source or {}
         new_scene_objects.append({
             "object_id": object_id,
             "name": label,
@@ -455,7 +548,7 @@ def _merge_scene_info(
             "functional_regions": meta.get("functional_regions", ["surface"]),
         })
 
-    matched_meta = sum(1 for pb in pb_objects if pb.get("label") in vision_meta_by_label)
+    matched_meta = len(used_source_ids)
     print(
         f"[scene_info] PyBullet ground truth로 wholesale 교체: "
         f"{len(new_scene_objects)}개 물체 (비전 메타데이터 매칭 {matched_meta}개)"
@@ -477,13 +570,20 @@ def _convert_module2b_to_2c_input(
     module1_raw: dict[str, Any] | None = None,
     module2a_output: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    scene_objects = _extract_scene_objects(normalized_context)
+    scene_objects = _extract_scene_objects(
+        normalized_context,
+        module1_raw=module1_raw,
+    )
 
     if scene_info_path:
         scene_objects = _merge_scene_info(scene_objects, scene_info_path)
 
     object_physical_properties = _extract_physical_properties(
         normalized_context, module1_raw
+    )
+    object_physical_properties = _sync_property_names_by_object_id(
+        scene_objects,
+        object_physical_properties,
     )
 
     return {
@@ -629,7 +729,18 @@ def _extract_tool_constraints(
     return result
 
 
-def _extract_scene_objects(normalized_context: dict[str, Any]) -> list[dict[str, Any]]:
+def _extract_scene_objects(
+    normalized_context: dict[str, Any],
+    module1_raw: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    raw_name_by_id: dict[str, str] = {}
+    if module1_raw:
+        for obj in module1_raw.get("objects", []):
+            oid = obj.get("object_id", "")
+            oname = obj.get("object_name", "")
+            if oid and oname:
+                raw_name_by_id[oid] = oname
+
     seen_ids: set[str] = set()
     scene_objects = []
     for obj in normalized_context.get("inventory", []):
@@ -647,7 +758,12 @@ def _extract_scene_objects(normalized_context: dict[str, Any]) -> list[dict[str,
                 graspable_regions.append(part_name)
             else:
                 functional_regions.append(part_name)
-        name = obj.get("object_name") or obj.get("name") or object_id
+        name = (
+            raw_name_by_id.get(object_id)
+            or obj.get("object_name")
+            or obj.get("name")
+            or object_id
+        )
         scene_objects.append({
             "object_id": object_id,
             "name": name,
@@ -795,7 +911,11 @@ def _extract_physical_properties(
 
         prop_entry: dict[str, Any] = {
             "object_id": object_id,
-            "name": obj.get("object_name") or raw_info.get("name", object_id),
+            "name": (
+                raw_info.get("name")
+                if _looks_generic_object_name(obj.get("object_name"))
+                else (obj.get("object_name") or raw_info.get("name", object_id))
+            ),
             "shape_category": shape_category,
             "estimated_mass_kg": estimated_mass,
             "surface_friction": surface_friction,
@@ -814,6 +934,28 @@ def _extract_physical_properties(
         properties.append(prop_entry)
 
     return properties
+
+
+def _sync_property_names_by_object_id(
+    scene_objects: list[dict[str, Any]],
+    properties: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Force property.name to follow scene_objects.name for the same object_id."""
+    scene_name_by_id: dict[str, str] = {}
+    for so in scene_objects:
+        oid = so.get("object_id")
+        name = so.get("name")
+        if oid and name:
+            scene_name_by_id[oid] = name
+
+    synced: list[dict[str, Any]] = []
+    for p in properties:
+        item = dict(p)
+        oid = item.get("object_id")
+        if oid in scene_name_by_id:
+            item["name"] = scene_name_by_id[oid]
+        synced.append(item)
+    return synced
 
 
 def _constraint_to_text(c: dict[str, Any]) -> str:

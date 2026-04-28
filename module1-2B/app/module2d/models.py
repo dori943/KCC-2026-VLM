@@ -11,13 +11,29 @@ class StageScores:
     geometry: float
     physics: float
     commonsense: float
-    task_fit: float = 0.0  # NEW: task-type 적합성 (TF1~TF3). default 0.0 으로 기존 호환.
+    task_fit: float = 0.0
+    emergence: float = 0.0
+    necessity: float = 0.0
+    role_contribution: float = 0.0
 
     def total(self) -> float:
-        # task_fit 가중치 2배 (5개 후보가 G/P/C 만으로 동점 4.3889 되는 문제 해결).
-        # 분모 5 = 1+1+1+2.
+        """Weighted score used for candidate selection.
+
+        The final score intentionally favors emergent, scenario-necessary,
+        role-complementary combinations over merely feasible assemblies.
+        """
         return round(
-            (self.geometry + self.physics + self.commonsense + 2 * self.task_fit) / 5, 4
+            (
+                self.geometry
+                + self.physics
+                + self.commonsense
+                + 1.5 * self.task_fit
+                + 1.5 * self.emergence
+                + 1.2 * self.necessity
+                + 1.3 * self.role_contribution
+            )
+            / 8.5,
+            4,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -26,6 +42,9 @@ class StageScores:
             "physics": self.physics,
             "commonsense": self.commonsense,
             "task_fit": self.task_fit,
+            "emergence": self.emergence,
+            "necessity": self.necessity,
+            "role_contribution": self.role_contribution,
         }
 
 
@@ -47,7 +66,7 @@ class WeakPoint:
 
 @dataclass(slots=True)
 class RepairAnalysis:
-    repair_type: str  # local_fix | global_redesign
+    repair_type: str
     target_issue: str
     reason: str
     repair_strategy: list[str]
@@ -74,6 +93,7 @@ class EvaluatedCandidate:
     assembly_filter: dict[str, Any] | None = field(default=None)
     checklist: dict[str, Any] | None = field(default=None)
     pre_analysis: dict[str, Any] | None = field(default=None)
+    emergence_analysis: dict[str, Any] | None = field(default=None)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -82,6 +102,7 @@ class EvaluatedCandidate:
             "environment_filter": self.environment_filter,
             "assembly_filter": self.assembly_filter,
             "checklist": self.checklist,
+            "emergence_analysis": self.emergence_analysis,
             "stage_scores": self.stage_scores.to_dict(),
             "total_score": self.total_score,
             "pass": self.passed,

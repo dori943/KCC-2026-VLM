@@ -38,3 +38,10 @@ tasks:
     target_name: "hearing aid battery in glass shards"
     description: "주방 바닥에 깨진 유리컵 파편 더미 속에 떨어진 노인의 보청기용 단추형 배터리를 회수해야 한다. 직접 접촉 시 유리에 베일 위험이 있고, 배터리가 손상되면 보청기를 사용할 수 없다. 안전 거리를 유지하며 부드럽게 부품만 분리해야 한다."
     scene_info: ../scene_info_case5.json
+
+  task6:
+    name: pet_cage_fire_rescue
+    image: cases/images/card_from_gap.png
+    target_name: "heated cage door latch"
+    description: "화재 상황에서 반려동물이 작은 케이지 안에 갇혀 있다. 케이지 문 고리는 뜨거운 금속 파편 뒤쪽에 있어 직접 접근이 어렵다. 로봇은 주변 YCB 물체만 사용해 안전 거리를 유지하며 고리를 걸어 당겨 문을 열어야 한다. 단일 물체로는 길이, 고리 걸기, 부드러운 접촉을 동시에 만족하기 어려우므로, 긴 손잡이와 갈고리형 접촉부와 완충 패드를 조합한 창발적 도구가 필요하다."
+    scene_info: ../scene_info_pet_cage.json

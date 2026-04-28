@@ -368,8 +368,32 @@ def _extract_json_content(response_payload: dict[str, Any]) -> dict[str, Any]:
         raise ValueError(
             "OpenAI response did not include a valid message content payload."
         ) from exc
+
+    # Chat Completions content may arrive as either:
+    # - a raw JSON string, or
+    # - a list of content parts (e.g. [{"type":"text","text":"{...}"}]).
+    if isinstance(content, list):
+        text_parts: list[str] = []
+        for part in content:
+            if isinstance(part, str):
+                text_parts.append(part)
+                continue
+            if not isinstance(part, dict):
+                continue
+            part_text = part.get("text")
+            if isinstance(part_text, str):
+                text_parts.append(part_text)
+        content = "".join(text_parts).strip()
+
+    if isinstance(content, dict):
+        # Defensive fallback for unexpected wrappers.
+        wrapped_text = content.get("text")
+        if isinstance(wrapped_text, str):
+            content = wrapped_text
+
     if not isinstance(content, str):
         raise ValueError("OpenAI response content is not a JSON string.")
+
     try:
         parsed = json.loads(content)
     except json.JSONDecodeError as exc:
