@@ -865,17 +865,24 @@ def _estimate_topdown_grasp_orientation(body_id: int) -> tuple[list[float], dict
     _, body_orn = p.getBasePositionAndOrientation(body_id)
     pose_yaw = float(p.getEulerFromQuaternion(body_orn)[2])
 
+    # Panda hand-frame mapping:
+    # - yaw=0   -> finger opening axis aligns with +Y
+    # - yaw=90  -> finger opening axis aligns with +X
+    # Therefore, to keep finger opening perpendicular to AABB long axis:
+    # - x_long -> yaw=0
+    # - y_long -> yaw=90deg
     if dx > dy * 1.2:
-        long_axis_angle = np.pi / 2.0
+        grasp_yaw = 0.0
         axis_mode = "x_long"
     elif dy > dx * 1.2:
-        long_axis_angle = 0.0
+        grasp_yaw = np.pi / 2.0
         axis_mode = "y_long"
     else:
-        long_axis_angle = pose_yaw
+        # Near-square: no strong AABB long-axis cue, keep pose yaw.
+        grasp_yaw = pose_yaw
         axis_mode = "near_square"
 
-    grasp_yaw = _normalize_angle_rad(long_axis_angle + pose_yaw)
+    grasp_yaw = _normalize_angle_rad(grasp_yaw)
     grasp_orientation = list(p.getQuaternionFromEuler([np.pi, 0.0, grasp_yaw]))
     return grasp_orientation, {
         "dx": dx,
@@ -1982,4 +1989,3 @@ def main() -> None:
  
 if __name__ == "__main__":
     main()
-

@@ -519,10 +519,11 @@ class PandaController:
     def _estimate_object_inplane_angle(self, body_id: int) -> float:
         """
         Estimate object in-plane (world Z) yaw.
-        AABB의 긴 축을 감지해 gripper가 짧은 폭 방향으로 접근하도록 angle 반환.
-        - AABB x > y (x가 더 길다) → 긴 축이 x방향 → gripper는 y방향으로 접근 → yaw=90deg
-        - AABB y > x (y가 더 길다) → 긴 축이 y방향 → gripper는 x방향으로 접근 → yaw=0deg
-        물체 pose quaternion yaw도 더해서 실제 방향 반영.
+        AABB 긴 축 기준으로 gripper 오픈축이 긴 축과 수직이 되게 yaw를 반환한다.
+        Panda 매핑상 yaw=0이면 오픈축이 +Y, yaw=90deg이면 오픈축이 +X이므로:
+        - AABB x_long -> yaw=0deg
+        - AABB y_long -> yaw=90deg
+        near-square 물체는 pose yaw를 사용한다.
         """
         try:
             _, body_orn = p.getBasePositionAndOrientation(body_id)
@@ -532,18 +533,17 @@ class PandaController:
             dx = float(aabb_max[0] - aabb_min[0])
             dy = float(aabb_max[1] - aabb_min[1])
 
-            # 긴 축에 수직 방향으로 gripper 접근
+            # 긴 축에 수직 방향으로 gripper 오픈축 정렬
             if dx > dy * 1.2:
-                # x가 긴 축 → gripper를 y방향으로 벌림 → yaw=90deg
-                long_axis_angle = np.pi / 2.0
+                # x_long -> yaw=0 (finger opening axis aligns +Y)
+                grasp_yaw = 0.0
             elif dy > dx * 1.2:
-                # y가 긴 축 → gripper를 x방향으로 벌림 → yaw=0deg
-                long_axis_angle = 0.0
+                # y_long -> yaw=90deg (finger opening axis aligns +X)
+                grasp_yaw = np.pi / 2.0
             else:
-                # 정방형에 가까우면 pose yaw 그대로
-                long_axis_angle = pose_yaw
+                grasp_yaw = pose_yaw
 
-            return _normalize_angle_rad(long_axis_angle + pose_yaw)
+            return _normalize_angle_rad(grasp_yaw)
         except Exception:
             return 0.0
 
@@ -552,22 +552,24 @@ class PandaController:
         object_angle: float,
         orientation_hint,
     ) -> list[float]:
+        # Always prioritize AABB-axis rule first:
+        # gripper opening axis must stay perpendicular to AABB long axis.
+        base = [
+            object_angle,
+            object_angle + np.pi,
+            object_angle + np.pi / 2.0,
+            object_angle - np.pi / 2.0,
+        ]
+
         if orientation_hint is not None:
             hinted_yaw = float(p.getEulerFromQuaternion(orientation_hint)[2])
-            # R1 orientation이 주어지면 yaw 후보도 R1 기준으로 구성한다.
-            base = [
+            # Keep R1 yaw as secondary options, after axis-rule candidates.
+            base.extend([
                 hinted_yaw,
                 hinted_yaw + np.pi / 2.0,
                 hinted_yaw - np.pi / 2.0,
                 hinted_yaw + np.pi,
-            ]
-        else:
-            base = [
-                object_angle,
-                object_angle + np.pi / 2.0,
-                object_angle - np.pi / 2.0,
-                object_angle + np.pi,
-            ]
+            ])
 
         unique = []
         min_gap = np.deg2rad(12.0)
@@ -784,15 +786,22 @@ class PandaController:
             xy_offset=xy_offset,
             r1_world_pos=r1_world_pos,
         )
+        # Use AABB-derived axis guidance as primary yaw seed even when R1 hint exists.
+        object_angle = self._estimate_object_inplane_angle(body_id=body_id)
+        hinted_yaw = None
         if orientation_hint is not None:
-            object_angle = float(p.getEulerFromQuaternion(orientation_hint)[2])
-        else:
-            object_angle = self._estimate_object_inplane_angle(body_id=body_id)
+            hinted_yaw = float(p.getEulerFromQuaternion(orientation_hint)[2])
         yaw_candidates = self._build_grasp_yaw_candidates(
             object_angle=object_angle,
             orientation_hint=orientation_hint,
         )
-        print(f"[{self.name}] seed grasp angle={np.degrees(object_angle):.1f} deg")
+        if hinted_yaw is not None:
+            print(
+                f"[{self.name}] seed grasp angle={np.degrees(object_angle):.1f} deg "
+                f"(aabb), r1_hint_yaw={np.degrees(hinted_yaw):.1f} deg"
+            )
+        else:
+            print(f"[{self.name}] seed grasp angle={np.degrees(object_angle):.1f} deg")
 
         best = None
         best_rank = None
@@ -996,6 +1005,9 @@ class PandaController:
             "total": left + right + hand,
         }
 
+    def _finger_contact_count(self, summary: dict) -> int:
+        return int(summary.get("left", 0)) + int(summary.get("right", 0))
+
     def _close_until_contact(
         self,
         body_id: int,
@@ -1021,12 +1033,14 @@ class PandaController:
                 hold_companion=hold_companion,
             )
             summary = self._finger_contact_summary(body_id)
+            finger_contacts = self._finger_contact_count(summary)
             bilateral_contact = summary["left"] > 0 and summary["right"] > 0
-            if bilateral_contact or summary["total"] >= 2:
+            # Hand-only contact is not treated as valid grasp contact.
+            if bilateral_contact or finger_contacts >= 2:
                 return True, target, summary
 
         summary = self._finger_contact_summary(body_id)
-        return summary["total"] > 0, end_closed, summary
+        return self._finger_contact_count(summary) > 0, end_closed, summary
 
     # 수정 후
     def _descend_until_precontact(
@@ -1041,7 +1055,7 @@ class PandaController:
         checks = int(max_drop / drop_step)
         for _ in range(checks):
             summary = self._finger_contact_summary(body_id)
-            if summary["total"] > 0:
+            if self._finger_contact_count(summary) > 0:
                 return
             ee_pos, _ = self.get_end_effector_pose()
             next_z = float(ee_pos[2] - drop_step)
@@ -1162,7 +1176,7 @@ class PandaController:
         print(f"[{self.name}] EE after grasp move: {[round(v,4) for v in ee_pos_dbg]}")
         # grasp 위치 도달 직후 이미 contact인지 확인 — 있으면 descend 생략
         _pre_summary = self._finger_contact_summary(body_id)
-        if _pre_summary["total"] == 0:
+        if self._finger_contact_count(_pre_summary) == 0:
             self._descend_until_precontact(
                 body_id=body_id,
                 orientation=selected_orientation,
@@ -1184,11 +1198,14 @@ class PandaController:
             contact_found, hold_target, summary = self._close_until_contact(
                 body_id=body_id, start_open=_finger_open, hold_companion=hold_companion)
         if not contact_found:
-            print(f"[{self.name}] no-contact close (contacts={summary['total']})")
+            print(
+                f"[{self.name}] no-contact close "
+                f"(finger_contacts={self._finger_contact_count(summary)}, total_contacts={summary['total']})"
+            )
             end_obj_pos = np.array(p.getBasePositionAndOrientation(body_id)[0])
             self._last_grasp_failure = {
                 "reason": "no_contact_close",
-                "contacts": int(summary["total"]),
+                "contacts": int(self._finger_contact_count(summary)),
                 "ee_dist": None,
                 "object_shift": float(np.linalg.norm(end_obj_pos - start_obj_pos)),
             }
@@ -1223,18 +1240,20 @@ class PandaController:
         ee_pos, _ = self.get_end_effector_pose()
         ee_to_object = float(np.linalg.norm(after_lift_pos - ee_pos))
         summary_after = self._finger_contact_summary(body_id)
+        finger_contacts_after = self._finger_contact_count(summary_after)
 
         lifted = after_lift_pos[2] > before_lift_pos[2] + self._active_grasp_profile["min_lift_gain"]
-        maintained = summary_after["total"] > 0 or ee_to_object < 0.14
+        maintained = finger_contacts_after > 0 or ee_to_object < 0.14
         if not (lifted and maintained):
             print(
                 f"[{self.name}] no-constraint grasp unstable "
-                f"(lifted={lifted}, contacts={summary_after['total']}, ee_dist={ee_to_object:.3f})"
+                f"(lifted={lifted}, finger_contacts={finger_contacts_after}, "
+                f"total_contacts={summary_after['total']}, ee_dist={ee_to_object:.3f})"
             )
             self._last_grasp_failure = {
                 "reason": "unstable",
                 "lifted": bool(lifted),
-                "contacts": int(summary_after["total"]),
+                "contacts": int(finger_contacts_after),
                 "ee_dist": float(ee_to_object),
                 "object_shift": float(np.linalg.norm(after_lift_pos - start_obj_pos)),
             }
@@ -1368,4 +1387,3 @@ class PandaController:
                     hold_companion=hold_companion,
                 )
         return False
-
