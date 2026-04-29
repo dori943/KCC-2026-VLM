@@ -1888,11 +1888,18 @@ def run_sequential_demo(
                 print("[Demo][WARN] no compatible module3 steps for current two-object grasp; using fallback attach.")
                 _plan_loaded = False
             attach_results = [r for r in assembly_results if r.get("constraint_id") is not None]
-            if attach_results:
+            failed_attach_steps = [
+                r for r in assembly_results
+                if r.get("constraint_id") is None and r.get("reason") not in {"position_only"}
+            ]
+            if attach_results and not failed_attach_steps:
                 print(f"[Demo] assembly successful via module3 plan "
                       f"({len(attach_results)} constraint(s) created).")
             else:
-                print("[Demo][WARN] module3 plan produced no constraints ??falling back.")
+                if failed_attach_steps:
+                    print(f"[Demo][WARN] module3 plan attach validation failed: {failed_attach_steps}")
+                else:
+                    print("[Demo][WARN] module3 plan produced no constraints ??falling back.")
                 _plan_loaded = False   # fallback?쇰줈 ?꾪솚
  
         if not _plan_loaded:

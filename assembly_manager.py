@@ -1,24 +1,24 @@
-"""
+﻿"""
 assembly_manager.py
-두 물체를 PyBullet fixed constraint로 결합/분리하는 유틸리티.
-module3_output.json의 assembly_steps를 파싱해 자동으로 실행 계획을 생성한다.
+??臾쇱껜瑜?PyBullet fixed constraint濡?寃고빀/遺꾨━?섎뒗 ?좏떥由ы떚.
+module3_output.json??assembly_steps瑜??뚯떛???먮룞?쇰줈 ?ㅽ뻾 怨꾪쉷???앹꽦?쒕떎.
 
-사용 예:
+?ъ슜 ??
     from assembly_manager import AssemblyManager
     asm = AssemblyManager()
 
-    # JSON에서 계획 로드
+    # JSON?먯꽌 怨꾪쉷 濡쒕뱶
     plan = asm.load_plan_from_json("module3_output.json")
 
-    # label → pybullet body_id 매핑 등록
+    # label ??pybullet body_id 留ㅽ븨 ?깅줉
     asm.register_body("ruler",        body_id=2)
     asm.register_body("tweezers",     body_id=3)
     asm.register_body("sticky notes", body_id=4)
 
-    # 계획 전체 실행
+    # 怨꾪쉷 ?꾩껜 ?ㅽ뻾
     results = asm.execute_plan()
 
-    # 개별 detach
+    # 媛쒕퀎 detach
     asm.detach_by_label("step2_ruler_tweezers")
     asm.detach_all()
 """
@@ -41,7 +41,7 @@ def _step_simulation(steps: int) -> None:
 
 
 def _rpy_deg_to_quaternion(rpy_deg: list[float]) -> list[float]:
-    """[roll, pitch, yaw] (degrees) → pybullet quaternion [x,y,z,w]."""
+    """[roll, pitch, yaw] (degrees) ??pybullet quaternion [x,y,z,w]."""
     rpy_rad = [math.radians(v) for v in rpy_deg]
     return list(p.getQuaternionFromEuler(rpy_rad))
 
@@ -51,14 +51,38 @@ def _world_pos_to_parent_local(
     parent_body_id: int,
 ) -> list[float]:
     """
-    world 좌표계의 joint_pos_world를 parent body 로컬 프레임으로 변환.
-    pybullet createConstraint의 parentFramePosition에 넣을 값.
+    world 醫뚰몴怨꾩쓽 joint_pos_world瑜?parent body 濡쒖뺄 ?꾨젅?꾩쑝濡?蹂??
+    pybullet createConstraint??parentFramePosition???ｌ쓣 媛?
     """
     parent_pos, parent_orn = p.getBasePositionAndOrientation(parent_body_id)
     parent_orn_inv = p.invertTransform([0, 0, 0], list(parent_orn))[1]
     diff = (np.array(joint_pos_world) - np.array(parent_pos)).tolist()
     local_pos, _ = p.multiplyTransforms([0, 0, 0], parent_orn_inv, diff, [0, 0, 0, 1])
     return list(local_pos)
+
+
+def _world_orientation_to_body_local(
+    orientation_world: list[float],
+    body_id: int,
+) -> list[float]:
+    """Convert world-frame orientation to body-local frame orientation."""
+    _, body_orn = p.getBasePositionAndOrientation(body_id)
+    body_orn_inv = p.invertTransform([0, 0, 0], list(body_orn))[1]
+    _, local_orn = p.multiplyTransforms([0, 0, 0], body_orn_inv, [0, 0, 0], list(orientation_world))
+    return list(local_orn)
+
+
+def _body_anchor_radius_limit(body_id: int, extra_margin: float = 0.03) -> float:
+    """
+    Conservative bound for plausible local anchor distance from body origin.
+    Uses half of world AABB diagonal + margin.
+    """
+    aabb_min, aabb_max = p.getAABB(body_id)
+    dx = float(aabb_max[0] - aabb_min[0])
+    dy = float(aabb_max[1] - aabb_min[1])
+    dz = float(aabb_max[2] - aabb_min[2])
+    half_diag = 0.5 * float(np.linalg.norm([dx, dy, dz]))
+    return float(half_diag + extra_margin)
 
 
 def _coerce_vec3(value, default: list[float]) -> list[float]:
@@ -182,13 +206,13 @@ def parse_assembly_instruction(instruction: dict) -> dict:
 
 
 class AssemblyStep:
-    """module3_output.json의 assembly_steps 항목 하나를 표현."""
+    """module3_output.json??assembly_steps ??ぉ ?섎굹瑜??쒗쁽."""
 
     def __init__(self, raw: dict):
         parsed = parse_assembly_instruction(raw)
         self.step: int                  = int(raw["step"])
         self.base_object: str           = str(raw["base_object"])
-        self.attach_object: str | None  = raw.get("attach_object")  # null 가능
+        self.attach_object: str | None  = raw.get("attach_object")  # null 媛??
         self.attach_region_base: str    = str(raw.get("attach_region_base", ""))
         self.attach_region_object: str | None = raw.get("attach_region_object")
         self.contact_type: str          = str(raw.get("contact_type", "surface"))
@@ -227,7 +251,7 @@ class AssemblyStep:
 
 
 class AssemblyPlan:
-    """module3_output.json 전체를 파싱한 실행 계획."""
+    """module3_output.json ?꾩껜瑜??뚯떛???ㅽ뻾 怨꾪쉷."""
 
     def __init__(self, raw: dict):
         self.strategy_summary: str  = raw.get("assembly_strategy", {}).get("strategy_summary", "")
@@ -246,22 +270,22 @@ class AssemblyPlan:
 
 class AssemblyManager:
     """
-    module3_output.json 기반 조립 계획을 로드하고
-    PyBullet constraint로 실행·관리한다.
+    module3_output.json 湲곕컲 議곕┰ 怨꾪쉷??濡쒕뱶?섍퀬
+    PyBullet constraint濡??ㅽ뻾쨌愿由ы븳??
     """
 
     def __init__(self):
         self._plan: AssemblyPlan | None = None
-        # label → body_id  (사용자가 register_body로 등록)
+        # label ??body_id  (?ъ슜?먭? register_body濡??깅줉)
         self._body_map: dict[str, int] = {}
-        # label → constraint_id  (attach 후 등록)
+        # label ??constraint_id  (attach ???깅줉)
         self._registry: dict[str, int] = {}
 
-    # ── 계획 로드 ─────────────────────────────────────────────────────────────
+    # ?? 怨꾪쉷 濡쒕뱶 ?????????????????????????????????????????????????????????????
 
     def load_plan_from_json(self, path: str) -> AssemblyPlan:
         """
-        module3_output.json을 읽어 AssemblyPlan을 반환하고 내부에 저장.
+        module3_output.json???쎌뼱 AssemblyPlan??諛섑솚?섍퀬 ?대??????
         """
         raw = json.loads(Path(path).read_text(encoding="utf-8"))
         self._plan = AssemblyPlan(raw)
@@ -271,7 +295,7 @@ class AssemblyManager:
         return self._plan
 
     def load_plan_from_dict(self, raw: dict) -> AssemblyPlan:
-        """dict에서 직접 로드 (테스트·인라인 사용)."""
+        """dict?먯꽌 吏곸젒 濡쒕뱶 (?뚯뒪?맞룹씤?쇱씤 ?ъ슜)."""
         self._plan = AssemblyPlan(raw)
         return self._plan
 
@@ -328,22 +352,22 @@ class AssemblyManager:
                 }
         return targets
 
-    # ── body 매핑 등록 ────────────────────────────────────────────────────────
+    # ?? body 留ㅽ븨 ?깅줉 ????????????????????????????????????????????????????????
 
     def register_body(self, label: str, body_id: int) -> None:
         """
-        물체 이름(JSON의 base_object / attach_object)과
-        pybullet body_id를 매핑한다.
+        臾쇱껜 ?대쫫(JSON??base_object / attach_object)怨?
+        pybullet body_id瑜?留ㅽ븨?쒕떎.
         """
         self._body_map[label] = body_id
-        print(f"[Assembly] register: '{label}' → body_id={body_id}")
+        print(f"[Assembly] register: '{label}' ??body_id={body_id}")
 
     def register_bodies(self, mapping: dict[str, int]) -> None:
-        """dict로 한 번에 등록."""
+        """dict濡???踰덉뿉 ?깅줉."""
         for label, body_id in mapping.items():
             self.register_body(label, body_id)
 
-    # ── 계획 실행 ─────────────────────────────────────────────────────────────
+    # ?? 怨꾪쉷 ?ㅽ뻾 ?????????????????????????????????????????????????????????????
 
     def execute_plan(
         self,
@@ -351,14 +375,14 @@ class AssemblyManager:
         max_force: float = 500.0,
     ) -> list[dict]:
         """
-        로드된 AssemblyPlan의 모든 step을 순서대로 실행한다.
+        濡쒕뱶??AssemblyPlan??紐⑤뱺 step???쒖꽌?濡??ㅽ뻾?쒕떎.
 
-        - attach_object가 null인 step은 배치(positioning) 기록만 남김.
-        - attach_object가 있는 step은 joint_position_world를
-          parent 로컬 프레임으로 변환 후 createConstraint 실행.
+        - attach_object媛 null??step? 諛곗튂(positioning) 湲곕줉留??④?.
+        - attach_object媛 ?덈뒗 step? joint_position_world瑜?
+          parent 濡쒖뺄 ?꾨젅?꾩쑝濡?蹂????createConstraint ?ㅽ뻾.
 
         Returns:
-            step별 결과 dict 목록.
+            step蹂?寃곌낵 dict 紐⑸줉.
         """
         if self._plan is None:
             raise RuntimeError("[Assembly] no plan loaded. call load_plan_from_json() first.")
@@ -377,7 +401,7 @@ class AssemblyManager:
         settle_steps: int = 60,
         max_force: float = 500.0,
     ) -> dict:
-        """특정 step 번호만 실행."""
+        """?뱀젙 step 踰덊샇留??ㅽ뻾."""
         if self._plan is None:
             raise RuntimeError("[Assembly] no plan loaded.")
         for step in self._plan.steps:
@@ -397,7 +421,7 @@ class AssemblyManager:
             print(f"[Assembly][WARN] step {step.step}: {msg}")
             return {"step": step.step, "ok": False, "reason": msg, "constraint_id": None}
 
-        # attach_object가 없는 step → 배치 기록만
+        # attach_object媛 ?녿뒗 step ??諛곗튂 湲곕줉留?
         if not step.has_attach():
             print(
                 f"[Assembly] step {step.step}: position-only '{step.base_object}' "
@@ -416,48 +440,79 @@ class AssemblyManager:
                 "target_orientation": step.target_orientation,
             }
 
-        # attach_object가 있는 step → constraint 생성
+        # attach_object媛 ?덈뒗 step ??constraint ?앹꽦
         aux_id = self._body_map.get(step.attach_object)
         if aux_id is None:
             msg = f"attach_object '{step.attach_object}' not registered."
             print(f"[Assembly][WARN] step {step.step}: {msg}")
             return {"step": step.step, "ok": False, "reason": msg, "constraint_id": None}
 
-        # joint_position_world → parent(base) 로컬 프레임으로 변환
-        planned_contact_offset = _world_pos_to_parent_local(
+        # joint_position_world ??parent(base) 濡쒖뺄 ?꾨젅?꾩쑝濡?蹂??
+        parent_frame_pos = _world_pos_to_parent_local(
             joint_pos_world=step.joint_pos_world,
             parent_body_id=base_id,
         )
+        child_frame_pos = _world_pos_to_parent_local(
+            joint_pos_world=step.joint_pos_world,
+            parent_body_id=aux_id,
+        )
+        parent_frame_orn = _world_orientation_to_body_local(
+            orientation_world=step.joint_orientation,
+            body_id=base_id,
+        )
+        child_frame_orn = _world_orientation_to_body_local(
+            orientation_world=step.joint_orientation,
+            body_id=aux_id,
+        )
+
         aux_pos_world, _ = p.getBasePositionAndOrientation(aux_id)
         joint_gap_m = float(np.linalg.norm(np.array(aux_pos_world) - np.array(step.joint_pos_world)))
-
-        contact_offset = list(planned_contact_offset)
-        offset_policy = "plan_joint"
-        # Large plan-joint mismatch creates an impulsive snap when fixed-constraint is created.
-        # Fall back to current relative offset to keep attachment stable.
-        if joint_gap_m > 0.20:
-            contact_offset = _world_pos_to_parent_local(
-                joint_pos_world=[float(aux_pos_world[0]), float(aux_pos_world[1]), float(aux_pos_world[2])],
-                parent_body_id=base_id,
-            )
-            offset_policy = "current_relative_fallback"
+        base_anchor_norm = float(np.linalg.norm(np.array(parent_frame_pos, dtype=float)))
+        child_anchor_norm = float(np.linalg.norm(np.array(child_frame_pos, dtype=float)))
+        base_anchor_limit = _body_anchor_radius_limit(base_id)
+        child_anchor_limit = _body_anchor_radius_limit(aux_id)
+        anchors_plausible = (
+            base_anchor_norm <= base_anchor_limit
+            and child_anchor_norm <= child_anchor_limit
+        )
+        if not anchors_plausible:
             print(
-                f"[Assembly][WARN] step {step.step}: aux-joint gap too large "
-                f"({joint_gap_m:.3f} m). "
-                "Using current relative offset to avoid impulsive snap."
+                f"[Assembly][WARN] step {step.step}: joint pose is too far from current body geometry "
+                f"(base_anchor={base_anchor_norm:.3f}>{base_anchor_limit:.3f}, "
+                f"child_anchor={child_anchor_norm:.3f}>{child_anchor_limit:.3f}, "
+                f"joint_gap={joint_gap_m:.3f} m). Skipping attach."
             )
+            return {
+                "step": step.step,
+                "ok": False,
+                "reason": "joint_anchor_out_of_bounds",
+                "constraint_id": None,
+                "label": step.label(),
+                "base_object": step.base_object,
+                "attach_object": step.attach_object,
+                "joint_pos_world": step.joint_pos_world,
+                "joint_orientation": step.joint_orientation,
+                "joint_gap_m": joint_gap_m,
+                "parent_anchor_norm": base_anchor_norm,
+                "child_anchor_norm": child_anchor_norm,
+                "parent_anchor_limit": base_anchor_limit,
+                "child_anchor_limit": child_anchor_limit,
+            }
 
         cid = self.attach(
             main_body_id=base_id,
             aux_body_id=aux_id,
-            contact_offset=contact_offset,
+            contact_offset=parent_frame_pos,
+            child_frame_offset=child_frame_pos,
+            parent_frame_orientation=parent_frame_orn,
+            child_frame_orientation=child_frame_orn,
             label=step.label(),
             settle_steps=settle_steps,
             max_force=max_force,
         )
 
         print(
-            f"[Assembly] step {step.step}: '{step.base_object}' ← '{step.attach_object}' "
+            f"[Assembly] step {step.step}: '{step.base_object}' ??'{step.attach_object}' "
             f"| region: {step.attach_region_base} / {step.attach_region_object} "
             f"| contact: {step.contact_type} "
             f"| role: {step.functional_roles.get('attach_role')} "
@@ -478,31 +533,60 @@ class AssemblyManager:
             "target_orientation": step.target_orientation,
             "connection_relationship": step.connection_relationship,
             "assembly_relationship": step.assembly_relationship,
-            "contact_offset_local": contact_offset,
-            "planned_contact_offset_local": planned_contact_offset,
-            "offset_policy": offset_policy,
+            "contact_offset_local": parent_frame_pos,
+            "child_contact_offset_local": child_frame_pos,
+            "parent_frame_orientation_local": parent_frame_orn,
+            "child_frame_orientation_local": child_frame_orn,
+            "offset_policy": "joint_world_dual_anchor",
             "joint_gap_m": joint_gap_m,
         }
 
-    # ── 핵심 attach / detach API ──────────────────────────────────────────────
+    # ?? ?듭떖 attach / detach API ??????????????????????????????????????????????
 
     def attach(
         self,
         main_body_id: int,
         aux_body_id: int,
         contact_offset: list[float] | None = None,
+        child_frame_offset: list[float] | None = None,
+        parent_frame_orientation: list[float] | None = None,
+        child_frame_orientation: list[float] | None = None,
         label: str | None = None,
         settle_steps: int = 60,
         max_force: float = 500.0,
     ) -> int | None:
         """
-        aux_body_id를 main_body_id에 고정 결합한다.
-        contact_offset이 None이면 AABB 기반 자동 계산.
+        aux_body_id瑜?main_body_id??怨좎젙 寃고빀?쒕떎.
+        contact_offset??None?대㈃ AABB 湲곕컲 ?먮룞 怨꾩궛.
         """
         if contact_offset is None:
             contact_offset = self._auto_contact_offset(main_body_id, aux_body_id)
+        if child_frame_offset is None:
+            child_frame_offset = [0.0, 0.0, 0.0]
+        if parent_frame_orientation is None:
+            parent_frame_orientation = [0.0, 0.0, 0.0, 1.0]
+        if child_frame_orientation is None:
+            child_frame_orientation = [0.0, 0.0, 0.0, 1.0]
 
         try:
+            pre_main_pos, pre_main_orn = p.getBasePositionAndOrientation(main_body_id)
+            pre_aux_pos, pre_aux_orn = p.getBasePositionAndOrientation(aux_body_id)
+            pre_parent_anchor_world, pre_parent_anchor_orn = p.multiplyTransforms(
+                pre_main_pos,
+                pre_main_orn,
+                contact_offset,
+                parent_frame_orientation,
+            )
+            pre_child_anchor_world, pre_child_anchor_orn = p.multiplyTransforms(
+                pre_aux_pos,
+                pre_aux_orn,
+                child_frame_offset,
+                child_frame_orientation,
+            )
+            pre_anchor_gap = float(
+                np.linalg.norm(np.array(pre_parent_anchor_world) - np.array(pre_child_anchor_world))
+            )
+
             constraint_id = p.createConstraint(
                 parentBodyUniqueId=main_body_id,
                 parentLinkIndex=-1,
@@ -511,19 +595,54 @@ class AssemblyManager:
                 jointType=p.JOINT_FIXED,
                 jointAxis=[0, 0, 0],
                 parentFramePosition=contact_offset,
-                childFramePosition=[0, 0, 0],
+                childFramePosition=child_frame_offset,
+                parentFrameOrientation=parent_frame_orientation,
+                childFrameOrientation=child_frame_orientation,
             )
             p.changeConstraint(constraint_id, maxForce=max_force)
             _step_simulation(settle_steps)
+
+            post_main_pos, post_main_orn = p.getBasePositionAndOrientation(main_body_id)
+            post_aux_pos, post_aux_orn = p.getBasePositionAndOrientation(aux_body_id)
+            post_parent_anchor_world, _ = p.multiplyTransforms(
+                post_main_pos,
+                post_main_orn,
+                contact_offset,
+                parent_frame_orientation,
+            )
+            post_child_anchor_world, _ = p.multiplyTransforms(
+                post_aux_pos,
+                post_aux_orn,
+                child_frame_offset,
+                child_frame_orientation,
+            )
+            post_anchor_gap = float(
+                np.linalg.norm(np.array(post_parent_anchor_world) - np.array(post_child_anchor_world))
+            )
+            max_allowed_anchor_gap = 0.012
+            if post_anchor_gap > max_allowed_anchor_gap:
+                print(
+                    f"[Assembly][WARN] attach validation failed: "
+                    f"anchor_gap={post_anchor_gap:.4f} m "
+                    f"(pre_gap={pre_anchor_gap:.4f}, limit={max_allowed_anchor_gap:.4f}). "
+                    "Removing constraint."
+                )
+                try:
+                    p.removeConstraint(constraint_id)
+                except Exception:
+                    pass
+                return None
 
             key = label or f"main{main_body_id}_aux{aux_body_id}"
             self._registry[key] = constraint_id
 
             print(
                 f"[Assembly] attach '{key}': "
-                f"body {aux_body_id} → body {main_body_id} "
+                f"body {aux_body_id} ??body {main_body_id} "
                 f"(constraint={constraint_id}, "
-                f"offset=[{contact_offset[0]:.4f}, {contact_offset[1]:.4f}, {contact_offset[2]:.4f}])"
+                f"offset=[{contact_offset[0]:.4f}, {contact_offset[1]:.4f}, {contact_offset[2]:.4f}], "
+                f"child_offset=[{child_frame_offset[0]:.4f}, {child_frame_offset[1]:.4f}, {child_frame_offset[2]:.4f}], "
+                f"pre_anchor_gap={pre_anchor_gap:.4f}, post_anchor_gap={post_anchor_gap:.4f})"
             )
             return constraint_id
 
@@ -542,7 +661,7 @@ class AssemblyManager:
             return False
 
     def detach_by_label(self, label: str) -> bool:
-        """label로 등록된 constraint를 해제한다."""
+        """label濡??깅줉??constraint瑜??댁젣?쒕떎."""
         cid = self._registry.get(label)
         if cid is None:
             print(f"[Assembly][WARN] detach_by_label: label '{label}' not found.")
@@ -550,7 +669,7 @@ class AssemblyManager:
         return self.detach(cid)
 
     def detach_all(self) -> None:
-        """등록된 모든 constraint를 해제한다."""
+        """?깅줉??紐⑤뱺 constraint瑜??댁젣?쒕떎."""
         for label, cid in list(self._registry.items()):
             self.detach(cid)
 
@@ -558,13 +677,13 @@ class AssemblyManager:
         return label in self._registry
 
     def list_attached(self) -> dict[str, int]:
-        """현재 활성 constraint 목록 반환."""
+        """?꾩옱 ?쒖꽦 constraint 紐⑸줉 諛섑솚."""
         return dict(self._registry)
 
-    # ── 내부 유틸 ────────────────────────────────────────────────────────────
+    # ?? ?대? ?좏떥 ????????????????????????????????????????????????????????????
 
     def _auto_contact_offset(self, main_body_id: int, aux_body_id: int) -> list[float]:
-        """AABB 기반 contact_offset 자동 계산."""
+        """AABB 湲곕컲 contact_offset ?먮룞 怨꾩궛."""
         try:
             main_aabb_min, main_aabb_max = p.getAABB(main_body_id)
             aux_aabb_min,  aux_aabb_max  = p.getAABB(aux_body_id)
