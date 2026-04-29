@@ -1856,8 +1856,11 @@ def run_sequential_demo(
                 right.open_gripper(steps=30)
             except Exception as exc:
                 print(f"[Demo][WARN] right.open_gripper failed: {exc}")
+            # settle_steps=0: execute_plan suspends gravity and re-snaps each
+            # step's body right before validation, so we don't want any free
+            # fall between this initial snap and the constraint creation.
             snapped = assembly_manager.snap_objects_to_targets(
-                settle_steps=20,
+                settle_steps=0,
                 use_aabb_offset=True,
             )
             print(f"[Demo] snapped {len(snapped)} bodies: {sorted(list(snapped.keys()))}")

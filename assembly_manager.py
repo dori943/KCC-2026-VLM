@@ -435,6 +435,8 @@ class AssemblyManager:
         self,
         settle_steps: int = 60,
         max_force: float = 500.0,
+        suspend_gravity: bool = True,
+        restore_gravity: tuple[float, float, float] = (0.0, 0.0, -9.8),
     ) -> list[dict]:
         """
         濡쒕뱶??AssemblyPlan??紐⑤뱺 step???쒖꽌?濡??ㅽ뻾?쒕떎.
@@ -449,13 +451,22 @@ class AssemblyManager:
         if self._plan is None:
             raise RuntimeError("[Assembly] no plan loaded. call load_plan_from_json() first.")
 
-        results = []
-        for step in self._plan.steps:
-            result = self._execute_step(step, settle_steps=settle_steps, max_force=max_force)
-            results.append(result)
-            if not result["ok"] and step.has_attach():
-                print(f"[Assembly][WARN] step {step.step} failed, continuing...")
-        return results
+        if suspend_gravity:
+            p.setGravity(0.0, 0.0, 0.0)
+            print("[Assembly] gravity suspended for plan execution")
+
+        try:
+            results = []
+            for step in self._plan.steps:
+                result = self._execute_step(step, settle_steps=settle_steps, max_force=max_force)
+                results.append(result)
+                if not result["ok"] and step.has_attach():
+                    print(f"[Assembly][WARN] step {step.step} failed, continuing...")
+            return results
+        finally:
+            if suspend_gravity:
+                p.setGravity(*restore_gravity)
+                print(f"[Assembly] gravity restored to {restore_gravity}")
 
     def execute_step(
         self,
@@ -471,12 +482,58 @@ class AssemblyManager:
                 return self._execute_step(step, settle_steps=settle_steps, max_force=max_force)
         raise ValueError(f"[Assembly] step {step_number} not found in plan.")
 
+    def _snap_step_targets(
+        self,
+        step: "AssemblyStep",
+        use_aabb_offset: bool = True,
+    ) -> None:
+        """
+        Re-position THIS step's relevant body to its JSON target right
+        before validation/constraint creation. Position-only step snaps
+        the base; attach step snaps the attach object (base may already
+        be constrained from a prior step, so it is not touched).
+        """
+        if not step.has_attach():
+            label = step.base_object
+            target_pos = list(step.joint_pos_world)
+            target_orn = list(step.joint_orientation)
+        else:
+            label = step.attach_object
+            target_pos = list(step.target_position)
+            target_orn = list(step.target_orientation)
+
+        body_id = self._body_map.get(label)
+        if body_id is None:
+            return
+
+        snap_pos = list(target_pos)
+        snap_orn = list(target_orn)
+        if use_aabb_offset:
+            cur_pos, _ = p.getBasePositionAndOrientation(body_id)
+            aabb_min, aabb_max = p.getAABB(body_id)
+            aabb_center = [
+                (aabb_min[i] + aabb_max[i]) / 2.0 for i in range(3)
+            ]
+            urdf_offset = [cur_pos[i] - aabb_center[i] for i in range(3)]
+            snap_pos = [snap_pos[i] + urdf_offset[i] for i in range(3)]
+
+        p.resetBasePositionAndOrientation(body_id, snap_pos, snap_orn)
+        p.resetBaseVelocity(body_id, [0, 0, 0], [0, 0, 0])
+        print(
+            f"[Assembly] step{step.step} pre-snap '{label}': "
+            f"urdf={[round(v, 4) for v in snap_pos]}"
+        )
+
     def _execute_step(
         self,
         step: AssemblyStep,
         settle_steps: int,
         max_force: float,
     ) -> dict:
+        # Re-snap this step's relevant body right before validation so
+        # any drift from earlier physics steps does not push it past the
+        # joint anchor limits.
+        self._snap_step_targets(step)
         base_id = self._body_map.get(step.base_object)
         if base_id is None:
             msg = f"base_object '{step.base_object}' not registered."
