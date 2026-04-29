@@ -1,0 +1,53 @@
+name: task8-pulley-search
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_success_runs:
+        description: "Successful 2C runs per phase"
+        required: true
+        default: "50"
+
+jobs:
+  run-search:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      PYTHONUTF8: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install openai
+          pip install -e module1-2B
+
+      - name: Validate API key
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "OPENAI_API_KEY secret is missing."
+            exit 1
+          fi
+
+      - name: Run task8 cloud search
+        run: |
+          python module1-2B/scripts/task8_cloud_search.py \
+            --max-success-runs "${{ inputs.max_success_runs }}"
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: task8-pulley-search-reports
+          path: |
+            module1-2B/outputs/well_retrieval/analysis_reports_cloud/**
+            module1-2B/outputs/well_retrieval/*/summary.json
+          if-no-files-found: warn
