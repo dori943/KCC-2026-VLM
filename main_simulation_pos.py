@@ -1,4 +1,4 @@
-﻿"""
+"""
 main_simulation_3.py
 Boot-only dual-arm Panda simulation orchestration.
 
@@ -53,9 +53,8 @@ YCB_OBJECT_SPECS = [
     ("spatula", "033_spatula.urdf", [0.7, -0.3, 0.82]),
     ("adjustable_wrench", "042_adjustable_wrench.urdf", [0.45, 0.2, 0.82]),
     ("large_marker", "040_large_marker.urdf", [0.45, 0.0, 0.82]),
-    ("phillips_screwdriver", "043_phillips_screwdriver.urdf", [0.45, -0.2, 0.82]),
+    ("sponge", "026_sponge.urdf", [0.45, -0.2, 0.82]),
     ("flat_screwdriver", "044_flat_screwdriver.urdf", [0.45, -0.35, 0.82]),
-    ("sponge", "026_sponge.urdf", [0.45, 0.35, 0.82]),
 ]
 
 def _load_module3_object_labels(json_path: str) -> list[str]:
@@ -103,9 +102,8 @@ def _build_ycb_object_specs(json_path: str) -> list[tuple]:
             ("spatula", "033_spatula.urdf", [0.7, -0.3, 0.82]),
             ("adjustable_wrench", "042_adjustable_wrench.urdf", [0.45, 0.2, 0.82]),
             ("large_marker", "040_large_marker.urdf", [0.45, 0.0, 0.82]),
-            ("phillips_screwdriver", "043_phillips_screwdriver.urdf", [0.45, 0.1, 0.82]),
-            ("flat_screwdriver", "044_flat_screwdriver.urdf", [0.45, 0.1, 0.82]),
-            ("sponge", "026_sponge.urdf", [0.45, 0.35, 0.82]),
+            ("sponge", "026_sponge.urdf", [0.45, -0.2, 0.82]),
+            ("flat_screwdriver", "044_flat_screwdriver.urdf", [0.45, -0.35, 0.82]),
         ]
     specs = []
     for raw_label in labels:
