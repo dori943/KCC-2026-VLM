@@ -1764,6 +1764,87 @@ def calculate_pose(
             errors = _validate_step(
                 step_result, plan, current_positions, assembled_objects, roles, functional_info,
             )
+
+            # If non-insertion mid_body attachment causes collision, try safer face regions.
+            # This keeps the fix general (region-level), not object-specific hardcoding.
+            if attach_name and errors:
+                has_collision = any(str(err).startswith("collision:") for err in errors)
+                region_now = str(step_result.get("attach_region_base") or "").lower()
+                contact_now = str(step_result.get("contact_type") or plan.get("contact_type") or "").lower()
+
+                if has_collision and region_now == "mid_body" and contact_now != "insertion":
+                    best_step = step_result
+                    best_errors = errors
+
+                    def _error_score(err_list: list[str]) -> tuple[int, int]:
+                        collision_n = sum(1 for e in err_list if str(e).startswith("collision:"))
+                        return collision_n, len(err_list)
+
+                    best_score = _error_score(best_errors)
+                    for cand_region in ("upper_surface", "lower_surface", "front_end", "rear_end", "side_face"):
+                        cand_step = json.loads(json.dumps(step_result))
+                        det_joint_cand, det_basis_cand = _compute_joint_deterministic(
+                            base_name=base_name,
+                            attach_name=attach_name,
+                            attach_region_base=cand_region,
+                            current_positions=current_positions,
+                            functional_info=functional_info,
+                            roles=roles,
+                        )
+
+                        cand_step["attach_region_base"] = cand_region
+                        cand_jpw = cand_step.setdefault("joint_position_world", {})
+                        cand_jpw["position"] = det_joint_cand
+                        cand_jpw["calculation_basis"] = f"[collision_region_repair] {det_basis_cand}"
+                        cand_jpw["description"] = (
+                            "Code-computed contact point (collision repair region retry)."
+                        )
+
+                        if attach_name in current_positions:
+                            attach_after_cand = _simulate_attach_aabb(
+                                current_positions[attach_name], det_joint_cand, cand_region,
+                            )
+                            cand_step.setdefault("target_pose_world", {})["position"] = [
+                                round(c, 6) for c in attach_after_cand["center"]
+                            ]
+
+                        if base_name in current_positions:
+                            base_c = current_positions[base_name]["center"]
+                            cand_step["relative_offset_from_base"] = [
+                                round(det_joint_cand[i] - base_c[i], 6) for i in range(3)
+                            ]
+                            cand_base_pos = _compute_base_pose_at_meeting(
+                                current_positions[base_name], det_joint_cand, cand_region,
+                            )
+                            cand_step["base_target_pose_world"] = {
+                                "position": cand_base_pos,
+                                "orientation_rpy_deg": [0.0, 0.0, 0.0],
+                                "description": (
+                                    "Dual-arm meeting model: base moves to meeting point and attaches there."
+                                ),
+                            }
+
+                        cand_plan = dict(plan)
+                        cand_plan["attach_region_base"] = cand_region
+                        cand_errors = _validate_step(
+                            cand_step,
+                            cand_plan,
+                            current_positions,
+                            assembled_objects,
+                            roles,
+                            functional_info,
+                        )
+                        cand_score = _error_score(cand_errors)
+                        if cand_score < best_score:
+                            best_step = cand_step
+                            best_errors = cand_errors
+                            best_score = cand_score
+                        if not cand_errors:
+                            break
+
+                    step_result = best_step
+                    errors = best_errors
+
             attempt_log.append({
                 "attempt":              attempt + 1,
                 "joint_position_world": step_result.get("joint_position_world", {}).get("position"),
