@@ -356,6 +356,64 @@ class AssemblyManager:
                 }
         return targets
 
+    def snap_objects_to_targets(
+        self,
+        settle_steps: int = 20,
+        use_aabb_offset: bool = True,
+    ) -> dict[str, dict]:
+        """
+        Teleport every registered body to its assembly target pose.
+
+        Call this right before execute_plan() to bypass grasp slip
+        during transport and guarantee the constraint is created at the
+        exact JSON-specified geometry.
+
+        When use_aabb_offset is True, the URDF origin offset from the
+        body's current AABB center is preserved, so the visible AABB
+        center lands exactly on target_pose_world.
+        """
+        if self._plan is None:
+            return {}
+        targets = self.get_object_transport_targets()
+        snapped: dict[str, dict] = {}
+        for label, target in targets.items():
+            body_id = self._body_map.get(label)
+            if body_id is None:
+                continue
+
+            snap_pos = list(target["position"])
+            snap_orn = list(target["orientation"])
+            urdf_offset = [0.0, 0.0, 0.0]
+            if use_aabb_offset:
+                cur_pos, _ = p.getBasePositionAndOrientation(body_id)
+                aabb_min, aabb_max = p.getAABB(body_id)
+                aabb_center = [
+                    (aabb_min[i] + aabb_max[i]) / 2.0 for i in range(3)
+                ]
+                urdf_offset = [cur_pos[i] - aabb_center[i] for i in range(3)]
+                snap_pos = [snap_pos[i] + urdf_offset[i] for i in range(3)]
+
+            p.resetBasePositionAndOrientation(body_id, snap_pos, snap_orn)
+            p.resetBaseVelocity(body_id, [0, 0, 0], [0, 0, 0])
+            snapped[label] = {
+                "target_aabb_center": list(target["position"]),
+                "snap_urdf_pos": snap_pos,
+                "urdf_offset_from_aabb_center": urdf_offset,
+                "step": int(target.get("step", -1)),
+                "role": target.get("role"),
+            }
+            print(
+                f"[Assembly] snap '{label}' "
+                f"(step={target.get('step')}, role={target.get('role')}): "
+                f"aabb_center->{[round(v, 4) for v in target['position']]}, "
+                f"urdf_pos={[round(v, 4) for v in snap_pos]}"
+            )
+
+        if settle_steps > 0:
+            _step_simulation(settle_steps)
+
+        return snapped
+
     # ?? body 留ㅽ븨 ?깅줉 ????????????????????????????????????????????????????????
 
     def register_body(self, label: str, body_id: int) -> None:

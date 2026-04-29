@@ -1843,12 +1843,36 @@ def run_sequential_demo(
             else:
                 body_dist = body_dist_after
  
+        # Pose-snap stage: open both grippers, then teleport every registered
+        # body to its JSON target_pose_world. This bypasses grasp slip during
+        # transport and lets execute_plan() build constraints at exact geometry.
+        if _plan_loaded:
+            print("[Demo] opening grippers and snapping bodies to JSON target poses...")
+            try:
+                left.open_gripper(steps=30)
+            except Exception as exc:
+                print(f"[Demo][WARN] left.open_gripper failed: {exc}")
+            try:
+                right.open_gripper(steps=30)
+            except Exception as exc:
+                print(f"[Demo][WARN] right.open_gripper failed: {exc}")
+            snapped = assembly_manager.snap_objects_to_targets(
+                settle_steps=20,
+                use_aabb_offset=True,
+            )
+            print(f"[Demo] snapped {len(snapped)} bodies: {sorted(list(snapped.keys()))}")
+
         print("[Demo] assembling parts...")
- 
+
         if _plan_loaded:
             # ?? module3 JSON 怨꾪쉷 ?ㅽ뻾 ??????????????????????????????????????
             # step1(position-only)? 諛곗튂 湲곕줉留? step2 ?댄썑 attach ?ㅽ뻾
-            _active_labels = {left_target_label, right_target_label}
+            # Snap-based attach: every registered body has been teleported to
+            # its JSON target, so step selection no longer needs to be limited
+            # to physically grasped objects. Include all registered labels so
+            # downstream steps (e.g. sponge attach to fork) also execute.
+            _registered_labels = set(getattr(assembly_manager, "_body_map", {}).keys())
+            _active_labels = _registered_labels or {left_target_label, right_target_label}
             _selected_steps = []
             _plan_obj = getattr(assembly_manager, "_plan", None)
             if _plan_obj is not None and getattr(_plan_obj, "steps", None):
