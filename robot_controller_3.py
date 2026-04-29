@@ -595,19 +595,33 @@ class PandaController:
             (float(aabb_min[0]) + float(aabb_max[0])) / 2.0,
             (float(aabb_min[1]) + float(aabb_max[1])) / 2.0,
         ], dtype=float)
+        size_x = max(1e-4, float(aabb_max[0] - aabb_min[0]))
+        size_y = max(1e-4, float(aabb_max[1] - aabb_min[1]))
+        span_xy = max(size_x, size_y)
+
         # R1 world_pos가 있으면 grasp seed를 R1 기준으로 사용
         if r1_world_pos is not None:
-            base_xy = np.array([float(r1_world_pos[0]), float(r1_world_pos[1])], dtype=float)
-            print(f"[{self.name}] grasp xy from R1 world_pos: {base_xy.tolist()}")
+            r1_xy = np.array([float(r1_world_pos[0]), float(r1_world_pos[1])], dtype=float)
+            center_delta = float(np.linalg.norm(r1_xy - aabb_center_xy))
+            max_center_delta = _clamp(0.22 * span_xy, 0.02, 0.055)
+            # R1이 물체 중심에서 과도하게 벗어나면(끝단 파지) 이동 중 slip이 커진다.
+            # 이런 경우 중심 파지로 강제 보정한다.
+            if center_delta > max_center_delta:
+                base_xy = aabb_center_xy
+                print(
+                    f"[{self.name}] grasp xy from R1 world_pos corrected to AABB center "
+                    f"(r1_xy={r1_xy.tolist()}, aabb_center={aabb_center_xy.tolist()}, "
+                    f"delta={center_delta:.4f} > limit={max_center_delta:.4f})"
+                )
+            else:
+                base_xy = r1_xy
+                print(f"[{self.name}] grasp xy from R1 world_pos: {base_xy.tolist()}")
         else:
             base_xy = aabb_center_xy
         target_xy = base_xy + np.array(xy_offset, dtype=float)
         top_z = float(aabb_max[2])
         bottom_z = float(aabb_min[2])
         size_z = max(1e-4, top_z - bottom_z)
-        size_x = max(1e-4, float(aabb_max[0] - aabb_min[0]))
-        size_y = max(1e-4, float(aabb_max[1] - aabb_min[1]))
-        span_xy = max(size_x, size_y)
         # approach 기준점: top_z 바로 위
         # 실제 contact z는 _descend_until_precontact가 contact 감지로 결정
         FINGER_TIP_OFFSET = 0.058
