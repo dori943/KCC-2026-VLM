@@ -1802,24 +1802,91 @@ def run_sequential_demo(
  
         if body_dist > 0.35:
             print("[Demo] bodies too far apart ??nudging right arm closer...")
-            left_aabb_min, left_aabb_max   = p.getAABB(left_body_id)
-            right_aabb_min, right_aabb_max = p.getAABB(right_body_id)
-            left_top_z     = float(left_aabb_max[2])
-            right_half_z   = (float(right_aabb_max[2]) - float(right_aabb_min[2])) / 2.0
-            nudge_pos = [float(main_pos[0]), float(main_pos[1]), left_top_z + right_half_z + 0.01]
-            right.move_end_effector_to(nudge_pos, orientation=down_orn, steps=400, hold_companion=left)
+            ee_before, _ = right.get_end_effector_pose()
+            delta = np.array(main_pos, dtype=float) - np.array(aux_pos, dtype=float)
+            delta_xy = np.array([delta[0], delta[1]], dtype=float)
+            delta_xy_norm = float(np.linalg.norm(delta_xy))
+            if delta_xy_norm > 1e-6:
+                max_xy_nudge = 0.18
+                scale = min(1.0, max_xy_nudge / delta_xy_norm)
+                delta_xy = delta_xy * scale
+            delta_z = float(np.clip(delta[2], -0.03, 0.03))
+            nudge_pos = [
+                float(ee_before[0] + delta_xy[0]),
+                float(ee_before[1] + delta_xy[1]),
+                float(ee_before[2] + delta_z),
+            ]
+            right.move_end_effector_to(
+                nudge_pos,
+                orientation=right_assembly_orn,
+                steps=320,
+                hold_companion=left,
+            )
             right.maintain_grasp_hold(steps=60)
             main_pos, main_orn = p.getBasePositionAndOrientation(left_body_id)
             aux_pos,  _        = p.getBasePositionAndOrientation(right_body_id)
-            body_dist = float(np.linalg.norm(np.array(aux_pos) - np.array(main_pos)))
-            print(f"[Demo] post-nudge body distance: {body_dist:.3f} m")
+            body_dist_after = float(np.linalg.norm(np.array(aux_pos) - np.array(main_pos)))
+            print(f"[Demo] post-nudge body distance: {body_dist_after:.3f} m")
+            if body_dist_after > body_dist + 0.02:
+                print("[Demo][WARN] nudge increased distance; restoring right EE pre-nudge pose.")
+                right.move_end_effector_to(
+                    [float(ee_before[0]), float(ee_before[1]), float(ee_before[2])],
+                    orientation=right_assembly_orn,
+                    steps=220,
+                    hold_companion=left,
+                )
+                right.maintain_grasp_hold(steps=40)
+                main_pos, main_orn = p.getBasePositionAndOrientation(left_body_id)
+                aux_pos,  _        = p.getBasePositionAndOrientation(right_body_id)
+                body_dist = float(np.linalg.norm(np.array(aux_pos) - np.array(main_pos)))
+                print(f"[Demo] restored body distance: {body_dist:.3f} m")
+            else:
+                body_dist = body_dist_after
  
         print("[Demo] assembling parts...")
  
         if _plan_loaded:
             # ?? module3 JSON 怨꾪쉷 ?ㅽ뻾 ??????????????????????????????????????
             # step1(position-only)? 諛곗튂 湲곕줉留? step2 ?댄썑 attach ?ㅽ뻾
-            assembly_results = assembly_manager.execute_plan(settle_steps=60, max_force=500)
+            _active_labels = {left_target_label, right_target_label}
+            _selected_steps = []
+            _plan_obj = getattr(assembly_manager, "_plan", None)
+            if _plan_obj is not None and getattr(_plan_obj, "steps", None):
+                for _step in _plan_obj.steps:
+                    if not _step.has_attach():
+                        if _step.base_object in _active_labels:
+                            _selected_steps.append(int(_step.step))
+                        else:
+                            print(
+                                f"[Demo] skip plan step {_step.step}: "
+                                f"position-only base '{_step.base_object}' is outside active grasp set."
+                            )
+                        continue
+
+                    _step_objects = {_step.base_object, _step.attach_object}
+                    if _step_objects.issubset(_active_labels):
+                        _selected_steps.append(int(_step.step))
+                    else:
+                        print(
+                            f"[Demo] skip plan step {_step.step}: "
+                            f"objects {sorted(list(_step_objects))} are outside active grasp set "
+                            f"{sorted(list(_active_labels))}."
+                        )
+
+            if _selected_steps:
+                print(f"[Demo] executing module3 plan steps: {_selected_steps}")
+                assembly_results = []
+                for _step_no in _selected_steps:
+                    assembly_results.append(
+                        assembly_manager.execute_step(
+                            step_number=_step_no,
+                            settle_steps=60,
+                            max_force=500,
+                        )
+                    )
+            else:
+                print("[Demo][WARN] no compatible module3 steps for current two-object grasp; using fallback attach.")
+                _plan_loaded = False
             attach_results = [r for r in assembly_results if r.get("constraint_id") is not None]
             if attach_results:
                 print(f"[Demo] assembly successful via module3 plan "

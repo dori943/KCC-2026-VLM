@@ -424,10 +424,28 @@ class AssemblyManager:
             return {"step": step.step, "ok": False, "reason": msg, "constraint_id": None}
 
         # joint_position_world → parent(base) 로컬 프레임으로 변환
-        contact_offset = _world_pos_to_parent_local(
+        planned_contact_offset = _world_pos_to_parent_local(
             joint_pos_world=step.joint_pos_world,
             parent_body_id=base_id,
         )
+        aux_pos_world, _ = p.getBasePositionAndOrientation(aux_id)
+        joint_gap_m = float(np.linalg.norm(np.array(aux_pos_world) - np.array(step.joint_pos_world)))
+
+        contact_offset = list(planned_contact_offset)
+        offset_policy = "plan_joint"
+        # Large plan-joint mismatch creates an impulsive snap when fixed-constraint is created.
+        # Fall back to current relative offset to keep attachment stable.
+        if joint_gap_m > 0.20:
+            contact_offset = _world_pos_to_parent_local(
+                joint_pos_world=[float(aux_pos_world[0]), float(aux_pos_world[1]), float(aux_pos_world[2])],
+                parent_body_id=base_id,
+            )
+            offset_policy = "current_relative_fallback"
+            print(
+                f"[Assembly][WARN] step {step.step}: aux-joint gap too large "
+                f"({joint_gap_m:.3f} m). "
+                "Using current relative offset to avoid impulsive snap."
+            )
 
         cid = self.attach(
             main_body_id=base_id,
@@ -461,6 +479,9 @@ class AssemblyManager:
             "connection_relationship": step.connection_relationship,
             "assembly_relationship": step.assembly_relationship,
             "contact_offset_local": contact_offset,
+            "planned_contact_offset_local": planned_contact_offset,
+            "offset_policy": offset_policy,
+            "joint_gap_m": joint_gap_m,
         }
 
     # ── 핵심 attach / detach API ──────────────────────────────────────────────
