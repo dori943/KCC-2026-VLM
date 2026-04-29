@@ -1,0 +1,420 @@
+{
+  "schema_name": "module2d_output",
+  "schema_version": "0.1",
+  "evaluated_candidates": [
+    {
+      "candidate_id": "tool_01",
+      "pre_analysis": {
+        "task_type_classification": "C with brief reason: The task involves creating a tool to manipulate an object indirectly due to environmental constraints.",
+        "object_profiles": [
+          {
+            "name": "phillips_screwdriver",
+            "functional_end": "tip_end",
+            "mechanism": "elongated reach",
+            "attach_zone": "body",
+            "blockable": "low with reason: primarily used for reach, not easily obstructed."
+          },
+          {
+            "name": "fork",
+            "functional_end": "tip_end",
+            "mechanism": "hookable gap",
+            "attach_zone": "body",
+            "blockable": "medium with reason: potential for snagging or misalignment."
+          },
+          {
+            "name": "sponge",
+            "functional_end": "surface",
+            "mechanism": "compliant pad",
+            "attach_zone": "body",
+            "blockable": "low with reason: flexible and adaptable to surface contact."
+          }
+        ]
+      },
+      "environment_filter": {
+        "pass": true,
+        "violated_constraints": [],
+        "reason": "The environment allows for the use of elongated tools with hook and cushioning capabilities."
+      },
+      "assembly_filter": {
+        "pass": true,
+        "violated_reasons": [],
+        "reason": "The assembly meets the task's requirements for reach, hook, and cushioning."
+      },
+      "checklist": {
+        "geometry": [
+          {
+            "item": "G1",
+            "result": true,
+            "false_reason": null
+          },
+          {
+            "item": "G2",
+            "result": true,
+            "false_reason": null
+          },
+          {
+            "item": "G3",
+            "result": true,
+            "false_reason": null
+          },
+          {
+            "item": "G4",
+            "result": true,
+            "false_reason": null
+          },
+          {
+            "item": "G5",
+            "result": true,
+            "false_reason": null
+          },
+          {
+            "item": "G6",
+            "result": true,
+            "false_reason": null
+          },
+          {
+            "item": "G7",
+            "result": true,
+            "false_reason": null
+          }
+        ],
+        "physics": [
+          {
+            "item": "P1",
+            "result": true,
+            "false_reason": null
+          },
+          {
+            "item": "P2",
+            "result": true,
+            "false_reason": null
+          },
+          {
+            "item": "P3",
+            "result": true,
+            "false_reason": null
+          },
+          {
+            "item": "P4",
+            "result": true,
+            "false_reason": null
+          },
+          {
+            "item": "P5",
+            "result": true,
+            "false_reason": null
+          },
+          {
+            "item": "P6",
+            "result": false,
+            "false_reason": "The fork may not securely hook the latch due to potential misalignment."
+          }
+        ],
+        "commonsense": [
+          {
+            "item": "C1",
+            "result": true,
+            "false_reason": null
+          },
+          {
+            "item": "C2",
+            "result": true,
+            "false_reason": null
+          },
+          {
+            "item": "C3",
+            "result": true,
+            "false_reason": null
+          },
+          {
+            "item": "C4",
+            "result": false,
+            "false_reason": "The combination may not provide sufficient stability for precise manipulation."
+          },
+          {
+            "item": "C5",
+            "result": true,
+            "false_reason": null
+          }
+        ],
+        "task_fit": [
+          {
+            "item": "TF1",
+            "result": true,
+            "false_reason": null
+          },
+          {
+            "item": "TF2",
+            "result": true,
+            "false_reason": null
+          },
+          {
+            "item": "TF3",
+            "result": true,
+            "false_reason": null
+          }
+        ]
+      },
+      "emergence_analysis": {
+        "emergence_score": 4.0,
+        "necessity_score": 5.0,
+        "role_contribution_score": 4.0,
+        "single_object_baseline_gap": "No single object provides both the reach and hook capabilities needed.",
+        "synergy_reason": "The combination allows for safe manipulation of the latch from a distance.",
+        "role_contribution_reason": "Each object contributes a unique function: reach, hook, and cushioning."
+      },
+      "stage_scores": {
+        "geometry": 5.0,
+        "physics": 4.1667,
+        "commonsense": 4.0,
+        "task_fit": 5.0,
+        "emergence": 4.0,
+        "necessity": 5.0,
+        "role_contribution": 4.0
+      },
+      "total_score": 4.4549,
+      "pass": true,
+      "failed_stage": null,
+      "weak_points": [
+        {
+          "stage": "physics",
+          "item": "P6",
+          "score": 0.0,
+          "reason": "The fork may not securely hook the latch due to potential misalignment."
+        },
+        {
+          "stage": "commonsense",
+          "item": "C4",
+          "score": 0.0,
+          "reason": "The combination may not provide sufficient stability for precise manipulation."
+        }
+      ],
+      "repair_analysis": {
+        "repair_type": "local_fix",
+        "target_issue": "hookable_gap",
+        "reason": "The fork may not securely hook the latch.",
+        "repair_strategy": [
+          "Adjust the fork's angle or add a securing mechanism to ensure reliable hooking."
+        ]
+      }
+    },
+    {
+      "candidate_id": "tool_02",
+      "pre_analysis": {
+        "hard_rejected": true
+      },
+      "environment_filter": {
+        "pass": true
+      },
+      "assembly_filter": {
+        "pass": true
+      },
+      "checklist": {},
+      "emergence_analysis": {},
+      "stage_scores": {
+        "geometry": 0.0,
+        "physics": 0.0,
+        "commonsense": 0.0,
+        "task_fit": 0.0,
+        "emergence": 0.0,
+        "necessity": 0.0,
+        "role_contribution": 0.0
+      },
+      "total_score": 0.0,
+      "pass": false,
+      "failed_stage": "hook_feasibility",
+      "weak_points": [
+        {
+          "stage": "hook_feasibility",
+          "item": "HR1",
+          "score": 0.0,
+          "reason": "non-allowlist hook role rejected: object='mug', function='hookable_gap', rigidity='rigid', pointed_or_thin=False, primary_contact_profile='cavity_rim', has_open_cavity=True, local_thickness_m=0.01, tip_radius_m=0.003; required: rigidity in {rigid,semi-rigid}, thin/pointed contact (tip/edge), local_thickness<=0.006m, tip_radius<=0.0025m, and open-cavity objects must still provide a pointed/thin hooking edge."
+        }
+      ],
+      "repair_analysis": {
+        "repair_type": "global_redesign",
+        "target_issue": "hook_feasibility",
+        "reason": "hard gate rejection",
+        "repair_strategy": [
+          "handle role object reassignment"
+        ]
+      }
+    },
+    {
+      "candidate_id": "tool_03",
+      "pre_analysis": {
+        "hard_rejected": true
+      },
+      "environment_filter": {
+        "pass": true
+      },
+      "assembly_filter": {
+        "pass": true
+      },
+      "checklist": {},
+      "emergence_analysis": {},
+      "stage_scores": {
+        "geometry": 0.0,
+        "physics": 0.0,
+        "commonsense": 0.0,
+        "task_fit": 0.0,
+        "emergence": 0.0,
+        "necessity": 0.0,
+        "role_contribution": 0.0
+      },
+      "total_score": 0.0,
+      "pass": false,
+      "failed_stage": "hook_feasibility",
+      "weak_points": [
+        {
+          "stage": "hook_feasibility",
+          "item": "HR1",
+          "score": 0.0,
+          "reason": "non-allowlist hook role rejected: object='plate', function='hookable_gap', rigidity='rigid', pointed_or_thin=False, primary_contact_profile='cavity_rim', has_open_cavity=True, local_thickness_m=0.01, tip_radius_m=0.003; required: rigidity in {rigid,semi-rigid}, thin/pointed contact (tip/edge), local_thickness<=0.006m, tip_radius<=0.0025m, and open-cavity objects must still provide a pointed/thin hooking edge."
+        }
+      ],
+      "repair_analysis": {
+        "repair_type": "global_redesign",
+        "target_issue": "hook_feasibility",
+        "reason": "hard gate rejection",
+        "repair_strategy": [
+          "handle role object reassignment"
+        ]
+      }
+    },
+    {
+      "candidate_id": "tool_04",
+      "pre_analysis": {
+        "hard_rejected": true
+      },
+      "environment_filter": {
+        "pass": true
+      },
+      "assembly_filter": {
+        "pass": true
+      },
+      "checklist": {},
+      "emergence_analysis": {},
+      "stage_scores": {
+        "geometry": 0.0,
+        "physics": 0.0,
+        "commonsense": 0.0,
+        "task_fit": 0.0,
+        "emergence": 0.0,
+        "necessity": 0.0,
+        "role_contribution": 0.0
+      },
+      "total_score": 0.0,
+      "pass": false,
+      "failed_stage": "hook_feasibility",
+      "weak_points": [
+        {
+          "stage": "hook_feasibility",
+          "item": "HR1",
+          "score": 0.0,
+          "reason": "non-allowlist hook role rejected: object='bowl', function='hookable_gap', rigidity='rigid', pointed_or_thin=False, primary_contact_profile='cavity_rim', has_open_cavity=True, local_thickness_m=0.01, tip_radius_m=0.003; required: rigidity in {rigid,semi-rigid}, thin/pointed contact (tip/edge), local_thickness<=0.006m, tip_radius<=0.0025m, and open-cavity objects must still provide a pointed/thin hooking edge."
+        }
+      ],
+      "repair_analysis": {
+        "repair_type": "global_redesign",
+        "target_issue": "hook_feasibility",
+        "reason": "hard gate rejection",
+        "repair_strategy": [
+          "handle role object reassignment"
+        ]
+      }
+    },
+    {
+      "candidate_id": "tool_05",
+      "pre_analysis": {
+        "hard_rejected": true
+      },
+      "environment_filter": {
+        "pass": true
+      },
+      "assembly_filter": {
+        "pass": true
+      },
+      "checklist": {},
+      "emergence_analysis": {},
+      "stage_scores": {
+        "geometry": 0.0,
+        "physics": 0.0,
+        "commonsense": 0.0,
+        "task_fit": 0.0,
+        "emergence": 0.0,
+        "necessity": 0.0,
+        "role_contribution": 0.0
+      },
+      "total_score": 0.0,
+      "pass": false,
+      "failed_stage": "hook_feasibility",
+      "weak_points": [
+        {
+          "stage": "hook_feasibility",
+          "item": "HR1",
+          "score": 0.0,
+          "reason": "non-allowlist hook role rejected: object='gelatin_box', function='hookable_gap', rigidity='rigid', pointed_or_thin=False, primary_contact_profile='cavity_rim', has_open_cavity=True, local_thickness_m=0.01, tip_radius_m=0.003; required: rigidity in {rigid,semi-rigid}, thin/pointed contact (tip/edge), local_thickness<=0.006m, tip_radius<=0.0025m, and open-cavity objects must still provide a pointed/thin hooking edge."
+        }
+      ],
+      "repair_analysis": {
+        "repair_type": "global_redesign",
+        "target_issue": "hook_feasibility",
+        "reason": "hard gate rejection",
+        "repair_strategy": [
+          "handle role object reassignment"
+        ]
+      }
+    },
+    {
+      "candidate_id": "tool_06",
+      "pre_analysis": {
+        "hard_rejected": true
+      },
+      "environment_filter": {
+        "pass": true
+      },
+      "assembly_filter": {
+        "pass": true
+      },
+      "checklist": {},
+      "emergence_analysis": {},
+      "stage_scores": {
+        "geometry": 0.0,
+        "physics": 0.0,
+        "commonsense": 0.0,
+        "task_fit": 0.0,
+        "emergence": 0.0,
+        "necessity": 0.0,
+        "role_contribution": 0.0
+      },
+      "total_score": 0.0,
+      "pass": false,
+      "failed_stage": "handle_feasibility",
+      "weak_points": [
+        {
+          "stage": "handle_feasibility",
+          "item": "HR1",
+          "score": 0.0,
+          "reason": "non-allowlist handle role rejected: object='sugar_box', function='elongated_reach', rigidity='rigid', aspect_ratio=1.788964181994191, effective_reach=0.18479999999999996, cross_section_width=0.10330000000000002; required: rigidity in {rigid,semi-rigid}, aspect_ratio>=2.6, effective_reach>=0.12m, cross_section_width<=0.08m."
+        }
+      ],
+      "repair_analysis": {
+        "repair_type": "global_redesign",
+        "target_issue": "handle_feasibility",
+        "reason": "hard gate rejection",
+        "repair_strategy": [
+          "handle role object reassignment"
+        ]
+      }
+    }
+  ],
+  "selected_candidate_id": "tool_01",
+  "feedback_decision": {
+    "need_feedback": false,
+    "feedback_target": null,
+    "reason": "1/6 candidates passed.",
+    "dominant_failure_pattern": [],
+    "suggested_relaxations": []
+  }
+}
