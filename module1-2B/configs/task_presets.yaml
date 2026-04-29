@@ -52,3 +52,10 @@ tasks:
     target_name: "scattered glass shards on kitchen floor"
     description: "Scene 1 emergency cleanup. Glass shards are widely scattered on the kitchen floor, so direct hand contact is unsafe. Using only YCB 033_spatula has limited sweep width. Using only YCB 003_cracker_box by hand brings the operator too close to shards. Build and use a combined tool from YCB 033_spatula and YCB 003_cracker_box to gather shards to one side without direct contact."
     scene_info: ../scene_info_case1.json
+
+  task8:
+    name: well_retrieval
+    image: cases/images/well_retrieval.png
+    target_name: "key trapped at bottom of narrow well"
+    description: "좁은 우물형 구조물의 격자 아래 바닥에 열쇠가 떨어져 있다. 격자 틈은 직접 손이 들어가기 어렵고, 열쇠는 깊은 내부에 있어 단일 물체만으로는 안정적으로 걸어 끌어올리기 어렵다. 로봇은 주변의 체인, 큰 클램프, 소프트볼을 조합해 긴 도달 거리와 고리 걸기, 완충 접촉을 만족하는 도구로 열쇠를 회수해야 한다."
+    scene_info: ../scene_info_well_retrieval.json

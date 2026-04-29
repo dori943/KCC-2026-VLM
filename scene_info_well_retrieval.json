@@ -1,0 +1,446 @@
+{
+  "objects": [
+    {
+      "id": 3,
+      "label": "softball",
+      "position": {
+        "x": 1.1997,
+        "y": 0.3003,
+        "z": 0.6731
+      },
+      "orientation_euler_deg": {
+        "roll": -0.42,
+        "pitch": -0.38,
+        "yaw": 0.01
+      },
+      "size_aabb_m": {
+        "width": 0.1041,
+        "depth": 0.1049,
+        "height": 0.104
+      },
+      "aabb_min": [
+        1.1476,
+        0.2477,
+        0.6213
+      ],
+      "aabb_max": [
+        1.2517,
+        0.3526,
+        0.7253
+      ],
+      "center_world": [
+        1.1997,
+        0.3002,
+        0.6733
+      ]
+    },
+    {
+      "id": 4,
+      "label": "large_clamp",
+      "position": {
+        "x": 1.1986,
+        "y": -0.3002,
+        "z": 0.6437
+      },
+      "orientation_euler_deg": {
+        "roll": 0.58,
+        "pitch": -4.16,
+        "yaw": -0.02
+      },
+      "size_aabb_m": {
+        "width": 0.1312,
+        "depth": 0.1796,
+        "height": 0.0582
+      },
+      "aabb_min": [
+        1.1207,
+        -0.3766,
+        0.6157
+      ],
+      "aabb_max": [
+        1.2519,
+        -0.197,
+        0.6738
+      ],
+      "center_world": [
+        1.1863,
+        -0.2868,
+        0.6447
+      ]
+    },
+    {
+      "id": 5,
+      "label": "chain",
+      "position": {
+        "x": 1.0,
+        "y": 0.3,
+        "z": 0.6348
+      },
+      "orientation_euler_deg": {
+        "roll": -0.11,
+        "pitch": 0.05,
+        "yaw": 0.24
+      },
+      "size_aabb_m": {
+        "width": 0.3197,
+        "depth": 0.3166,
+        "height": 0.0336
+      },
+      "aabb_min": [
+        0.8365,
+        0.1451,
+        0.6213
+      ],
+      "aabb_max": [
+        1.1561,
+        0.4617,
+        0.6549
+      ],
+      "center_world": [
+        0.9963,
+        0.3034,
+        0.6381
+      ]
+    },
+    {
+      "id": 6,
+      "label": "chips_can",
+      "position": {
+        "x": 1.2016,
+        "y": 0.0975,
+        "z": 0.748
+      },
+      "orientation_euler_deg": {
+        "roll": 1.16,
+        "pitch": 0.76,
+        "yaw": 0.02
+      },
+      "size_aabb_m": {
+        "width": 0.0908,
+        "depth": 0.0908,
+        "height": 0.2563
+      },
+      "aabb_min": [
+        1.1555,
+        0.0528,
+        0.6206
+      ],
+      "aabb_max": [
+        1.2464,
+        0.1435,
+        0.8769
+      ],
+      "center_world": [
+        1.2009,
+        0.0981,
+        0.7487
+      ]
+    },
+    {
+      "id": 7,
+      "label": "potted_meat_can",
+      "position": {
+        "x": 1.1999,
+        "y": -0.0999,
+        "z": 0.667
+      },
+      "orientation_euler_deg": {
+        "roll": -0.14,
+        "pitch": -0.08,
+        "yaw": -0.0
+      },
+      "size_aabb_m": {
+        "width": 0.1102,
+        "depth": 0.0683,
+        "height": 0.0919
+      },
+      "aabb_min": [
+        1.1449,
+        -0.1343,
+        0.6218
+      ],
+      "aabb_max": [
+        1.2551,
+        -0.0659,
+        0.7136
+      ],
+      "center_world": [
+        1.2,
+        -0.1001,
+        0.6677
+      ]
+    },
+    {
+      "id": 8,
+      "label": "bleach_cleanser",
+      "position": {
+        "x": 0.9999,
+        "y": 0.1002,
+        "z": 0.7261
+      },
+      "orientation_euler_deg": {
+        "roll": -0.1,
+        "pitch": -0.08,
+        "yaw": 0.0
+      },
+      "size_aabb_m": {
+        "width": 0.1108,
+        "depth": 0.0762,
+        "height": 0.2589
+      },
+      "aabb_min": [
+        0.9399,
+        0.0623,
+        0.6218
+      ],
+      "aabb_max": [
+        1.0507,
+        0.1384,
+        0.8806
+      ],
+      "center_world": [
+        0.9953,
+        0.1004,
+        0.7512
+      ]
+    },
+    {
+      "id": 9,
+      "label": "timer",
+      "position": {
+        "x": 0.999,
+        "y": -0.1,
+        "z": 0.653
+      },
+      "orientation_euler_deg": {
+        "roll": 0.03,
+        "pitch": -2.09,
+        "yaw": 0.11
+      },
+      "size_aabb_m": {
+        "width": 0.1254,
+        "depth": 0.1218,
+        "height": 0.0738
+      },
+      "aabb_min": [
+        0.939,
+        -0.1574,
+        0.6197
+      ],
+      "aabb_max": [
+        1.0644,
+        -0.0356,
+        0.6935
+      ],
+      "center_world": [
+        1.0017,
+        -0.0965,
+        0.6566
+      ]
+    },
+    {
+      "id": 10,
+      "label": "wine_glass",
+      "position": {
+        "x": 0.7619,
+        "y": 0.3166,
+        "z": 0.6105
+      },
+      "orientation_euler_deg": {
+        "roll": 144.48,
+        "pitch": 54.96,
+        "yaw": 113.85
+      },
+      "size_aabb_m": {
+        "width": 0.1901,
+        "depth": 0.2054,
+        "height": 0.1818
+      },
+      "aabb_min": [
+        0.7736,
+        0.2158,
+        0.5737
+      ],
+      "aabb_max": [
+        0.9637,
+        0.4213,
+        0.7555
+      ],
+      "center_world": [
+        0.8687,
+        0.3186,
+        0.6646
+      ]
+    },
+    {
+      "id": 11,
+      "label": "bowl",
+      "position": {
+        "x": 0.8001,
+        "y": 0.1,
+        "z": 0.6533
+      },
+      "orientation_euler_deg": {
+        "roll": 0.1,
+        "pitch": 0.14,
+        "yaw": 0.0
+      },
+      "size_aabb_m": {
+        "width": 0.1696,
+        "depth": 0.1693,
+        "height": 0.0637
+      },
+      "aabb_min": [
+        0.7147,
+        0.0173,
+        0.6217
+      ],
+      "aabb_max": [
+        0.8843,
+        0.1866,
+        0.6854
+      ],
+      "center_world": [
+        0.7995,
+        0.102,
+        0.6536
+      ]
+    },
+    {
+      "id": 12,
+      "label": "mug",
+      "position": {
+        "x": 0.8,
+        "y": -0.1,
+        "z": 0.7076
+      },
+      "orientation_euler_deg": {
+        "roll": 0.0,
+        "pitch": -0.0,
+        "yaw": 0.0
+      },
+      "size_aabb_m": {
+        "width": 0.1256,
+        "depth": 0.1018,
+        "height": 0.09
+      },
+      "aabb_min": [
+        0.7461,
+        -0.1507,
+        0.622
+      ],
+      "aabb_max": [
+        0.8717,
+        -0.0489,
+        0.7119
+      ],
+      "center_world": [
+        0.8089,
+        -0.0998,
+        0.667
+      ]
+    },
+    {
+      "id": 13,
+      "label": "plate",
+      "position": {
+        "x": 0.8,
+        "y": -0.3,
+        "z": 0.638
+      },
+      "orientation_euler_deg": {
+        "roll": -0.1,
+        "pitch": -0.2,
+        "yaw": 0.0
+      },
+      "size_aabb_m": {
+        "width": 0.2683,
+        "depth": 0.2692,
+        "height": 0.0361
+      },
+      "aabb_min": [
+        0.6642,
+        -0.4358,
+        0.6214
+      ],
+      "aabb_max": [
+        0.9325,
+        -0.1666,
+        0.6575
+      ],
+      "center_world": [
+        0.7983,
+        -0.3012,
+        0.6394
+      ]
+    },
+    {
+      "id": 14,
+      "label": "padlock",
+      "position": {
+        "x": 0.6019,
+        "y": 0.0994,
+        "z": 0.6399
+      },
+      "orientation_euler_deg": {
+        "roll": 2.47,
+        "pitch": 7.48,
+        "yaw": 0.2
+      },
+      "size_aabb_m": {
+        "width": 0.0793,
+        "depth": 0.0778,
+        "height": 0.0498
+      },
+      "aabb_min": [
+        0.5615,
+        0.0536,
+        0.6154
+      ],
+      "aabb_max": [
+        0.6408,
+        0.1314,
+        0.6652
+      ],
+      "center_world": [
+        0.6011,
+        0.0925,
+        0.6403
+      ]
+    },
+    {
+      "id": 15,
+      "label": "rubiks_cube",
+      "position": {
+        "x": 0.6002,
+        "y": -0.0999,
+        "z": 0.6549
+      },
+      "orientation_euler_deg": {
+        "roll": -0.11,
+        "pitch": 0.29,
+        "yaw": -0.0
+      },
+      "size_aabb_m": {
+        "width": 0.0841,
+        "depth": 0.0842,
+        "height": 0.0665
+      },
+      "aabb_min": [
+        0.5582,
+        -0.1421,
+        0.6217
+      ],
+      "aabb_max": [
+        0.6423,
+        -0.0578,
+        0.6882
+      ],
+      "center_world": [
+        0.6003,
+        -0.1,
+        0.655
+      ]
+    }
+  ]
+}
