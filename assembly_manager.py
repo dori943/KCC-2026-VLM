@@ -334,10 +334,14 @@ class AssemblyManager:
                 }
                 continue
 
-            # For attach steps, move attach object to joint pose from JSON.
+            # For attach steps, move attach object to its assembled center
+            # (target_pose_world), not the joint contact point on the base.
+            # joint_pos_world is the contact point on the base's region;
+            # the attach object's CENTER must end up at target_pose_world,
+            # which equals joint_pos_world + relative_offset_from_base.
             targets[step.attach_object] = {
-                "position": list(step.joint_pos_world),
-                "orientation": list(step.joint_orientation),
+                "position": list(step.target_position),
+                "orientation": list(step.target_orientation),
                 "step": int(step.step),
                 "role": "attach",
             }
