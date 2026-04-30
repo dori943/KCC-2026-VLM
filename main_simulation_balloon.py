@@ -572,13 +572,10 @@ def capture_affordance_rgb(
     width: int = AFFORDANCE_CAPTURE_WIDTH,
     height: int = AFFORDANCE_CAPTURE_HEIGHT,
 ) -> np.ndarray:
-    view_matrix = p.computeViewMatrixFromYawPitchRoll(
-        cameraTargetPosition=[1.0, 0.0, 0.6], # 물체들이 모여있는 중앙점 (조정됨)
-        distance=1.2,                        # 약간 더 멀리서 찍어 잘림 방지
-        yaw=45,                              # 좌우 각도
-        pitch=-45,                           # 위아래 각도
-        roll=0,
-        upAxisIndex=2                        # Z축이 위쪽
+    view_matrix = p.computeViewMatrix(
+        cameraEyePosition=[1.92, -0.35, 2.08],    # 카메라 본체의 위치
+        cameraTargetPosition=[0.28, 0.02, 0.76], # 카메라가 바라보는 지점
+        cameraUpVector=[0, 0, 1]                 # 하늘 방향 (Z축 위쪽)
     )
     projection_matrix = p.computeProjectionMatrixFOV(
         fov=60.0,
@@ -1127,13 +1124,10 @@ def run_optional_affordance_probe(
         # Step 1. Camera setup (RGB + depth + segmentation).
         IMG_W = AFFORDANCE_CAPTURE_WIDTH
         IMG_H = AFFORDANCE_CAPTURE_HEIGHT
-        view_matrix = p.computeViewMatrixFromYawPitchRoll(
-        cameraTargetPosition=[1.0, 0.0, 0.6], # 위 함수와 동일하게 맞춤
-        distance=1.2,
-        yaw=45,
-        pitch=-45,
-        roll=0,
-        upAxisIndex=2
+        view_matrix = p.computeViewMatrix(
+        cameraEyePosition=[1.92, -0.35, 2.08],    # 카메라 본체의 위치
+        cameraTargetPosition=[0.28, 0.02, 0.76], # 카메라가 바라보는 지점
+        cameraUpVector=[0, 0, 1]                 # 하늘 방향 (Z축 위쪽)
     )
         proj_matrix = p.computeProjectionMatrixFOV(
             fov=60.0,
