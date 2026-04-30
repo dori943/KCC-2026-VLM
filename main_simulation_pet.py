@@ -1757,13 +1757,32 @@ def run_sequential_demo(
     # ?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧
     # move_end_effector_to ?대??먯꽌 留??ㅽ뀦 _update_grasp_hold_feedback() +
     # _set_gripper_target()???몄텧?섎?濡?slip 媛먯? ???먮룞?쇰줈 force媛 利앷???
+    # EE z compensation: when a top-down gripper holds a body, the body's
+    # AABB center sits below the EE by (FINGER_TIP_OFFSET + half body z).
+    # If we want the BODY to be at JSON target z, the EE must be that much
+    # higher. Without this, the body ends up 5-7cm below the JSON target.
+    FINGER_TIP_OFFSET = 0.058
+
+    def _ee_pose_with_grip_z_comp(target_pos: list[float], body_id: int) -> list[float]:
+        try:
+            aabb_min, aabb_max = p.getAABB(body_id)
+            half_z = max(1e-3, float(aabb_max[2] - aabb_min[2]) / 2.0)
+        except Exception:
+            half_z = 0.02
+        return [
+            float(target_pos[0]),
+            float(target_pos[1]),
+            float(target_pos[2]) + half_z + FINGER_TIP_OFFSET,
+        ]
+
     if left_ok:
+        left_assembly_ee = _ee_pose_with_grip_z_comp(left_assembly_pos, left_body_id)
         print(
-            f"[Demo] left assembly move from JSON joint/assembly pose: "
-            f"pos={[round(v, 4) for v in left_assembly_pos]}"
+            f"[Demo] left assembly move: object_target={[round(v, 4) for v in left_assembly_pos]}, "
+            f"ee_pose={[round(v, 4) for v in left_assembly_ee]} (z-comp for grip)"
         )
         left.move_end_effector_to(
-            left_assembly_pos, orientation=left_assembly_orn, steps=600,
+            left_assembly_ee, orientation=left_assembly_orn, steps=600,
             hold_companion=right if right_ok else None,
         )
         left.maintain_grasp_hold(steps=60)
@@ -1774,12 +1793,13 @@ def run_sequential_demo(
     #           left hold_companion?쇰줈 蹂댄샇
     # ?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧
     if right_ok:
+        right_assembly_ee = _ee_pose_with_grip_z_comp(right_assembly_pos, right_body_id)
         print(
-            f"[Demo] right assembly move from JSON joint/assembly pose: "
-            f"pos={[round(v, 4) for v in right_assembly_pos]}"
+            f"[Demo] right assembly move: object_target={[round(v, 4) for v in right_assembly_pos]}, "
+            f"ee_pose={[round(v, 4) for v in right_assembly_ee]} (z-comp for grip)"
         )
         right.move_end_effector_to(
-            right_assembly_pos, orientation=right_assembly_orn, steps=600,
+            right_assembly_ee, orientation=right_assembly_orn, steps=600,
             hold_companion=left if left_ok else None,
         )
         right.maintain_grasp_hold(steps=80)
@@ -1875,25 +1895,26 @@ def run_sequential_demo(
             # free-fall during the 60-step settle inside each attach call.
             print("[Demo] suspending gravity around snap+attach...")
             p.setGravity(0.0, 0.0, 0.0)
-            # settle_steps=0: gravity is off and the bodies have been teleported,
-            # so no free fall is desired between snap and constraint creation.
+            # Phase A snap: ONLY phillips_screwdriver + fork (the two bodies
+            # we just grasped). Sponge stays on the table for Phase B, where
+            # right arm will pick it up and bring it to the assembly.
+            phase_a_labels = {left_target_label, right_target_label}
             snapped = assembly_manager.snap_objects_to_targets(
                 settle_steps=0,
                 use_aabb_offset=True,
+                labels=phase_a_labels,
             )
-            print(f"[Demo] snapped {len(snapped)} bodies: {sorted(list(snapped.keys()))}")
+            print(f"[Demo] Phase A snapped {len(snapped)} bodies: {sorted(list(snapped.keys()))}")
 
         print("[Demo] assembling parts...")
 
         if _plan_loaded:
             # ?? module3 JSON 怨꾪쉷 ?ㅽ뻾 ??????????????????????????????????????
             # step1(position-only)? 諛곗튂 湲곕줉留? step2 ?댄썑 attach ?ㅽ뻾
-            # Snap-based attach: every registered body has been teleported to
-            # its JSON target, so step selection no longer needs to be limited
-            # to physically grasped objects. Include all registered labels so
-            # downstream steps (e.g. sponge attach to fork) also execute.
-            _registered_labels = set(getattr(assembly_manager, "_body_map", {}).keys())
-            _active_labels = _registered_labels or {left_target_label, right_target_label}
+            # Phase A only handles steps whose objects are in {left, right}
+            # grasp set (phillips + fork). Step 3 (sponge) is intentionally
+            # skipped here and run in Phase B after sponge is picked up.
+            _active_labels = {left_target_label, right_target_label}
             _selected_steps = []
             _plan_obj = getattr(assembly_manager, "_plan", None)
             if _plan_obj is not None and getattr(_plan_obj, "steps", None):
@@ -1919,7 +1940,7 @@ def run_sequential_demo(
                         )
 
             if _selected_steps:
-                print(f"[Demo] executing module3 plan steps: {_selected_steps}")
+                print(f"[Demo] Phase A executing module3 plan steps: {_selected_steps}")
                 assembly_results = []
                 for _step_no in _selected_steps:
                     assembly_results.append(
@@ -1929,11 +1950,11 @@ def run_sequential_demo(
                             max_force=500,
                         )
                     )
-                # Restore gravity now that all attach constraints are created.
-                p.setGravity(0.0, 0.0, -9.8)
-                print("[Demo] gravity restored after assembly steps.")
+                # Gravity stays SUSPENDED until end of Phase B so the
+                # phillips+fork combo does not free-fall while the right
+                # arm goes off to pick up sponge.
             else:
-                # Restore gravity in the no-step branch too.
+                # No Phase A steps to run; restore gravity and fall back.
                 p.setGravity(0.0, 0.0, -9.8)
                 print("[Demo][WARN] no compatible module3 steps for current two-object grasp; using fallback attach.")
                 _plan_loaded = False
@@ -1943,14 +1964,108 @@ def run_sequential_demo(
                 if r.get("constraint_id") is None and r.get("reason") not in {"position_only"}
             ]
             if attach_results and not failed_attach_steps:
-                print(f"[Demo] assembly successful via module3 plan "
+                print(f"[Demo] Phase A assembly successful "
                       f"({len(attach_results)} constraint(s) created).")
             else:
                 if failed_attach_steps:
-                    print(f"[Demo][WARN] module3 plan attach validation failed: {failed_attach_steps}")
+                    print(f"[Demo][WARN] Phase A attach validation failed: {failed_attach_steps}")
                 else:
-                    print("[Demo][WARN] module3 plan produced no constraints ??falling back.")
-                _plan_loaded = False   # fallback?쇰줈 ?꾪솚
+                    print("[Demo][WARN] Phase A produced no constraints; falling back.")
+                # Restore gravity before fallback path.
+                p.setGravity(0.0, 0.0, -9.8)
+                _plan_loaded = False
+
+        # =========================================================
+        # Phase B: pick sponge with right arm and attach to fork
+        # =========================================================
+        # Conditions: Phase A succeeded (_plan_loaded still True) AND
+        # plan has a step 3 with sponge as attach object.
+        _phase_b_done = False
+        if _plan_loaded:
+            _plan_obj_b = getattr(assembly_manager, "_plan", None)
+            _step3 = None
+            if _plan_obj_b is not None:
+                for _s in _plan_obj_b.steps:
+                    if _s.has_attach() and _s.attach_object == "sponge":
+                        _step3 = _s
+                        break
+            sponge_id = ycb_object_ids.get("sponge")
+            if _step3 is not None and sponge_id is not None:
+                print("[Demo] === Phase B: pick sponge and attach to fork ===")
+                # Keep gravity SUSPENDED so the phillips+fork combo (which has
+                # no arm support after the Phase A reset_to_home) does not
+                # free-fall while the right arm goes to grasp sponge. Sponge
+                # was on the table before Phase A snap; with gravity off it
+                # stays put and can be grasped without weight effects.
+                # Right arm is already at home with open gripper after Phase A,
+                # so no extra release/reset move is needed here.
+                # Grasp sponge with right arm (R1 hint may be empty - the
+                # routine falls back to AABB-based pose automatically).
+                _sponge_hint = r1_hints.get("sponge", {})
+                sponge_ok, sponge_grasp_src = _grasp_with_r1_then_aabb_fallback(
+                    controller=right,
+                    body_id=sponge_id,
+                    object_label="sponge",
+                    r1_hint=_sponge_hint,
+                )
+                if not sponge_ok:
+                    print("[Demo][WARN] Phase B sponge grasp failed; skipping step 3.")
+                    p.setGravity(0.0, 0.0, -9.8)  # ensure gravity is on
+                else:
+                    print(f"[Demo] sponge grasp succeeded via source={sponge_grasp_src}")
+                    right.maintain_grasp_hold(steps=60)
+                    # Move sponge to step 3 attach pose with EE z-comp so
+                    # sponge body lands at JSON target_pose_world.
+                    sponge_target_pos = list(_step3.target_position)
+                    sponge_target_orn = list(_step3.target_orientation)
+                    sponge_assembly_ee = _ee_pose_with_grip_z_comp(sponge_target_pos, sponge_id)
+                    print(
+                        f"[Demo] sponge assembly move: object_target={[round(v, 4) for v in sponge_target_pos]}, "
+                        f"ee_pose={[round(v, 4) for v in sponge_assembly_ee]}"
+                    )
+                    right.move_end_effector_to(
+                        sponge_assembly_ee,
+                        orientation=sponge_target_orn,
+                        steps=600,
+                        hold_companion=left if left_ok else None,
+                    )
+                    right.maintain_grasp_hold(steps=60)
+                    print("[Demo] right arm at sponge assembly position.")
+                    # Gravity is already suspended (carried over from Phase A).
+                    # Open right gripper and clear right arm so fingers
+                    # do not push sponge during the constraint settle.
+                    try:
+                        right.open_gripper(steps=30)
+                    except Exception as exc:
+                        print(f"[Demo][WARN] right.open_gripper (phaseB post) failed: {exc}")
+                    try:
+                        right.reset_to_home(steps=240)
+                    except Exception as exc:
+                        print(f"[Demo][WARN] right.reset_to_home (phaseB post) failed: {exc}")
+                    # Snap only sponge; phillips+fork combo is already in
+                    # place from Phase A and is constrained.
+                    snapped_b = assembly_manager.snap_objects_to_targets(
+                        settle_steps=0,
+                        use_aabb_offset=True,
+                        labels={"sponge"},
+                    )
+                    print(f"[Demo] Phase B snapped {len(snapped_b)} body: {sorted(list(snapped_b.keys()))}")
+                    step3_result = assembly_manager.execute_step(
+                        step_number=int(_step3.step),
+                        settle_steps=60,
+                        max_force=500,
+                    )
+                    if step3_result.get("constraint_id") is not None:
+                        print("[Demo] Phase B assembly successful (sponge attached to fork).")
+                        _phase_b_done = True
+                    else:
+                        print(f"[Demo][WARN] Phase B step 3 failed: {step3_result}")
+                    p.setGravity(0.0, 0.0, -9.8)
+                    print("[Demo] gravity restored after Phase B.")
+            else:
+                # No step 3 in plan, or sponge not loaded; restore gravity.
+                p.setGravity(0.0, 0.0, -9.8)
+                print("[Demo] Phase B skipped (no step 3 or sponge missing); gravity restored.")
  
         if not _plan_loaded:
             # ?? fallback: ?꾩옱 ?ㅼ젣 ?꾩튂 湲곕컲 吏곸젒 attach ??????????????????

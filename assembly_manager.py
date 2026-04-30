@@ -360,23 +360,31 @@ class AssemblyManager:
         self,
         settle_steps: int = 20,
         use_aabb_offset: bool = True,
+        labels: set[str] | list[str] | None = None,
     ) -> dict[str, dict]:
         """
-        Teleport every registered body to its assembly target pose.
+        Teleport registered bodies to their assembly target poses.
 
-        Call this right before execute_plan() to bypass grasp slip
-        during transport and guarantee the constraint is created at the
-        exact JSON-specified geometry.
+        Call this right before execute_plan() / execute_step() to bypass
+        grasp slip during transport and guarantee the constraint is
+        created at the exact JSON-specified geometry.
 
         When use_aabb_offset is True, the URDF origin offset from the
         body's current AABB center is preserved, so the visible AABB
         center lands exactly on target_pose_world.
+
+        If labels is provided, only bodies whose label is in that set
+        are snapped. This lets a multi-phase demo snap a subset (e.g.,
+        only phillips+fork in Phase A, only sponge in Phase B).
         """
         if self._plan is None:
             return {}
         targets = self.get_object_transport_targets()
         snapped: dict[str, dict] = {}
+        label_filter = set(labels) if labels is not None else None
         for label, target in targets.items():
+            if label_filter is not None and label not in label_filter:
+                continue
             body_id = self._body_map.get(label)
             if body_id is None:
                 continue
