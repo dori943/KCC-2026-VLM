@@ -586,8 +586,26 @@ class AssemblyManager:
 
         aux_pos_world, _ = p.getBasePositionAndOrientation(aux_id)
         joint_gap_m = float(np.linalg.norm(np.array(aux_pos_world) - np.array(step.joint_pos_world)))
-        base_anchor_norm = float(np.linalg.norm(np.array(parent_frame_pos, dtype=float)))
-        child_anchor_norm = float(np.linalg.norm(np.array(child_frame_pos, dtype=float)))
+        # Validate plausibility using AABB-center distance, not URDF-origin
+        # distance. target_pose_world is defined relative to AABB center, and
+        # for slender objects (e.g. fork) the URDF origin can sit OUTSIDE the
+        # AABB, which makes URDF-distance over-conservative by exactly the
+        # offset between the two. parent_frame_pos / child_frame_pos are still
+        # used for createConstraint (URDF-frame is correct for PyBullet).
+        base_aabb_min, base_aabb_max = p.getAABB(base_id)
+        aux_aabb_min, aux_aabb_max = p.getAABB(aux_id)
+        base_aabb_center = np.array([
+            (base_aabb_min[i] + base_aabb_max[i]) / 2.0 for i in range(3)
+        ])
+        aux_aabb_center = np.array([
+            (aux_aabb_min[i] + aux_aabb_max[i]) / 2.0 for i in range(3)
+        ])
+        base_anchor_norm = float(
+            np.linalg.norm(np.array(step.joint_pos_world) - base_aabb_center)
+        )
+        child_anchor_norm = float(
+            np.linalg.norm(np.array(step.joint_pos_world) - aux_aabb_center)
+        )
         base_anchor_limit = _body_anchor_radius_limit(base_id)
         child_anchor_limit = _body_anchor_radius_limit(aux_id)
         anchors_plausible = (
