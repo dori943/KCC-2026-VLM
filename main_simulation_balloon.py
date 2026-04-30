@@ -43,7 +43,7 @@ YCB_DIR = "/workspace/KCC-2026-VLM/data/object2urdf/examples/ycb"
 YCB_OBJECT_SPECS = [
     ("large_marker", "040_large_marker.urdf", [1.2, 0.3, 0.82]),
     ("cracker_box", "003_cracker_box.urdf", [1.2, 0.10, 0.82]),
-    ("pudding_box", "008_pudding_box.urdf", [1.2, -0.10, 0.82]),
+    ("pudding_box", "008_pudding_box.urdf", [0.5, -0.10, 0.82]),
     ("gelatin_box", "009_gelatin_box.urdf", [1.2, -0.3, 0.82]),
     ("bowl", "024_bowl.urdf", [1.0, 0.2, 0.82]),
     ("mug", "025_mug.urdf", [1.0, 0.0, 0.82]),
@@ -966,17 +966,25 @@ def _compute_aabb_grasp_pose(body_id: int) -> tuple[list[float], list[float], di
     """Fallback grasp pose derived from PyBullet AABB.
 
     Returns (world_pos, orientation, info_dict) where world_pos is the AABB
-    center (xy) at AABB top z minus a small clearance, and orientation is a
-    top-down gripper aligned to the object's long/short axis (yaw).
+    center (xy) at AABB center z, and orientation is a top-down gripper
+    aligned to the object's long/short axis (yaw).
+
+    NOTE: world_pos.z is the grasp *contact* point (object center height).
+    grasp_body() in robot_controller adds the EE finger-tip offset on top of
+    this to compute the actual EE descend target.  Do NOT clamp cz upward
+    toward aabb_max[2] here: that shifts the EE target above the object by
+    roughly (finger_offset + half_object_height), causing contact=0.
     """
     aabb_min, aabb_max = p.getAABB(body_id)
     cx = (float(aabb_min[0]) + float(aabb_max[0])) / 2.0
     cy = (float(aabb_min[1]) + float(aabb_max[1])) / 2.0
     cz_center = (float(aabb_min[2]) + float(aabb_max[2])) / 2.0
-    # Bias slightly toward the object top so the gripper approaches from above
-    # and contacts on the object body, not below the table surface.
     cz_top = float(aabb_max[2])
-    cz = max(cz_center, cz_top - 0.02)
+    # Use AABB center z as the grasp contact point.  grasp_body() adds the
+    # EE finger offset, so this correctly lands the fingers on the object body.
+    # The old `max(cz_center, cz_top - 0.02)` clamp placed the EE ~4-5 cm
+    # above the object top (nominal z >> aabb_max), giving contact=0.
+    cz = cz_center
     world_pos = [cx, cy, cz]
     orientation, info = _estimate_topdown_grasp_orientation(body_id)
     info = dict(info)

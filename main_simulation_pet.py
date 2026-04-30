@@ -473,7 +473,7 @@ def summarize_applied_dynamics(applied: dict) -> dict:
 
 
 def configure_simulation() -> None:
-    p.connect(p.GUI)
+    p.connect(p.Direct)
     p.resetDebugVisualizerCamera(
         cameraDistance=1.0,
         cameraYaw=45,
