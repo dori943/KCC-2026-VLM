@@ -143,6 +143,11 @@ def render_camera(cam_target=[0.55, -0.35, 0.8], cam_distance=1.0,
         lightDiffuseCoeff=0.8,
         lightSpecularCoeff=0.1,
     )
+    rgb = np.array(rgb_raw, dtype=np.uint8).reshape(CAM_HEIGHT, CAM_WIDTH, 4)[:, :, :3]
+    depth_buf = np.array(depth_raw, dtype=np.float32).reshape(CAM_HEIGHT, CAM_WIDTH)
+    depth = CAM_FAR * CAM_NEAR / (CAM_FAR - (CAM_FAR - CAM_NEAR) * depth_buf)
+    return rgb, depth, proj_matrix, view_matrix
+
 
 def _clamp(value: float, lower: float, upper: float) -> float:
     return max(lower, min(upper, float(value)))
