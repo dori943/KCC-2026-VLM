@@ -11,6 +11,7 @@ Notes:
 import os
 import re
 import time
+import math
 
 import numpy as np
 import pybullet as p
@@ -520,17 +521,23 @@ def load_ycb_objects(ycb_dir: str = YCB_DIR, table_body_id=None) -> dict:
     # globalScaling ?쒓굅: YCB URDF???대? 誘명꽣 ?⑥쐞 ?ㅻЪ ?ш린.
     flags = p.URDF_USE_INERTIA_FROM_FILE
     loaded = {}
+
+    _SPAWN_ORIENTATION_OVERRIDE_RPY_DEG = {
+        "fork": [0.0, 0.0, 180.0],
+        "phillips_screwdriver": [0.0, 0.0, 180.0],
+    }
  
     for label, urdf_name, base_position in YCB_OBJECT_SPECS:
         urdf_path = os.path.join(ycb_dir, urdf_name)
         if not os.path.isfile(urdf_path):
             raise FileNotFoundError(f"Missing URDF: {urdf_path}")
         spawn_pos = [base_position[0], base_position[1], base_position[2]]
+        _rpy_deg = _SPAWN_ORIENTATION_OVERRIDE_RPY_DEG.get(label, [0.0, 0.0, 0.0])
+        _rpy_rad = [math.radians(v) for v in _rpy_deg]
         body_id = p.loadURDF(
             urdf_path,
             basePosition=spawn_pos,
-            baseOrientation=p.getQuaternionFromEuler([0.0, 0.0, 0.0]),
-            # YCB URDF???ㅻЪ ?ㅼ???誘명꽣) 湲곗??대?濡?異뺤냼?섏? ?딅뒗??
+            baseOrientation=p.getQuaternionFromEuler(_rpy_rad),
             globalScaling=0.1,
             flags=flags,
         )
@@ -1863,38 +1870,13 @@ def run_sequential_demo(
             else:
                 body_dist = body_dist_after
  
-        # Pose-snap stage: open grippers, move arms back home so the open
-        # fingers do not sit inside the snap volume, then teleport every
-        # registered body to its JSON target_pose_world. This bypasses grasp
-        # slip during transport AND removes gripper-body interference during
-        # the constraint settle.
+        # Pose-snap stage: gravity stays ON throughout. With EE z-compensation
+        # already applied, both bodies sit at JSON target z held by their
+        # respective closed grippers (fingers at body top, no clipping). A
+        # small snap brings AABB centers exactly onto target. The constraints
+        # plus closed grippers hold everything in place against gravity.
         if _plan_loaded:
-            print("[Demo] opening grippers and clearing arms before snap...")
-            try:
-                left.open_gripper(steps=30)
-            except Exception as exc:
-                print(f"[Demo][WARN] left.open_gripper failed: {exc}")
-            try:
-                right.open_gripper(steps=30)
-            except Exception as exc:
-                print(f"[Demo][WARN] right.open_gripper failed: {exc}")
-            # Move both arms back to home so the open fingers no longer
-            # surround the assembly volume. Without this, the fingers sit
-            # inside the AABB of the snapped bodies and push them out of
-            # alignment during the 60-step settle, blowing the post-attach
-            # anchor gap check.
-            try:
-                left.reset_to_home(steps=240)
-            except Exception as exc:
-                print(f"[Demo][WARN] left.reset_to_home failed: {exc}")
-            try:
-                right.reset_to_home(steps=240)
-            except Exception as exc:
-                print(f"[Demo][WARN] right.reset_to_home failed: {exc}")
-            # Suspend gravity around the snap + execute loop so bodies do not
-            # free-fall during the 60-step settle inside each attach call.
-            print("[Demo] suspending gravity around snap+attach...")
-            p.setGravity(0.0, 0.0, 0.0)
+            print("[Demo] Phase A snap (gravity ON, grippers closed)...")
             # Phase A snap: ONLY phillips_screwdriver + fork (the two bodies
             # we just grasped). Sponge stays on the table for Phase B, where
             # right arm will pick it up and bring it to the assembly.
@@ -1948,14 +1930,10 @@ def run_sequential_demo(
                             step_number=_step_no,
                             settle_steps=60,
                             max_force=500,
+                            suspend_gravity=False,
                         )
                     )
-                # Gravity stays SUSPENDED until end of Phase B so the
-                # phillips+fork combo does not free-fall while the right
-                # arm goes off to pick up sponge.
             else:
-                # No Phase A steps to run; restore gravity and fall back.
-                p.setGravity(0.0, 0.0, -9.8)
                 print("[Demo][WARN] no compatible module3 steps for current two-object grasp; using fallback attach.")
                 _plan_loaded = False
             attach_results = [r for r in assembly_results if r.get("constraint_id") is not None]
@@ -1971,9 +1949,35 @@ def run_sequential_demo(
                     print(f"[Demo][WARN] Phase A attach validation failed: {failed_attach_steps}")
                 else:
                     print("[Demo][WARN] Phase A produced no constraints; falling back.")
-                # Restore gravity before fallback path.
-                p.setGravity(0.0, 0.0, -9.8)
                 _plan_loaded = False
+
+        # World-pin combo: after Step 2 attach, fix phillips (and via the
+        # constraint, fork) to the static plane. This keeps the assembled
+        # combo at its JSON pose during Phase B even if the right arm
+        # brushes against it while transporting sponge. We use a strong
+        # max_force so the pin survives accidental impacts. The pin is
+        # removed after Phase B step 3 attach.
+        world_pin_id = None
+        if _plan_loaded:
+            try:
+                _phillips_pos, _phillips_orn = p.getBasePositionAndOrientation(left_body_id)
+                world_pin_id = p.createConstraint(
+                    parentBodyUniqueId=0,             # static plane (body_id=0)
+                    parentLinkIndex=-1,
+                    childBodyUniqueId=left_body_id,
+                    childLinkIndex=-1,
+                    jointType=p.JOINT_FIXED,
+                    jointAxis=[0, 0, 0],
+                    parentFramePosition=list(_phillips_pos),
+                    childFramePosition=[0, 0, 0],
+                    parentFrameOrientation=list(_phillips_orn),
+                    childFrameOrientation=[0, 0, 0, 1],
+                )
+                p.changeConstraint(world_pin_id, maxForce=10000)
+                print(f"[Demo] world-pinned combo at {[round(v,4) for v in _phillips_pos]} (pin id={world_pin_id})")
+            except Exception as exc:
+                print(f"[Demo][WARN] world pin failed: {exc}")
+                world_pin_id = None
 
         # =========================================================
         # Phase B: pick sponge with right arm and attach to fork
@@ -1991,14 +1995,14 @@ def run_sequential_demo(
                         break
             sponge_id = ycb_object_ids.get("sponge")
             if _step3 is not None and sponge_id is not None:
-                print("[Demo] === Phase B: pick sponge and attach to fork ===")
-                # Keep gravity SUSPENDED so the phillips+fork combo (which has
-                # no arm support after the Phase A reset_to_home) does not
-                # free-fall while the right arm goes to grasp sponge. Sponge
-                # was on the table before Phase A snap; with gravity off it
-                # stays put and can be grasped without weight effects.
-                # Right arm is already at home with open gripper after Phase A,
-                # so no extra release/reset move is needed here.
+                print("[Demo] === Phase B: pick sponge and attach to fork (gravity ON) ===")
+                # Right arm currently holds fork at right_assembly_ee. Fork is
+                # already constrained to phillips (Step 2), and combo is
+                # world-pinned, so right's grip is no longer needed.
+                try:
+                    right.open_gripper(steps=30)
+                except Exception as exc:
+                    print(f"[Demo][WARN] right.open_gripper (phaseB pre) failed: {exc}")
                 # Grasp sponge with right arm (R1 hint may be empty - the
                 # routine falls back to AABB-based pose automatically).
                 _sponge_hint = r1_hints.get("sponge", {})
@@ -2010,7 +2014,6 @@ def run_sequential_demo(
                 )
                 if not sponge_ok:
                     print("[Demo][WARN] Phase B sponge grasp failed; skipping step 3.")
-                    p.setGravity(0.0, 0.0, -9.8)  # ensure gravity is on
                 else:
                     print(f"[Demo] sponge grasp succeeded via source={sponge_grasp_src}")
                     right.maintain_grasp_hold(steps=60)
@@ -2031,19 +2034,8 @@ def run_sequential_demo(
                     )
                     right.maintain_grasp_hold(steps=60)
                     print("[Demo] right arm at sponge assembly position.")
-                    # Gravity is already suspended (carried over from Phase A).
-                    # Open right gripper and clear right arm so fingers
-                    # do not push sponge during the constraint settle.
-                    try:
-                        right.open_gripper(steps=30)
-                    except Exception as exc:
-                        print(f"[Demo][WARN] right.open_gripper (phaseB post) failed: {exc}")
-                    try:
-                        right.reset_to_home(steps=240)
-                    except Exception as exc:
-                        print(f"[Demo][WARN] right.reset_to_home (phaseB post) failed: {exc}")
-                    # Snap only sponge; phillips+fork combo is already in
-                    # place from Phase A and is constrained.
+                    # Gravity stays ON. Snap sponge with closed gripper for
+                    # precision, then create the constraint to fork.
                     snapped_b = assembly_manager.snap_objects_to_targets(
                         settle_steps=0,
                         use_aabb_offset=True,
@@ -2054,18 +2046,32 @@ def run_sequential_demo(
                         step_number=int(_step3.step),
                         settle_steps=60,
                         max_force=500,
+                        suspend_gravity=False,
                     )
                     if step3_result.get("constraint_id") is not None:
                         print("[Demo] Phase B assembly successful (sponge attached to fork).")
                         _phase_b_done = True
+                        # Sponge is now constrained to fork; right's grip
+                        # on sponge is redundant. Release it so Phase 4
+                        # can move the combo without right's grip fighting
+                        # the rigid constraint chain.
+                        try:
+                            right.open_gripper(steps=30)
+                        except Exception as exc:
+                            print(f"[Demo][WARN] right.open_gripper (post-step3) failed: {exc}")
                     else:
                         print(f"[Demo][WARN] Phase B step 3 failed: {step3_result}")
-                    p.setGravity(0.0, 0.0, -9.8)
-                    print("[Demo] gravity restored after Phase B.")
             else:
-                # No step 3 in plan, or sponge not loaded; restore gravity.
-                p.setGravity(0.0, 0.0, -9.8)
-                print("[Demo] Phase B skipped (no step 3 or sponge missing); gravity restored.")
+                print("[Demo] Phase B skipped (no step 3 or sponge missing).")
+
+        # Remove the world pin so the assembled tool is free to be carried
+        # or released. This must happen before the place/release/home stage.
+        if world_pin_id is not None:
+            try:
+                p.removeConstraint(world_pin_id)
+                print(f"[Demo] world pin removed (id={world_pin_id})")
+            except Exception as exc:
+                print(f"[Demo][WARN] removing world pin failed: {exc}")
  
         if not _plan_loaded:
             # ?? fallback: ?꾩옱 ?ㅼ젣 ?꾩튂 湲곕컲 吏곸젒 attach ??????????????????

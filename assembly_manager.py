@@ -481,14 +481,22 @@ class AssemblyManager:
         step_number: int,
         settle_steps: int = 60,
         max_force: float = 500.0,
+        suspend_gravity: bool = False,
+        restore_gravity: tuple[float, float, float] = (0.0, 0.0, -9.8),
     ) -> dict:
         """?뱀젙 step 踰덊샇留??ㅽ뻾."""
         if self._plan is None:
             raise RuntimeError("[Assembly] no plan loaded.")
-        for step in self._plan.steps:
-            if step.step == step_number:
-                return self._execute_step(step, settle_steps=settle_steps, max_force=max_force)
-        raise ValueError(f"[Assembly] step {step_number} not found in plan.")
+        if suspend_gravity:
+            p.setGravity(0.0, 0.0, 0.0)
+        try:
+            for step in self._plan.steps:
+                if step.step == step_number:
+                    return self._execute_step(step, settle_steps=settle_steps, max_force=max_force)
+            raise ValueError(f"[Assembly] step {step_number} not found in plan.")
+        finally:
+            if suspend_gravity:
+                p.setGravity(*restore_gravity)
 
     def _snap_step_targets(
         self,
