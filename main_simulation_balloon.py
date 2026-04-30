@@ -52,6 +52,10 @@ YCB_OBJECT_SPECS = [
     ("spatula", "033_spatula.urdf", [0.7, 0.10, 0.82]),
     ("foam_brick", "061_foam_brick.urdf", [0.7, -0.1, 0.82]),
     ("dice", "062_dice.urdf", [0.7, -0.3, 0.82]),
+    ("marbles", "063-a_marbles.urdf", [0.45, 0.2, 0.82]),
+    ("cups", "065-a_cups.urdf", [0.45, 0.0, 0.82]),
+    ("timer", "076_timer.urdf", [0.45, -0.2, 0.82]),
+    ("wood_block", "036_wood_block.urdf", [0.45, -0.35, 0.82]),
 ]
 
 def _load_module3_object_labels(json_path: str) -> list[str]:
