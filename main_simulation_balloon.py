@@ -31,8 +31,8 @@ ENABLE_MODULE1_DYNAMICS_DEFAULT = True
 ENABLE_MODULE1_PROFILE_INFERENCE_DEFAULT = True
 AFFORDANCE_MODEL_ID = "hqking/affordance-r1"
 SAM2_MODEL_ID = "facebook/sam2-hiera-large"
-AFFORDANCE_CAPTURE_WIDTH = 640
-AFFORDANCE_CAPTURE_HEIGHT = 480
+AFFORDANCE_CAPTURE_WIDTH = 1280
+AFFORDANCE_CAPTURE_HEIGHT = 960
 MODULE1_MAP_PATH = "/workspace/KCC-2026-VLM/module1-2B/configs/module1_to_pybullet_map.yaml"
 
 LEFT_BASE_POSITION = [0.0, -0.35, 0.65]
@@ -117,7 +117,7 @@ def _build_ycb_object_specs(json_path: str) -> list[tuple]:
 
 
 # Resolve JSON path once for reuse before main().
-_MODULE3_JSON_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "module3_pet_output.json")
+_MODULE3_JSON_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "module3_balloon_output.json")
 
 # Dynamically resolved YCB object specs.
 YCB_OBJECT_SPECS: list[tuple] = _build_ycb_object_specs(_MODULE3_JSON_PATH)
@@ -806,7 +806,8 @@ def _save_r1_view_debug_pngs(
         depth = np.asarray(depth_buf, dtype=np.float32)
         depth_vis = np.clip((1.0 - depth) * 255.0, 0.0, 255.0).astype(np.uint8)
         depth_path = os.path.join(out_dir, "r1_view_depth.png")
-        _PILImage.fromarray(depth_vis, mode="L").save(depth_path)
+        _PILImage.fromarray(np.asarray(rgb, dtype=np.uint8), mode="RGB").save(rgb_path, format="PNG", compress_level=1  # 기본 6 → 1로 낮춤 (용량 크지만 빠르고 선명))
+        )
         saved_paths.append(depth_path)
 
         ids = np.asarray(seg_obj_id, dtype=np.int32)
