@@ -2047,8 +2047,25 @@ def run_sequential_demo(
                     )
                     right.maintain_grasp_hold(steps=60)
                     print("[Demo] right arm at sponge assembly position.")
-                    # Gravity stays ON. Snap sponge with closed gripper for
-                    # precision, then create the constraint to fork.
+                    # CRITICAL: open right gripper BEFORE snap+attach. With
+                    # the gripper still closed, the motor tries to keep EE
+                    # at z=0.77 while the soon-to-be-created constraint
+                    # pulls sponge down to fork (z=0.70). The two forces
+                    # tug on sponge during the 60-frame settle and drift
+                    # post_anchor_gap to ~28 mm (limit 12 mm) -> attach
+                    # validation fails. Phase A worked because BOTH
+                    # grippers held BOTH bodies at consistent z-comp
+                    # poses, so there was no tug-of-war. Here only one
+                    # gripper holds, so we release it.
+                    try:
+                        right.open_gripper(steps=30)
+                    except Exception as exc:
+                        print(f"[Demo][WARN] right.open_gripper (pre-step3) failed: {exc}")
+                    # Snap sponge to JSON target; this also corrects any
+                    # small free-fall (~7 mm) that happened while the
+                    # gripper was opening. _snap_step_targets inside
+                    # execute_step will re-snap right before the actual
+                    # constraint creation for final precision.
                     snapped_b = assembly_manager.snap_objects_to_targets(
                         settle_steps=0,
                         use_aabb_offset=True,
