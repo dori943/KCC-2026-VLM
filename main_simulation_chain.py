@@ -31,27 +31,32 @@ ENABLE_MODULE1_DYNAMICS_DEFAULT = True
 ENABLE_MODULE1_PROFILE_INFERENCE_DEFAULT = True
 AFFORDANCE_MODEL_ID = "hqking/affordance-r1"
 SAM2_MODEL_ID = "facebook/sam2-hiera-large"
-AFFORDANCE_CAPTURE_WIDTH = 1280
-AFFORDANCE_CAPTURE_HEIGHT = 960
+AFFORDANCE_CAPTURE_WIDTH = 640
+AFFORDANCE_CAPTURE_HEIGHT = 480
 MODULE1_MAP_PATH = "/workspace/KCC-2026-VLM/module1-2B/configs/module1_to_pybullet_map.yaml"
 
-LEFT_BASE_POSITION = [0.6, -0.35, 0.65]
-RIGHT_BASE_POSITION = [0.6, 0.35, 0.65]
+LEFT_BASE_POSITION = [0.0, -0.35, 0.65]
+RIGHT_BASE_POSITION = [0.0, 0.35, 0.65]
 TABLE_BASE_POSITION = [0.6, 0.0, 0.0]
 YCB_DIR = "/workspace/KCC-2026-VLM/data/object2urdf/examples/ycb"
 
 YCB_OBJECT_SPECS = [
-    ("large_marker", "040_large_marker.urdf", [1.2, 0.3, 0.82]),
-    ("cracker_box", "003_cracker_box.urdf", [1.2, 0.10, 0.82]),
+    ("cracker_box", "003_cracker_box.urdf", [1.2, 0.3, 0.82]),
+    ("sugar_box", "004_sugar_box.urdf", [1.2, 0.10, 0.82]),
     ("pudding_box", "008_pudding_box.urdf", [1.2, -0.10, 0.82]),
     ("gelatin_box", "009_gelatin_box.urdf", [1.2, -0.3, 0.82]),
     ("bowl", "024_bowl.urdf", [1.0, 0.2, 0.82]),
     ("mug", "025_mug.urdf", [1.0, 0.0, 0.82]),
-    ("sponge", "026_sponge.urdf", [1.0, -0.2, 0.82]),
-    ("plate", "029_plate.urdf", [0.7, 0.3, 0.82]),   
-    ("spatula", "033_spatula.urdf", [0.7, 0.10, 0.82]),
-    ("foam_brick", "061_foam_brick.urdf", [0.7, -0.1, 0.82]),
-    ("dice", "062_dice.urdf", [0.7, -0.3, 0.82]),
+    ("plate", "029_plate.urdf", [1.0, -0.2, 0.82]),
+    ("fork", "030_fork.urdf", [0.7, 0.3, 0.82]),
+    ("spoon", "031_spoon.urdf", [0.7, 0.10, 0.82]),
+    ("knife", "032_knife.urdf", [0.7, -0.1, 0.82]),
+    ("spatula", "033_spatula.urdf", [0.7, -0.3, 0.82]),
+    ("adjustable_wrench", "042_adjustable_wrench.urdf", [0.45, 0.2, 0.82]),
+    ("large_marker", "040_large_marker.urdf", [0.45, 0.0, 0.82]),
+    ("phillips_screwdriver", "043_phillips_screwdriver.urdf", [0.45, -0.2, 0.82]),
+    ("flat_screwdriver", "044_flat_screwdriver.urdf", [0.45, -0.35, 0.82]),
+    ("sponge", "026_sponge.urdf", [0.45, 0.35, 0.82]),
 ]
 
 def _load_module3_object_labels(json_path: str) -> list[str]:
@@ -86,21 +91,22 @@ def _build_ycb_object_specs(json_path: str) -> list[tuple]:
     if not labels:
         # Fallback: load full default YCB set.
         return [
-            ("wood_block", "036_wood_block.urdf", [1.2, 0.3, 0.82]),
-            ("cracker_box", "003_cracker_box.urdf", [1.2, 0.10, 0.82]),
-            ("plate", "029_plate.urdf", [1.2, -0.10, 0.82]),
+            ("cracker_box", "003_cracker_box.urdf", [1.2, 0.3, 0.82]),
+            ("sugar_box", "004_sugar_box.urdf", [1.2, 0.10, 0.82]),
+            ("pudding_box", "008_pudding_box.urdf", [1.2, -0.10, 0.82]),
             ("gelatin_box", "009_gelatin_box.urdf", [1.2, -0.3, 0.82]),
             ("bowl", "024_bowl.urdf", [1.0, 0.2, 0.82]),
             ("mug", "025_mug.urdf", [1.0, 0.0, 0.82]),
-            ("sponge", "026_sponge.urdf", [1.0, -0.2, 0.82]),
-            ("timer", "076_timer.urdf", [0.7, 0.3, 0.82]),   
-            ("spatula", "033_spatula.urdf", [0.7, 0.10, 0.82]),
-            ("foam_brick", "061_foam_brick.urdf", [0.7, -0.1, 0.82]),
-            ("dice", "062_dice.urdf", [0.7, -0.3, 0.82]),
-            ("marbles", "063-a_marbles.urdf", [0.45, 0.2, 0.82]),
-            ("cups", "065-a_cups.urdf", [0.45, 0.0, 0.82]),
-            ("pudding_box", "008_pudding_box.urdf", [0.45, -0.2, 0.82]),
-            ("large_marker", "040_large_marker.urdf", [0.45, -0.35, 0.82]),
+            ("plate", "029_plate.urdf", [1.0, -0.2, 0.82]),
+            ("fork", "030_fork.urdf", [0.7, 0.3, 0.82]),
+            ("spoon", "031_spoon.urdf", [0.7, 0.10, 0.82]),
+            ("knife", "032_knife.urdf", [0.7, -0.1, 0.82]),
+            ("spatula", "033_spatula.urdf", [0.7, -0.3, 0.82]),
+            ("adjustable_wrench", "042_adjustable_wrench.urdf", [0.45, 0.2, 0.82]),
+            ("large_marker", "040_large_marker.urdf", [0.45, 0.0, 0.82]),
+            ("phillips_screwdriver", "043_phillips_screwdriver.urdf", [0.45, 0.1, 0.82]),
+            ("flat_screwdriver", "044_flat_screwdriver.urdf", [0.45, 0.1, 0.82]),
+            ("sponge", "026_sponge.urdf", [0.45, 0.35, 0.82]),
         ]
     specs = []
     for raw_label in labels:
@@ -113,7 +119,7 @@ def _build_ycb_object_specs(json_path: str) -> list[tuple]:
 
 
 # Resolve JSON path once for reuse before main().
-_MODULE3_JSON_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "module3_balloon_output.json")
+_MODULE3_JSON_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "module3_pet_output.json")
 
 # Dynamically resolved YCB object specs.
 YCB_OBJECT_SPECS: list[tuple] = _build_ycb_object_specs(_MODULE3_JSON_PATH)
@@ -568,10 +574,13 @@ def capture_affordance_rgb(
     width: int = AFFORDANCE_CAPTURE_WIDTH,
     height: int = AFFORDANCE_CAPTURE_HEIGHT,
 ) -> np.ndarray:
-    view_matrix = p.computeViewMatrix(
-        cameraEyePosition=[1.92, -0.35, 2.08],    # 카메라 본체의 위치
-        cameraTargetPosition=[0.28, 0.02, 0.76], # 카메라가 바라보는 지점
-        cameraUpVector=[0, 0, 1]                 # 하늘 방향 (Z축 위쪽)
+    view_matrix = p.computeViewMatrixFromYawPitchRoll(
+        cameraTargetPosition=[1.0, 0.0, 0.6], # 물체들이 모여있는 중앙점 (조정됨)
+        distance=1.2,                        # 약간 더 멀리서 찍어 잘림 방지
+        yaw=45,                              # 좌우 각도
+        pitch=-45,                           # 위아래 각도
+        roll=0,
+        upAxisIndex=2                        # Z축이 위쪽
     )
     projection_matrix = p.computeProjectionMatrixFOV(
         fov=60.0,
@@ -802,8 +811,7 @@ def _save_r1_view_debug_pngs(
         depth = np.asarray(depth_buf, dtype=np.float32)
         depth_vis = np.clip((1.0 - depth) * 255.0, 0.0, 255.0).astype(np.uint8)
         depth_path = os.path.join(out_dir, "r1_view_depth.png")
-        _PILImage.fromarray(np.asarray(rgb, dtype=np.uint8), mode="RGB").save(rgb_path, format="PNG", compress_level=1  # 기본 6 → 1로 낮춤 (용량 크지만 빠르고 선명))
-        )
+        _PILImage.fromarray(depth_vis, mode="L").save(depth_path)
         saved_paths.append(depth_path)
 
         ids = np.asarray(seg_obj_id, dtype=np.int32)
@@ -1121,10 +1129,13 @@ def run_optional_affordance_probe(
         # Step 1. Camera setup (RGB + depth + segmentation).
         IMG_W = AFFORDANCE_CAPTURE_WIDTH
         IMG_H = AFFORDANCE_CAPTURE_HEIGHT
-        view_matrix = p.computeViewMatrix(
-        cameraEyePosition=[1.92, -0.35, 2.08],    # 카메라 본체의 위치
-        cameraTargetPosition=[0.28, 0.02, 0.76], # 카메라가 바라보는 지점
-        cameraUpVector=[0, 0, 1]                 # 하늘 방향 (Z축 위쪽)
+        view_matrix = p.computeViewMatrixFromYawPitchRoll(
+        cameraTargetPosition=[1.0, 0.0, 0.6], # 위 함수와 동일하게 맞춤
+        distance=1.2,
+        yaw=45,
+        pitch=-45,
+        roll=0,
+        upAxisIndex=2
     )
         proj_matrix = p.computeProjectionMatrixFOV(
             fov=60.0,
@@ -2036,8 +2047,25 @@ def run_sequential_demo(
                     )
                     right.maintain_grasp_hold(steps=60)
                     print("[Demo] right arm at sponge assembly position.")
-                    # Gravity stays ON. Snap sponge with closed gripper for
-                    # precision, then create the constraint to fork.
+                    # CRITICAL: open right gripper BEFORE snap+attach. With
+                    # the gripper still closed, the motor tries to keep EE
+                    # at z=0.77 while the soon-to-be-created constraint
+                    # pulls sponge down to fork (z=0.70). The two forces
+                    # tug on sponge during the 60-frame settle and drift
+                    # post_anchor_gap to ~28 mm (limit 12 mm) -> attach
+                    # validation fails. Phase A worked because BOTH
+                    # grippers held BOTH bodies at consistent z-comp
+                    # poses, so there was no tug-of-war. Here only one
+                    # gripper holds, so we release it.
+                    try:
+                        right.open_gripper(steps=30)
+                    except Exception as exc:
+                        print(f"[Demo][WARN] right.open_gripper (pre-step3) failed: {exc}")
+                    # Snap sponge to JSON target; this also corrects any
+                    # small free-fall (~7 mm) that happened while the
+                    # gripper was opening. _snap_step_targets inside
+                    # execute_step will re-snap right before the actual
+                    # constraint creation for final precision.
                     snapped_b = assembly_manager.snap_objects_to_targets(
                         settle_steps=0,
                         use_aabb_offset=True,
