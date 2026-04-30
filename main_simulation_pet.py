@@ -2003,6 +2003,19 @@ def run_sequential_demo(
                     right.open_gripper(steps=30)
                 except Exception as exc:
                     print(f"[Demo][WARN] right.open_gripper (phaseB pre) failed: {exc}")
+                # Reset right arm to home before grasping sponge. After Phase
+                # A, right was at the edge of reach (~0.84 m from base, near
+                # Panda's 0.855 m limit) with stretched/twisted joints. IK
+                # called from that seed diverges (EE shoots to z=1.4+ instead
+                # of descending). reset_to_home gives IK a clean starting
+                # joint configuration close to PANDA_HOME_JOINTS, which is
+                # what `restPoses` biases toward. Combo stays put thanks to
+                # the world pin (max_force=10000) even if right arm body
+                # brushes against it during the home move.
+                try:
+                    right.reset_to_home(steps=240)
+                except Exception as exc:
+                    print(f"[Demo][WARN] right.reset_to_home (phaseB pre) failed: {exc}")
                 # Grasp sponge with right arm (R1 hint may be empty - the
                 # routine falls back to AABB-based pose automatically).
                 _sponge_hint = r1_hints.get("sponge", {})
