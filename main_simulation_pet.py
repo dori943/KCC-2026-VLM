@@ -1843,11 +1843,13 @@ def run_sequential_demo(
             else:
                 body_dist = body_dist_after
  
-        # Pose-snap stage: open both grippers, then teleport every registered
-        # body to its JSON target_pose_world. This bypasses grasp slip during
-        # transport and lets execute_plan() build constraints at exact geometry.
+        # Pose-snap stage: open grippers, move arms back home so the open
+        # fingers do not sit inside the snap volume, then teleport every
+        # registered body to its JSON target_pose_world. This bypasses grasp
+        # slip during transport AND removes gripper-body interference during
+        # the constraint settle.
         if _plan_loaded:
-            print("[Demo] opening grippers and snapping bodies to JSON target poses...")
+            print("[Demo] opening grippers and clearing arms before snap...")
             try:
                 left.open_gripper(steps=30)
             except Exception as exc:
@@ -1856,9 +1858,25 @@ def run_sequential_demo(
                 right.open_gripper(steps=30)
             except Exception as exc:
                 print(f"[Demo][WARN] right.open_gripper failed: {exc}")
-            # settle_steps=0: execute_plan suspends gravity and re-snaps each
-            # step's body right before validation, so we don't want any free
-            # fall between this initial snap and the constraint creation.
+            # Move both arms back to home so the open fingers no longer
+            # surround the assembly volume. Without this, the fingers sit
+            # inside the AABB of the snapped bodies and push them out of
+            # alignment during the 60-step settle, blowing the post-attach
+            # anchor gap check.
+            try:
+                left.reset_to_home(steps=240)
+            except Exception as exc:
+                print(f"[Demo][WARN] left.reset_to_home failed: {exc}")
+            try:
+                right.reset_to_home(steps=240)
+            except Exception as exc:
+                print(f"[Demo][WARN] right.reset_to_home failed: {exc}")
+            # Suspend gravity around the snap + execute loop so bodies do not
+            # free-fall during the 60-step settle inside each attach call.
+            print("[Demo] suspending gravity around snap+attach...")
+            p.setGravity(0.0, 0.0, 0.0)
+            # settle_steps=0: gravity is off and the bodies have been teleported,
+            # so no free fall is desired between snap and constraint creation.
             snapped = assembly_manager.snap_objects_to_targets(
                 settle_steps=0,
                 use_aabb_offset=True,
@@ -1911,7 +1929,12 @@ def run_sequential_demo(
                             max_force=500,
                         )
                     )
+                # Restore gravity now that all attach constraints are created.
+                p.setGravity(0.0, 0.0, -9.8)
+                print("[Demo] gravity restored after assembly steps.")
             else:
+                # Restore gravity in the no-step branch too.
+                p.setGravity(0.0, 0.0, -9.8)
                 print("[Demo][WARN] no compatible module3 steps for current two-object grasp; using fallback attach.")
                 _plan_loaded = False
             attach_results = [r for r in assembly_results if r.get("constraint_id") is not None]
