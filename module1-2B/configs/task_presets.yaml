@@ -1,0 +1,30 @@
+tasks:
+  task1:
+    name: card_from_gap
+    image: cases/images/card_from_gap.png
+    target_name: "business card"
+    description: "좁은 틈에 노출된 명함의 가장자리를 조심스럽게 들어 올려, 구기거나 찢지 않고 명함을 꺼낸다."
+
+  task2:
+    name: deep_hole_reach
+    image: cases/images/deep_hole_reach.png
+    target_name: "target object at hole bottom"
+    description: "아주 깊은 구멍 바닥에 있는 타겟 물체를 로봇 팔 길이의 한계를 극복하여 꺼낸다. 로봇 팔의 길이는 구멍 깊이의 절반밖에 되지 않고, 주변에 긴 막대기도 없다."
+
+  task3:
+    name: suspended_target
+    image: cases/images/suspended_target.png
+    target_name: "suspended target object"
+    description: "얇은 실에 매달려 공중에 떠 있는 목표 물체를 장력을 올리지 않고 안전하게 회수한다. 실은 일정 장력 이상에서 즉시 끊어지므로 직접 당기면 실패한다."
+
+  task4:
+    name: blocked_door_handle
+    image: cases/images/blocked_door_handle.png
+    target_name: "door handle"
+    description: "지진 또는 재난으로 인해 장애물에 가로막힌 문을 열기 위해, 좁은 접근 공간 너머에 위치한 손잡이를 회전시킨다."
+
+  task5:
+    name: glass_shard_extract
+    image: cases/images/glass_shard_extract.png
+    target_name: "key component in glass shards"
+    description: "날카로운 유리 파편 더미 속에 있는 핵심 부품을 직접 접촉 없이 안전하게 꺼낸다."

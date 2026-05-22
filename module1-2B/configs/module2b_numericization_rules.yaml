@@ -1,0 +1,52 @@
+﻿rule_version: "0.1"
+conservative_margin_ratio: 0.15
+minimum_span_m: 0.005
+default_angle_range_deg:
+  lower: 15.0
+  upper: 75.0
+parameters:
+  opening_width:
+    default_unit: m
+    allowed_units: [m, level_1_to_5]
+    default_bound_type: range
+  opening_height:
+    default_unit: m
+    allowed_units: [m, level_1_to_5]
+    default_bound_type: range
+  neck_inner_diameter:
+    default_unit: m
+    allowed_units: [m]
+    default_bound_type: upper_bound
+  recess_depth:
+    default_unit: m
+    allowed_units: [m, level_1_to_5]
+    default_bound_type: range
+  reachable_depth:
+    default_unit: m
+    allowed_units: [m, level_1_to_5]
+    default_bound_type: range
+  lateral_clearance:
+    default_unit: m
+    allowed_units: [m, level_1_to_5]
+    default_bound_type: upper_bound
+  vertical_clearance:
+    default_unit: m
+    allowed_units: [m, level_1_to_5]
+    default_bound_type: upper_bound
+  available_entry_angle_deg:
+    default_unit: deg
+    allowed_units: [deg]
+    default_bound_type: range
+  target_exposed_edge_length:
+    default_unit: m
+    allowed_units: [m, level_1_to_5]
+    default_bound_type: lower_bound
+  support_surface_span:
+    default_unit: m
+    allowed_units: [m, level_1_to_5]
+    default_bound_type: lower_bound
+estimate_basis_priority:
+  - observed
+  - estimated_from_anchor
+  - relative_geometry
+  - task_text_prior

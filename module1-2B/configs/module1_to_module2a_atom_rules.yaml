@@ -1,0 +1,366 @@
+bridge_rule_version: "1.0.0"
+counting_rule: "unique_object_part_atom"
+notes:
+  - "Module 1 primitive scores and Module 2-A atoms are distinct layers."
+  - "Heuristics are deterministic and uncertainty-aware; this is not Module 2-A reasoning."
+atom_activation_threshold: 0.75
+risk_activation_threshold: 0.7
+affordance_atoms:
+  rigid_tip_contact:
+    code: 101
+    rules:
+      - id: "rigid_tip_role"
+        weight: 0.75
+        conditions:
+          - { path: "part.role_canonical", op: "eq", value: "rigid_tip" }
+      - id: "tip_profile"
+        weight: 0.5
+        conditions:
+          - { path: "part.contact_profile", op: "eq", value: "tip" }
+      - id: "point_mode_score"
+        weight: 0.45
+        conditions:
+          - { path: "target_mode.point_score", op: "gte", value: 0.6 }
+  thin_insertable:
+    code: 102
+    rules:
+      - id: "thin_edge_role"
+        weight: 0.6
+        conditions:
+          - { path: "part.role_canonical", op: "eq", value: "thin_edge" }
+      - id: "edge_or_point_mode"
+        weight: 0.45
+        conditions:
+          - { path: "target_mode.edge_score", op: "gte", value: 0.55 }
+      - id: "thin_local_thickness"
+        weight: 0.4
+        conditions:
+          - { path: "target_mode.local_thickness_m", op: "lte", value: 0.01 }
+  broad_push_face:
+    code: 103
+    rules:
+      - id: "flat_face_role"
+        weight: 0.6
+        conditions:
+          - { path: "part.role_canonical", op: "eq", value: "flat_face" }
+      - id: "face_score_high"
+        weight: 0.45
+        conditions:
+          - { path: "target_mode.face_score", op: "gte", value: 0.55 }
+      - id: "flat_patch_present"
+        weight: 0.35
+        conditions:
+          - { path: "target_mode.flat_patch_m2", op: "gte", value: 0.003 }
+  stable_support_face:
+    code: 104
+    rules:
+      - id: "support_base_role"
+        weight: 0.65
+        conditions:
+          - { path: "part.role_canonical", op: "eq", value: "support_base" }
+      - id: "load_bearing_high"
+        weight: 0.45
+        conditions:
+          - { path: "physical.load_bearing.label", op: "eq", value: "high" }
+      - id: "flat_contact_flag"
+        weight: 0.35
+        conditions:
+          - { path: "geometry.has_flat_contact_face", op: "eq", value: true }
+  elongated_reach:
+    code: 105
+    rules:
+      - id: "elongated_shape"
+        weight: 0.6
+        conditions:
+          - { path: "geometry.aspect_ratio_hint", op: "eq", value: "elongated" }
+      - id: "long_usable_span"
+        weight: 0.5
+        conditions:
+          - { path: "target_mode.usable_span_m", op: "gte", value: 0.1 }
+  frictional_contact:
+    code: 106
+    rules:
+      - id: "friction_high"
+        weight: 0.6
+        conditions:
+          - { path: "physical.surface_friction.label", op: "in", values: ["medium", "high"] }
+      - id: "slip_low"
+        weight: 0.4
+        conditions:
+          - { path: "physical.slip_tendency.label", op: "eq", value: "low" }
+  compliant_pad:
+    code: 107
+    rules:
+      - id: "compliant_role"
+        weight: 0.7
+        conditions:
+          - { path: "part.role_canonical", op: "eq", value: "compliant_pad" }
+      - id: "press_response_compressible"
+        weight: 0.5
+        conditions:
+          - { path: "physical.press_response_type.label", op: "in", values: ["compressible", "elastic_deformation"] }
+  concave_containment:
+    code: 108
+    rules:
+      - id: "cavity_role"
+        weight: 0.75
+        conditions:
+          - { path: "part.role_canonical", op: "eq", value: "container_cavity" }
+      - id: "open_cavity_geom"
+        weight: 0.55
+        conditions:
+          - { path: "geometry.has_open_cavity", op: "eq", value: true }
+      - id: "cavity_mode_score"
+        weight: 0.4
+        conditions:
+          - { path: "target_mode.cavity_score", op: "gte", value: 0.5 }
+  inertial_anchor:
+    code: 109
+    rules:
+      - id: "heavy_mass"
+        weight: 0.6
+        conditions:
+          - { path: "physical.mass_category.label", op: "eq", value: "heavy" }
+      - id: "high_density"
+        weight: 0.45
+        conditions:
+          - { path: "physical.density_category.label", op: "eq", value: "high" }
+      - id: "load_bearing_support"
+        weight: 0.35
+        conditions:
+          - { path: "physical.load_bearing.label", op: "in", values: ["medium", "high"] }
+  hookable_gap:
+    code: 110
+    rules:
+      - id: "hook_region_role"
+        weight: 0.7
+        conditions:
+          - { path: "part.role_canonical", op: "eq", value: "hook_region" }
+      - id: "hook_gap_mode"
+        weight: 0.5
+        conditions:
+          - { path: "target_mode.hook_gap_score", op: "gte", value: 0.5 }
+  edge_followable:
+    code: 111
+    rules:
+      - id: "edge_contact"
+        weight: 0.6
+        conditions:
+          - { path: "part.contact_profile", op: "eq", value: "edge" }
+      - id: "edge_mode"
+        weight: 0.45
+        conditions:
+          - { path: "target_mode.edge_score", op: "gte", value: 0.5 }
+  axis_insertable:
+    code: 112
+    rules:
+      - id: "axis_score"
+        weight: 0.6
+        conditions:
+          - { path: "target_mode.axis_score", op: "gte", value: 0.55 }
+      - id: "axis_part_role"
+        weight: 0.35
+        conditions:
+          - { path: "part.role_canonical", op: "eq", value: "hinge_joint" }
+  flat_mating_face:
+    code: 113
+    rules:
+      - id: "face_score"
+        weight: 0.55
+        conditions:
+          - { path: "target_mode.face_score", op: "gte", value: 0.55 }
+      - id: "flat_flag"
+        weight: 0.4
+        conditions:
+          - { path: "geometry.has_flat_contact_face", op: "eq", value: true }
+  clampable_span:
+    code: 114
+    rules:
+      - id: "graspable_role"
+        weight: 0.5
+        conditions:
+          - { path: "part.role_canonical", op: "in", values: ["grip_body", "flat_face"] }
+      - id: "usable_span_mid"
+        weight: 0.45
+        conditions:
+          - { path: "target_mode.usable_span_m", op: "gte", value: 0.06 }
+      - id: "approach_multi"
+        weight: 0.35
+        conditions:
+          - { path: "target_mode.approach_directions_count", op: "gte", value: 2 }
+  deformable_threadable:
+    code: 115
+    rules:
+      - id: "deformable_state"
+        weight: 0.6
+        conditions:
+          - { path: "physical.deformability.label", op: "eq", value: "high" }
+      - id: "elongated_for_threading"
+        weight: 0.45
+        conditions:
+          - { path: "geometry.aspect_ratio_hint", op: "eq", value: "elongated" }
+      - id: "thread_primitive_hint"
+        weight: 0.35
+        conditions:
+          - { path: "primitives.thread", op: "gte", value: 0.35 }
+  pour_channel:
+    code: 116
+    rules:
+      - id: "cavity_and_rim"
+        weight: 0.55
+        conditions:
+          - { path: "geometry.has_open_cavity", op: "eq", value: true }
+          - { path: "target_mode.rim_score", op: "gte", value: 0.45 }
+      - id: "pour_primitive_hint"
+        weight: 0.45
+        conditions:
+          - { path: "primitives.pour", op: "gte", value: 0.4 }
+  cover_area:
+    code: 117
+    rules:
+      - id: "sheet_like_shape"
+        weight: 0.55
+        conditions:
+          - { path: "geometry.aspect_ratio_hint", op: "eq", value: "sheet_like" }
+      - id: "large_flat_patch"
+        weight: 0.45
+        conditions:
+          - { path: "target_mode.flat_patch_m2", op: "gte", value: 0.01 }
+  rolling_body:
+    code: 118
+    rules:
+      - id: "roll_risk_flag"
+        weight: 0.65
+        conditions:
+          - { path: "geometry.roll_risk_source", op: "in", values: ["curved_side", "round_cross_section"] }
+      - id: "roll_primitive"
+        weight: 0.4
+        conditions:
+          - { path: "primitives.roll", op: "gte", value: 0.35 }
+  rotatable_axis:
+    code: 119
+    rules:
+      - id: "hinge_role"
+        weight: 0.7
+        conditions:
+          - { path: "part.role_canonical", op: "eq", value: "hinge_joint" }
+      - id: "axis_mode_present"
+        weight: 0.45
+        conditions:
+          - { path: "target_mode.axis_score", op: "gte", value: 0.45 }
+  prying_edge:
+    code: 120
+    rules:
+      - id: "thin_edge_role"
+        weight: 0.55
+        conditions:
+          - { path: "part.role_canonical", op: "eq", value: "thin_edge" }
+      - id: "stiffness_support"
+        weight: 0.45
+        conditions:
+          - { path: "physical.stiffness.label", op: "in", values: ["medium", "high"] }
+      - id: "pry_primitive"
+        weight: 0.35
+        conditions:
+          - { path: "primitives.pry", op: "gte", value: 0.35 }
+  stackable_top:
+    code: 121
+    rules:
+      - id: "flat_top_face"
+        weight: 0.55
+        conditions:
+          - { path: "geometry.has_flat_contact_face", op: "eq", value: true }
+      - id: "support_with_load"
+        weight: 0.45
+        conditions:
+          - { path: "physical.load_bearing.label", op: "in", values: ["medium", "high"] }
+      - id: "stack_primitive"
+        weight: 0.35
+        conditions:
+          - { path: "primitives.stack", op: "gte", value: 0.3 }
+  hangable_edge:
+    code: 122
+    rules:
+      - id: "edge_or_rim"
+        weight: 0.45
+        conditions:
+          - { path: "part.contact_profile", op: "in", values: ["edge", "cavity_rim"] }
+      - id: "hook_gap_or_hang"
+        weight: 0.45
+        conditions:
+          - { path: "target_mode.hook_gap_score", op: "gte", value: 0.35 }
+      - id: "hang_primitive"
+        weight: 0.35
+        conditions:
+          - { path: "primitives.hang", op: "gte", value: 0.3 }
+  graspable_body:
+    code: 123
+    rules:
+      - id: "grip_body_role"
+        weight: 0.7
+        conditions:
+          - { path: "part.role_canonical", op: "eq", value: "grip_body" }
+      - id: "grasp_or_clamp_primitives"
+        weight: 0.45
+        conditions:
+          - { path: "primitives.grasp", op: "gte", value: 0.35 }
+      - id: "usable_span_for_grasp"
+        weight: 0.35
+        conditions:
+          - { path: "target_mode.usable_span_m", op: "gte", value: 0.05 }
+risk_atoms:
+  break_prone:
+    code: 201
+    rules:
+      - id: "fragility_high"
+        weight: 0.75
+        conditions:
+          - { path: "physical.fragility.label", op: "eq", value: "high" }
+      - id: "failure_crack_or_shatter"
+        weight: 0.55
+        conditions:
+          - { path: "physical.failure_mode.label", op: "in", values: ["crack", "shatter"] }
+  deform_prone:
+    code: 202
+    rules:
+      - id: "deformability_high"
+        weight: 0.7
+        conditions:
+          - { path: "physical.deformability.label", op: "eq", value: "high" }
+      - id: "failure_bend_or_buckle"
+        weight: 0.45
+        conditions:
+          - { path: "physical.failure_mode.label", op: "in", values: ["bend", "compress", "buckle"] }
+  slip_prone:
+    code: 203
+    rules:
+      - id: "slip_high"
+        weight: 0.7
+        conditions:
+          - { path: "physical.slip_tendency.label", op: "eq", value: "high" }
+      - id: "friction_low"
+        weight: 0.5
+        conditions:
+          - { path: "physical.surface_friction.label", op: "eq", value: "low" }
+  placement_unstable:
+    code: 204
+    rules:
+      - id: "leaning_pose"
+        weight: 0.55
+        conditions:
+          - { path: "state.pose_class", op: "in", values: ["leaning", "stacked"] }
+      - id: "roll_risk"
+        weight: 0.55
+        conditions:
+          - { path: "geometry.roll_risk_source", op: "in", values: ["curved_side", "round_cross_section", "joint_instability"] }
+  sharp_contact_risk:
+    code: 205
+    rules:
+      - id: "pointed_end"
+        weight: 0.6
+        conditions:
+          - { path: "geometry.has_pointed_or_thin_end", op: "eq", value: true }
+      - id: "rigid_tip_high"
+        weight: 0.45
+        conditions:
+          - { path: "part.role_canonical", op: "eq", value: "rigid_tip" }

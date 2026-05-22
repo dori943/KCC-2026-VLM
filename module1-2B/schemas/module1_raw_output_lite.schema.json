@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema_name": {"type": "string"},
+    "schema_version": {"type": "string"},
+    "scene_summary": {"type": "object"},
+    "objects": {"type": "array"}
+  },
+  "required": ["schema_name", "schema_version", "objects"]
+}

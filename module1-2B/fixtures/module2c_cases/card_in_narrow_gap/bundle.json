@@ -1,0 +1,99 @@
+{
+  "task": "좁은 틈(가구 밑) 안에 끼어 있는 명함을 꺼내라.",
+  "tool_constraints": {
+    "global_constraints": [
+      "도구는 Panda 2-finger gripper로 파지 가능해야 한다.",
+      "도구는 명함에 수평력을 전달하여 틈 밖으로 끌어낼 수 있어야 한다."
+    ],
+    "subgoal_constraints": [
+      {
+        "subgoal_id": "sg_01",
+        "required_atoms": ["thin_enough_to_insert", "reach_under_gap"],
+        "preferred_atoms": ["rigid", "flat_surface"],
+        "risk_atoms_to_avoid": ["too_thick", "fragile"]
+      },
+      {
+        "subgoal_id": "sg_02",
+        "required_atoms": ["friction_with_card", "horizontal_force_transfer"],
+        "preferred_atoms": ["high_friction_surface"],
+        "risk_atoms_to_avoid": ["slip", "card_damage"]
+      },
+      {
+        "subgoal_id": "sg_03",
+        "required_atoms": ["graspable_by_robot", "stable_structure"],
+        "preferred_atoms": ["elongated_handle"],
+        "risk_atoms_to_avoid": ["unstable_CoM", "handle_blocked"]
+      }
+    ],
+    "numeric_estimates": {
+      "gap_height_m": 0.015,
+      "card_width_m": 0.085,
+      "card_depth_m": 0.055,
+      "min_reach_m": 0.05
+    },
+    "derived_constraints": {
+      "max_tool_thickness_m": "0.012",
+      "min_tool_length_m": "0.06"
+    },
+    "scene_capability_bias": ["elongated", "thin", "rigid"],
+    "constraint_context": "테이블 위의 일상 물체를 조합하여 도구를 만들어야 한다."
+  },
+  "scene_objects": [
+    {
+      "object_id": "obj_ruler",
+      "name": "ruler",
+      "center_world": [0.30, -0.10, 0.66],
+      "aabb_min": [0.27, -0.115, 0.655],
+      "aabb_max": [0.57, -0.085, 0.667],
+      "principal_axis_hint": "x_axis",
+      "graspable_regions": ["center", "rear_end"],
+      "functional_regions": ["front_end", "flat_surface"]
+    },
+    {
+      "object_id": "obj_clip",
+      "name": "binder_clip",
+      "center_world": [0.35, -0.30, 0.66],
+      "aabb_min": [0.33, -0.32, 0.655],
+      "aabb_max": [0.37, -0.28, 0.675],
+      "principal_axis_hint": "z_axis",
+      "graspable_regions": ["handle_arms", "body"],
+      "functional_regions": ["clip_jaw", "lower_edge"]
+    },
+    {
+      "object_id": "obj_cracker_box",
+      "name": "cracker_box",
+      "center_world": [0.30, 0.10, 0.78],
+      "aabb_min": [0.27, 0.07, 0.66],
+      "aabb_max": [0.33, 0.13, 0.90],
+      "principal_axis_hint": "z_axis",
+      "graspable_regions": ["upper_surface", "side_surface"],
+      "functional_regions": ["lower_edge", "flat_side"]
+    }
+  ],
+  "object_physical_properties": [
+    {
+      "object_id": "obj_ruler",
+      "shape_category": "elongated_flat",
+      "estimated_mass_kg": 0.05,
+      "surface_friction": "medium",
+      "rigidity": "rigid",
+      "inferred_functions": ["reach", "slide_under", "push", "scrape"]
+    },
+    {
+      "object_id": "obj_clip",
+      "shape_category": "compact_clamping",
+      "estimated_mass_kg": 0.03,
+      "surface_friction": "high",
+      "rigidity": "rigid",
+      "inferred_functions": ["grip", "clamp", "hook", "edge_contact"]
+    },
+    {
+      "object_id": "obj_cracker_box",
+      "shape_category": "rectangular_box",
+      "estimated_mass_kg": 0.41,
+      "surface_friction": "medium",
+      "rigidity": "semi-rigid",
+      "inferred_functions": ["push", "block", "surface_support"]
+    }
+  ]
+}
