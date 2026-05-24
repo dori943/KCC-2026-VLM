@@ -43,19 +43,13 @@ YCB_DIR = "/workspace/KCC-2026-VLM/data/object2urdf/examples/ycb"
 YCB_OBJECT_SPECS = [
     ("large_marker", "040_large_marker.urdf", [1.2, 0.3, 0.82]),
     ("cracker_box", "003_cracker_box.urdf", [1.2, 0.10, 0.82]),
-    ("pudding_box", "008_pudding_box.urdf", [0.5, -0.10, 0.82]),
+    ("pudding_box", "008_pudding_box.urdf", [1.2, -0.10, 0.82]),
     ("gelatin_box", "009_gelatin_box.urdf", [1.2, -0.3, 0.82]),
     ("bowl", "024_bowl.urdf", [1.0, 0.2, 0.82]),
     ("mug", "025_mug.urdf", [1.0, 0.0, 0.82]),
     ("sponge", "026_sponge.urdf", [1.0, -0.2, 0.82]),
-    ("plate", "029_plate.urdf", [0.7, 0.3, 0.82]),   
     ("spatula", "033_spatula.urdf", [0.7, 0.10, 0.82]),
     ("foam_brick", "061_foam_brick.urdf", [0.7, -0.1, 0.82]),
-    ("dice", "062_dice.urdf", [0.7, -0.3, 0.82]),
-    ("marbles", "063-a_marbles.urdf", [0.45, 0.2, 0.82]),
-    ("cups", "065-a_cups.urdf", [0.45, 0.0, 0.82]),
-    ("timer", "076_timer.urdf", [0.45, -0.2, 0.82]),
-    ("wood_block", "036_wood_block.urdf", [0.45, -0.35, 0.82]),
 ]
 
 def _load_module3_object_labels(json_path: str) -> list[str]:
