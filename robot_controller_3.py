@@ -1,4 +1,4 @@
-﻿"""
+﻿﻿"""
 robot_controller_3.py
 Lightweight Panda controller module for simulation boot/demo.
 
@@ -112,14 +112,14 @@ OBJECT_GRASP_PROFILE_TABLE = {
 }
 
 # ── 카메라 파라미터 ───────────────────────────────────────────────────────────
-CAM_WIDTH  = 1280
-CAM_HEIGHT = 960
+CAM_WIDTH  = 640
+CAM_HEIGHT = 480
 CAM_FOV    = 60
 CAM_NEAR   = 0.1
 CAM_FAR    = 5.0
 
-def render_camera(cam_target=[0.55, -0.35, 0.8], cam_distance=1.0,
-                  cam_yaw=45, cam_pitch=-45):
+def render_camera(cam_target=[0.55, -0.35, 0.8], cam_distance=1.2,
+                  cam_yaw=0, cam_pitch=-45):
     view_matrix = p.computeViewMatrixFromYawPitchRoll(
         cameraTargetPosition=cam_target,
         distance=cam_distance,
@@ -131,23 +131,15 @@ def render_camera(cam_target=[0.55, -0.35, 0.8], cam_distance=1.0,
         nearVal=CAM_NEAR, farVal=CAM_FAR
     )
     _, _, rgb_raw, depth_raw, _ = p.getCameraImage(
-        CAM_WIDTH, CAM_HEIGHT,       # ← 해상도를 1280x960 등으로 키우세요
+        CAM_WIDTH, CAM_HEIGHT,
         viewMatrix=view_matrix,
         projectionMatrix=proj_matrix,
-        renderer=p.ER_BULLET_HARDWARE_OPENGL,  # ← TINY → OpenGL
-        shadow=1,
-        lightDirection=[1, 1, 1],
-        lightColor=[1, 1, 1],
-        lightDistance=2,
-        lightAmbientCoeff=0.8,
-        lightDiffuseCoeff=0.8,
-        lightSpecularCoeff=0.1,
+        renderer=p.ER_TINY_RENDERER
     )
-    rgb = np.array(rgb_raw, dtype=np.uint8).reshape(CAM_HEIGHT, CAM_WIDTH, 4)[:, :, :3]
+    rgb       = np.array(rgb_raw, dtype=np.uint8).reshape(CAM_HEIGHT, CAM_WIDTH, 4)[:, :, :3]
     depth_buf = np.array(depth_raw, dtype=np.float32).reshape(CAM_HEIGHT, CAM_WIDTH)
-    depth = CAM_FAR * CAM_NEAR / (CAM_FAR - (CAM_FAR - CAM_NEAR) * depth_buf)
+    depth     = CAM_FAR * CAM_NEAR / (CAM_FAR - (CAM_FAR - CAM_NEAR) * depth_buf)
     return rgb, depth, proj_matrix, view_matrix
-
 
 def _clamp(value: float, lower: float, upper: float) -> float:
     return max(lower, min(upper, float(value)))
@@ -524,79 +516,34 @@ class PandaController:
         euler = p.getEulerFromQuaternion(orientation)
         return float(euler[0]), float(euler[1])
 
-    def _estimate_planar_grasp_geometry(self, body_id: int) -> dict:
-        """Estimate top-view major axis and the gripped width of an object."""
-        aabb_min, aabb_max = p.getAABB(body_id)
-        dx = max(1e-4, float(aabb_max[0] - aabb_min[0]))
-        dy = max(1e-4, float(aabb_max[1] - aabb_min[1]))
-        _, body_orn = p.getBasePositionAndOrientation(body_id)
-        pose_yaw = float(p.getEulerFromQuaternion(body_orn)[2])
-
-        geometry = {
-            "grasp_yaw": pose_yaw,
-            "grasp_width": min(dx, dy),
-            "long_extent": max(dx, dy),
-            "aspect_ratio": max(dx, dy) / min(dx, dy),
-            "source": "aabb",
-        }
-        if dx > dy * 1.12:
-            geometry["grasp_yaw"] = 0.0
-        elif dy > dx * 1.12:
-            geometry["grasp_yaw"] = np.pi / 2.0
-
+    def _estimate_object_inplane_angle(self, body_id: int) -> float:
+        """
+        Estimate object in-plane (world Z) yaw.
+        AABB 긴 축 기준으로 gripper 오픈축이 긴 축과 수직이 되게 yaw를 반환한다.
+        Panda 매핑상 yaw=0이면 오픈축이 +Y, yaw=90deg이면 오픈축이 +X이므로:
+        - AABB x_long -> yaw=0deg
+        - AABB y_long -> yaw=90deg
+        near-square 물체는 pose yaw를 사용한다.
+        """
         try:
-            mesh_data = p.getMeshData(
-                body_id,
-                -1,
-                flags=p.MESH_DATA_SIMULATION_MESH,
-            )
-            local_vertices = mesh_data[1] if mesh_data and len(mesh_data) > 1 else []
-            if len(local_vertices) < 3:
-                return geometry
+            _, body_orn = p.getBasePositionAndOrientation(body_id)
+            pose_yaw = float(p.getEulerFromQuaternion(body_orn)[2])
 
-            body_pos, body_orn = p.getBasePositionAndOrientation(body_id)
-            world_xy = []
-            for vertex in local_vertices:
-                world_pos, _ = p.multiplyTransforms(
-                    body_pos,
-                    body_orn,
-                    vertex,
-                    [0.0, 0.0, 0.0, 1.0],
-                )
-                world_xy.append([float(world_pos[0]), float(world_pos[1])])
-            points = np.asarray(world_xy, dtype=float)
-            centered = points - np.mean(points, axis=0)
-            covariance = np.cov(centered, rowvar=False)
-            eigenvalues, eigenvectors = np.linalg.eigh(covariance)
-            long_axis = eigenvectors[:, int(np.argmax(eigenvalues))]
-            short_axis = np.array([-long_axis[1], long_axis[0]], dtype=float)
-            along_long = centered @ long_axis
-            along_short = centered @ short_axis
-            long_extent = max(1e-4, float(np.ptp(along_long)))
-            short_extent = max(1e-4, float(np.ptp(along_short)))
-            if short_extent > long_extent:
-                long_axis, short_axis = short_axis, long_axis
-                long_extent, short_extent = short_extent, long_extent
+            aabb_min, aabb_max = p.getAABB(body_id)
+            dx = float(aabb_max[0] - aabb_min[0])
+            dy = float(aabb_max[1] - aabb_min[1])
 
-            aspect_ratio = long_extent / short_extent
-            if aspect_ratio > 1.08:
-                grasp_yaw = float(np.arctan2(long_axis[1], long_axis[0]))
+            # 긴 축에 수직 방향으로 gripper 오픈축 정렬
+            if dx > dy * 1.2:
+                # x_long -> yaw=0 (finger opening axis aligns +Y)
+                grasp_yaw = 0.0
+            elif dy > dx * 1.2:
+                # y_long -> yaw=90deg (finger opening axis aligns +X)
+                grasp_yaw = np.pi / 2.0
             else:
                 grasp_yaw = pose_yaw
-            return {
-                "grasp_yaw": _normalize_angle_rad(grasp_yaw),
-                "grasp_width": short_extent,
-                "long_extent": long_extent,
-                "aspect_ratio": aspect_ratio,
-                "source": "collision_mesh_pca",
-            }
-        except Exception:
-            return geometry
 
-    def _estimate_object_inplane_angle(self, body_id: int) -> float:
-        """Return wrist yaw whose finger opening axis crosses the short axis."""
-        try:
-            return float(self._estimate_planar_grasp_geometry(body_id)["grasp_yaw"])
+            return _normalize_angle_rad(grasp_yaw)
         except Exception:
             return 0.0
 
@@ -605,7 +552,8 @@ class PandaController:
         object_angle: float,
         orientation_hint,
     ) -> list[float]:
-        # Prioritize measured object geometry before optional vision yaw hints.
+        # Always prioritize AABB-axis rule first:
+        # gripper opening axis must stay perpendicular to AABB long axis.
         base = [
             object_angle,
             object_angle + np.pi,
@@ -852,10 +800,8 @@ class PandaController:
             xy_offset=xy_offset,
             r1_world_pos=r1_world_pos,
         )
-        geometry = self._estimate_planar_grasp_geometry(body_id=body_id)
-        object_angle = float(geometry["grasp_yaw"])
-        grasp_frame["grasp_width"] = float(geometry["grasp_width"])
-        grasp_frame["geometry_source"] = str(geometry["source"])
+        # Use AABB-derived axis guidance as primary yaw seed even when R1 hint exists.
+        object_angle = self._estimate_object_inplane_angle(body_id=body_id)
         hinted_yaw = None
         if orientation_hint is not None:
             hinted_yaw = float(p.getEulerFromQuaternion(orientation_hint)[2])
@@ -866,14 +812,10 @@ class PandaController:
         if hinted_yaw is not None:
             print(
                 f"[{self.name}] seed grasp angle={np.degrees(object_angle):.1f} deg "
-                f"({geometry['source']}, width={geometry['grasp_width']:.4f}m), "
-                f"r1_hint_yaw={np.degrees(hinted_yaw):.1f} deg"
+                f"(aabb), r1_hint_yaw={np.degrees(hinted_yaw):.1f} deg"
             )
         else:
-            print(
-                f"[{self.name}] seed grasp angle={np.degrees(object_angle):.1f} deg "
-                f"({geometry['source']}, width={geometry['grasp_width']:.4f}m)"
-            )
+            print(f"[{self.name}] seed grasp angle={np.degrees(object_angle):.1f} deg")
 
         best = None
         best_rank = None
@@ -1199,15 +1141,18 @@ class PandaController:
         start_obj_pos = np.array(p.getBasePositionAndOrientation(body_id)[0])
         self._last_grasp_failure = None
 
-        # Set opening from the same width axis used for wrist yaw selection.
+        # 물체 AABB 기반으로 gripper open width를 물체 크기에 맞게 조정.
+        # 기본 0.04(=8cm total)는 globalScaling=0.1 물체에 비해 너무 커서
+        # 손가락 사이로 빠짐. 물체 최대 폭의 절반 + 여유 0.005m로 제한.
         try:
-            _geometry = self._estimate_planar_grasp_geometry(body_id)
-            _obj_width = float(_geometry["grasp_width"])
-            _finger_open = _clamp((_obj_width + 0.010) / 2.0, 0.008, 0.04)
-            print(
-                f"[{self.name}] dynamic gripper opening={2.0 * _finger_open:.4f}m "
-                f"for object width={_obj_width:.4f}m ({_geometry['source']})"
+            _aabb_min, _aabb_max = p.getAABB(body_id)
+            # 물체의 짧은 방향(폭)으로 잡아야 접촉이 잘 됨
+            # max(긴 방향) 대신 min(짧은 방향) 사용
+            _obj_width = min(
+                float(_aabb_max[0] - _aabb_min[0]),
+                float(_aabb_max[1] - _aabb_min[1]),
             )
+            _finger_open = _clamp(_obj_width / 2.0 + 0.012, 0.015, 0.04)
         except Exception:
             _finger_open = 0.04
         for _fj in GRIPPER_JOINT_INDICES:

@@ -1,4 +1,4 @@
-﻿"""
+﻿﻿"""
 main_simulation_3.py
 Boot-only dual-arm Panda simulation orchestration.
 
