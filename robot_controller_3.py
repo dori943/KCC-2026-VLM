@@ -1,4 +1,4 @@
-﻿﻿"""
+"""
 robot_controller_3.py
 Lightweight Panda controller module for simulation boot/demo.
 
