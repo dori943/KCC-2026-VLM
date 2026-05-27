@@ -33,12 +33,12 @@ AFFORDANCE_MODEL_ID = "hqking/affordance-r1"
 SAM2_MODEL_ID = "facebook/sam2-hiera-large"
 AFFORDANCE_CAPTURE_WIDTH = 1280
 AFFORDANCE_CAPTURE_HEIGHT = 960
-MODULE1_MAP_PATH = "/workspace/KCC-2026-VLM/module1-2B/configs/module1_to_pybullet_map.yaml"
+MODULE1_MAP_PATH = r"C:\Users\user\KCC-2026-VLM-dev\module1-2B\configs\module1_to_pybullet_map.yaml"
 
 LEFT_BASE_POSITION = [0.6, -0.35, 0.65]
 RIGHT_BASE_POSITION = [0.6, 0.35, 0.65]
 TABLE_BASE_POSITION = [0.6, 0.0, 0.0]
-YCB_DIR = "/workspace/KCC-2026-VLM/data/object2urdf/examples/ycb"
+YCB_DIR = r"C:\Users\user\KCC-2026-VLM-dev\data\object2urdf\examples\ycb"
 
 YCB_OBJECT_SPECS = [
     ("large_marker", "040_large_marker.urdf", [1.2, 0.3, 0.82]),
@@ -851,42 +851,79 @@ def _normalize_angle_rad(angle: float) -> float:
 
 def _estimate_topdown_grasp_orientation(body_id: int) -> tuple[list[float], dict]:
     """
-    Estimate top-down grasp orientation from current PyBullet object state.
+    Estimate wrist yaw and gripped width from the object's top-view geometry.
 
-    Before grasping, this computes object in-plane yaw (or long/short axis cue)
-    and returns a gripper orientation aligned to object width.
+    The wrist yaw follows the object's long axis because the Panda opening
+    axis is perpendicular to it. Collision-mesh PCA preserves arbitrary yaw;
+    the AABB branch is a conservative fallback for shapes without mesh data.
     """
     aabb_min, aabb_max = p.getAABB(body_id)
-    dx = float(aabb_max[0] - aabb_min[0])
-    dy = float(aabb_max[1] - aabb_min[1])
+    dx = max(1e-4, float(aabb_max[0] - aabb_min[0]))
+    dy = max(1e-4, float(aabb_max[1] - aabb_min[1]))
     _, body_orn = p.getBasePositionAndOrientation(body_id)
     pose_yaw = float(p.getEulerFromQuaternion(body_orn)[2])
+    grasp_width = min(dx, dy)
+    long_extent = max(dx, dy)
+    axis_mode = "aabb_pose"
+    geometry_source = "aabb"
 
-    # Panda hand-frame mapping:
-    # - yaw=0   -> finger opening axis aligns with +Y
-    # - yaw=90  -> finger opening axis aligns with +X
-    # Therefore, to keep finger opening perpendicular to AABB long axis:
-    # - x_long -> yaw=0
-    # - y_long -> yaw=90deg
-    if dx > dy * 1.2:
+    if dx > dy * 1.12:
         grasp_yaw = 0.0
-        axis_mode = "x_long"
-    elif dy > dx * 1.2:
+        axis_mode = "aabb_x_long"
+    elif dy > dx * 1.12:
         grasp_yaw = np.pi / 2.0
-        axis_mode = "y_long"
+        axis_mode = "aabb_y_long"
     else:
-        # Near-square: no strong AABB long-axis cue, keep pose yaw.
         grasp_yaw = pose_yaw
         axis_mode = "near_square"
+
+    try:
+        mesh_data = p.getMeshData(body_id, -1, flags=p.MESH_DATA_SIMULATION_MESH)
+        local_vertices = mesh_data[1] if mesh_data and len(mesh_data) > 1 else []
+        if len(local_vertices) >= 3:
+            body_pos, body_orn = p.getBasePositionAndOrientation(body_id)
+            world_xy = []
+            for vertex in local_vertices:
+                world_pos, _ = p.multiplyTransforms(
+                    body_pos,
+                    body_orn,
+                    vertex,
+                    [0.0, 0.0, 0.0, 1.0],
+                )
+                world_xy.append([float(world_pos[0]), float(world_pos[1])])
+            points = np.asarray(world_xy, dtype=float)
+            centered = points - np.mean(points, axis=0)
+            _, eigenvectors = np.linalg.eigh(np.cov(centered, rowvar=False))
+            long_axis = eigenvectors[:, -1]
+            short_axis = np.array([-long_axis[1], long_axis[0]], dtype=float)
+            mesh_long = max(1e-4, float(np.ptp(centered @ long_axis)))
+            mesh_short = max(1e-4, float(np.ptp(centered @ short_axis)))
+            if mesh_short > mesh_long:
+                long_axis, mesh_long, mesh_short = short_axis, mesh_short, mesh_long
+            long_extent = mesh_long
+            grasp_width = mesh_short
+            aspect_ratio = mesh_long / mesh_short
+            if aspect_ratio > 1.08:
+                grasp_yaw = float(np.arctan2(long_axis[1], long_axis[0]))
+                axis_mode = "mesh_long_axis"
+            else:
+                grasp_yaw = pose_yaw
+                axis_mode = "near_square"
+            geometry_source = "collision_mesh_pca"
+    except Exception:
+        pass
 
     grasp_yaw = _normalize_angle_rad(grasp_yaw)
     grasp_orientation = list(p.getQuaternionFromEuler([np.pi, 0.0, grasp_yaw]))
     return grasp_orientation, {
         "dx": dx,
         "dy": dy,
+        "grasp_width": float(grasp_width),
+        "long_extent": float(long_extent),
         "pose_yaw_deg": float(np.degrees(pose_yaw)),
         "grasp_yaw_deg": float(np.degrees(grasp_yaw)),
         "axis_mode": axis_mode,
+        "geometry_source": geometry_source,
     }
 
 
@@ -1076,7 +1113,9 @@ def _grasp_with_r1_then_aabb_fallback(
         f"[Grasp-Fallback] {object_label}: AABB pose "
         f"world_pos={[round(v, 4) for v in aabb_world_pos]}, "
         f"axis_mode={aabb_info.get('axis_mode')}, "
-        f"yaw={float(aabb_info.get('grasp_yaw_deg', 0.0)):.1f} deg"
+        f"yaw={float(aabb_info.get('grasp_yaw_deg', 0.0)):.1f} deg, "
+        f"width={float(aabb_info.get('grasp_width', 0.0)):.4f}m "
+        f"({aabb_info.get('geometry_source')})"
     )
     ok = _grasp_with_orientation_sweep(
         controller=controller,
@@ -1526,7 +1565,9 @@ def run_optional_affordance_probe(
                 world_pos = corrected
                 dist_to_sim = float(np.linalg.norm(world_pos - np.array(actual_pos, dtype=float)))
 
-            grasp_yaw = 0.0
+            dynamic_orientation, dynamic_info = _estimate_topdown_grasp_orientation(body_id)
+            grasp_yaw = float(np.radians(dynamic_info["grasp_yaw_deg"]))
+            model_yaw = None
             for _yaw_key in ("grasp_yaw_deg", "yaw_deg", "angle_deg", "theta_deg", "yaw", "angle", "theta"):
                 if _yaw_key not in top:
                     continue
@@ -1535,27 +1576,31 @@ def run_optional_affordance_probe(
                 except Exception:
                     continue
                 if _yaw_key.endswith("_deg"):
-                    grasp_yaw = float(np.radians(_raw_yaw))
+                    model_yaw = float(np.radians(_raw_yaw))
                 else:
                     # Heuristic: small magnitude values are likely radians.
                     if abs(_raw_yaw) <= (2.0 * np.pi + 1e-6):
-                        grasp_yaw = _raw_yaw
+                        model_yaw = _raw_yaw
                     else:
-                        grasp_yaw = float(np.radians(_raw_yaw))
+                        model_yaw = float(np.radians(_raw_yaw))
                 break
-            grasp_orientation = p.getQuaternionFromEuler([np.pi, 0.0, grasp_yaw])
+            grasp_orientation = dynamic_orientation
 
             print(
                 f"[R1] '{label}' world_pos={[round(v, 4) for v in world_pos.tolist()]}, "
                 f"sim_pos={[round(float(v), 4) for v in actual_pos]}, "
                 f"sim_aabb_center={[round(float(v), 4) for v in aabb_center.tolist()]}, "
                 f"delta={dist_to_sim:.4f}m, "
-                f"yaw={np.degrees(grasp_yaw):.1f} deg"
+                f"dynamic_yaw={np.degrees(grasp_yaw):.1f} deg, "
+                f"width={float(dynamic_info['grasp_width']):.4f}m, "
+                f"model_yaw={None if model_yaw is None else round(float(np.degrees(model_yaw)), 1)}"
             )
 
             hint_payload = {
                 "world_pos": world_pos.tolist(),
                 "orientation": list(grasp_orientation),
+                "grasp_width": float(dynamic_info["grasp_width"]),
+                "orientation_source": str(dynamic_info["geometry_source"]),
                 "bbox_pixel": top.get("bbox_pixel", []),
                 "part": top.get("part", ""),
                 "score": float(top.get("score", 1.0)),
