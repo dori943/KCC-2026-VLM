@@ -128,20 +128,20 @@
         "phillips_screwdriver",
         "fork"
       ],
-      "base_object": "fork",
+      "base_object": "phillips_screwdriver",
       "attach_object": "sponge",
       "attach_region_base": "upper_surface",
       "attach_region_object": "lower_surface",
       "relative_offset_from_base": [
         0.0,
         0.0,
-        0.0204
+        0.0141
       ],
       "target_pose_world": {
         "position": [
-          0.6157,
+          0.4072,
           -0.2175,
-          0.6978
+          0.7157
         ],
         "orientation_rpy_deg": [
           0.0,
@@ -151,11 +151,11 @@
       },
       "joint_position_world": {
         "position": [
-          0.6157,
+          0.4072,
           -0.2175,
-          0.6837
+          0.7016
         ],
-        "calculation_basis": "[collision_region_repair] region=upper_surface; base.aabb_min=[0.5125, -0.2367, 0.645]; base.aabb_max=[0.719, -0.1982, 0.6817]; region_joint=[0.6157, -0.2175, 0.6817]; safety_margin\u2192z+2mm",
+        "calculation_basis": "[collision_region_repair] region=upper_surface; base=phillips_screwdriver; base.aabb_min=[0.3039, -0.2766, 0.627]; base.aabb_max=[0.5105, -0.1583, 0.6996]; region_joint=[0.4072, -0.2175, 0.6996]; safety_margin\u2192z+2mm",
         "description": "Code-computed contact point (collision repair region retry)."
       },
       "contact_type": "surface",
@@ -166,9 +166,9 @@
       ],
       "base_target_pose_world": {
         "position": [
-          0.6157,
+          0.4072,
           -0.2175,
-          0.6653
+          0.6633
         ],
         "orientation_rpy_deg": [
           0.0,
@@ -281,10 +281,10 @@
           },
           {
             "step": 3,
-            "base_object": "fork",
+            "base_object": "phillips_screwdriver",
             "attach_object": "sponge",
-            "attach_region_base": "mid_body",
-            "attach_region_object": "surface",
+            "attach_region_base": "upper_surface",
+            "attach_region_object": "lower_surface",
             "contact_type": "surface",
             "expected_function_after_step": "The sponge is attached to provide cushioning and enhance grip stability.",
             "reason": "The sponge's compliant surface helps absorb impact and increase friction, addressing stability concerns.",
@@ -339,9 +339,9 @@
           {
             "attempt": 1,
             "joint_position_world": [
-              0.6157,
+              0.4072,
               -0.2175,
-              0.6837
+              0.7016
             ],
             "errors": [],
             "passed": true
