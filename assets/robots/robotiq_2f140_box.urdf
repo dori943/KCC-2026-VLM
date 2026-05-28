@@ -34,8 +34,8 @@
       <geometry>
         <box size="0.026 0.014 0.120"/>
       </geometry>
-      <material name="silver">
-        <color rgba="0.70 0.72 0.74 1"/>
+      <material name="rubber_black">
+        <color rgba="0.015 0.015 0.015 1"/>
       </material>
     </visual>
     <collision>
@@ -57,8 +57,8 @@
       <geometry>
         <box size="0.026 0.014 0.120"/>
       </geometry>
-      <material name="silver">
-        <color rgba="0.70 0.72 0.74 1"/>
+      <material name="rubber_black">
+        <color rgba="0.015 0.015 0.015 1"/>
       </material>
     </visual>
     <collision>

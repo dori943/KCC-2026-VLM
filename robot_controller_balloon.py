@@ -52,8 +52,13 @@ PANDA_RANGE = [5.7946, 3.5256, 5.7946, 3.0020, 5.7946, 3.7700, 5.7946]
 ARM_FORCE = 500
 ARM_MAX_VELOCITY = 1.0
 GRIPPER_FORCE = 160
-GRIPPER_HOLD_FORCE = 320
-GRIPPER_HOLD_FORCE_MAX = 520
+GRIPPER_HOLD_FORCE = 420
+GRIPPER_HOLD_FORCE_MAX = 720
+RUBBER_PAD_LATERAL_FRICTION = 4.5
+RUBBER_PAD_ROLLING_FRICTION = 0.08
+RUBBER_PAD_SPINNING_FRICTION = 0.08
+RUBBER_PAD_CONTACT_STIFFNESS = 60000
+RUBBER_PAD_CONTACT_DAMPING = 1800
 HOLD_TIGHTEN_STEP = 0.0018
 HOLD_SLIP_DISTANCE_MARGIN = 0.05
 SIM_TIMESTEP = 1.0 / 240.0
@@ -1061,10 +1066,12 @@ class Robotiq2F140Controller:
 
     def configure_gripper_contact_dynamics(
         self,
-        lateral_friction: float = 1.6,
-        rolling_friction: float = 0.003,
-        spinning_friction: float = 0.003,
+        lateral_friction: float = RUBBER_PAD_LATERAL_FRICTION,
+        rolling_friction: float = RUBBER_PAD_ROLLING_FRICTION,
+        spinning_friction: float = RUBBER_PAD_SPINNING_FRICTION,
         restitution: float = 0.0,
+        contact_stiffness: float = RUBBER_PAD_CONTACT_STIFFNESS,
+        contact_damping: float = RUBBER_PAD_CONTACT_DAMPING,
     ) -> None:
         self._ensure_loaded()
         if self.gripper_id is None:
@@ -1077,6 +1084,8 @@ class Robotiq2F140Controller:
                 rollingFriction=rolling_friction,
                 spinningFriction=spinning_friction,
                 restitution=restitution,
+                contactStiffness=contact_stiffness,
+                contactDamping=contact_damping,
             )
 
     def _set_gripper_target(

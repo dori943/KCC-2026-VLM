@@ -945,6 +945,7 @@ def _grasp_with_orientation_sweep(
     seed_orientation: list[float],
     axis_mode: str,
     hold_companion=None,
+    max_attempts: int = 3,
 ) -> bool:
     """
     Try grasp with yaw sweep if initial grasp fails.
@@ -970,10 +971,12 @@ def _grasp_with_orientation_sweep(
     attempt_idx = 0
     for stage_idx, stage_offsets in enumerate(yaw_offset_stages):
         for yaw_offset_deg in stage_offsets:
+            if attempt_idx >= max_attempts:
+                return False
             attempt_idx += 1
             try_orientation = _offset_orientation_yaw(seed_orientation, yaw_offset_deg)
             print(
-                f"[Grasp-Retry] {object_label} attempt={attempt_idx} "
+                f"[Grasp-Retry] {object_label} attempt={attempt_idx}/{max_attempts} "
                 f"stage={stage_idx + 1} yaw_offset={yaw_offset_deg:+.1f} deg"
             )
             ok = controller.grasp_body(
@@ -982,6 +985,7 @@ def _grasp_with_orientation_sweep(
                 r1_world_pos=seed_world_pos,
                 orientation=try_orientation,
                 hold_companion=hold_companion,
+                max_attempts=1,
             )
             if ok:
                 print(
@@ -1035,6 +1039,7 @@ def _grasp_with_r1_then_aabb_fallback(
     object_label: str,
     r1_hint: dict | None,
     hold_companion=None,
+    max_total_attempts: int = 3,
 ) -> tuple[bool, str]:
     """Try R1 grasp pose first; on failure, retry with AABB-based pose.
 
@@ -1061,10 +1066,10 @@ def _grasp_with_r1_then_aabb_fallback(
             f"world_pos={[round(v, 4) for v in r1_world_pos]}, "
             f"orn={[round(v, 4) for v in r1_orientation]}"
         )
-        # Limit R1 attempts to 3 small yaw offsets, then bail out to AABB
-        # fallback. R1 coords often miss by a small offset that yaw alone
-        # cannot recover, so wide yaw sweeps just waste time.
-        r1_yaw_offsets_deg = [0.0, 12.0, -12.0]
+        # Keep the whole grasp routine bounded. Each high-level attempt calls
+        # controller.grasp_body(max_attempts=1), so this count is the real
+        # left/right grasp-attempt count.
+        r1_yaw_offsets_deg = [0.0, 12.0, -12.0][:max_total_attempts]
         r1_success = False
         for r1_attempt_idx, yaw_offset_deg in enumerate(r1_yaw_offsets_deg, start=1):
             try_orientation = _offset_orientation_yaw(r1_orientation, yaw_offset_deg)
@@ -1079,6 +1084,7 @@ def _grasp_with_r1_then_aabb_fallback(
                     r1_world_pos=r1_world_pos,
                     orientation=try_orientation,
                     hold_companion=hold_companion,
+                    max_attempts=1,
                 )
             except Exception as exc:
                 print(f"[Grasp-R1][WARN] attempt failed with exception: {exc}")
@@ -1098,8 +1104,9 @@ def _grasp_with_r1_then_aabb_fallback(
             return True, "r1"
         print(
             f"[Grasp] {object_label}: R1 pose failed after "
-            f"{len(r1_yaw_offsets_deg)} attempts; falling back to AABB-based pose."
+            f"{len(r1_yaw_offsets_deg)} attempts; total attempt budget exhausted."
         )
+        return False, "none"
     else:
         print(
             f"[Grasp] {object_label}: R1 hint unavailable; "
@@ -1129,6 +1136,7 @@ def _grasp_with_r1_then_aabb_fallback(
         seed_orientation=aabb_orientation,
         axis_mode=str(aabb_info.get("axis_mode", "near_square")),
         hold_companion=hold_companion,
+        max_attempts=max_total_attempts,
     )
     if ok:
         return True, "aabb_fallback"
@@ -1772,7 +1780,7 @@ def run_sequential_demo(
     if not left_ok:
         print(
             f"[Demo][WARN] left-arm grasp failed for '{left_target_label}' "
-            "(R1 + AABB fallback both failed)"
+            "(max 3 attempts exhausted)"
         )
     else:
         print(f"[Demo] left-arm grasp succeeded via source={left_grasp_src}")
@@ -1795,7 +1803,7 @@ def run_sequential_demo(
     if not right_ok:
         print(
             f"[Demo][WARN] right-arm grasp failed for '{right_target_label}' "
-            "(R1 + AABB fallback both failed)"
+            "(max 3 attempts exhausted)"
         )
     else:
         print(f"[Demo] right-arm grasp succeeded via source={right_grasp_src}")
