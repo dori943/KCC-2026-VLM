@@ -52,14 +52,14 @@ PANDA_RANGE = [5.7946, 3.5256, 5.7946, 3.0020, 5.7946, 3.7700, 5.7946]
 ARM_FORCE = 500
 ARM_MAX_VELOCITY = 1.0
 GRIPPER_FORCE = 160
-GRIPPER_HOLD_FORCE = 420
-GRIPPER_HOLD_FORCE_MAX = 720
+GRIPPER_HOLD_FORCE = 500
+GRIPPER_HOLD_FORCE_MAX = 900
 RUBBER_PAD_LATERAL_FRICTION = 4.5
 RUBBER_PAD_ROLLING_FRICTION = 0.08
 RUBBER_PAD_SPINNING_FRICTION = 0.08
 RUBBER_PAD_CONTACT_STIFFNESS = 60000
 RUBBER_PAD_CONTACT_DAMPING = 1800
-HOLD_TIGHTEN_STEP = 0.0018
+HOLD_TIGHTEN_STEP = 0.003
 HOLD_SLIP_DISTANCE_MARGIN = 0.05
 SIM_TIMESTEP = 1.0 / 240.0
 NO_CONSTRAINT_CLOSE_STEPS = 220
@@ -390,7 +390,7 @@ class Robotiq2F140Controller:
             childLinkIndex=-1,
             jointType=p.JOINT_FIXED,
             jointAxis=[0, 0, 0],
-            parentFramePosition=[0, 0, 0],
+            parentFramePosition=[0, 0, -0.1],
             childFramePosition=[0, 0, 0],
             parentFrameOrientation=[0, 0, 0, 1],
             childFrameOrientation=[0, 0, 0, 1],
@@ -1425,7 +1425,7 @@ class Robotiq2F140Controller:
             self._clear_hold_control()
             return False
 
-        hold_target = max(0.0, hold_target - 0.003)
+        hold_target = max(0.0, hold_target - 0.007)
         self._enable_hold_control(
             body_id=body_id,
             hold_target=hold_target,
