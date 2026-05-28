@@ -1,6 +1,6 @@
 """
-main_simulation_3.py
-Boot-only dual-arm Panda simulation orchestration.
+main_simulation_balloon.py
+Boot-only dual-arm Robotiq 2F-140 gripper simulation orchestration.
 
 Notes:
 - R1 model assets should be obtained from Hugging Face:
@@ -17,7 +17,11 @@ import numpy as np
 import pybullet as p
 import pybullet_data
 
-from robot_controller_balloon import PandaController, render_camera
+from robot_controller_balloon import (
+    GRIPPER_FINGER_TIP_OFFSET,
+    Robotiq2F140Controller,
+    render_camera,
+)
 from assembly_manager import AssemblyManager
 
 
@@ -539,11 +543,11 @@ def load_ycb_objects(ycb_dir: str = YCB_DIR, table_body_id=None) -> dict:
 
 
 def create_dual_arm_controllers() -> tuple[dict, dict]:
-    left_controller = PandaController(name="left", base_position=LEFT_BASE_POSITION)
-    right_controller = PandaController(name="right", base_position=RIGHT_BASE_POSITION)
+    left_controller = Robotiq2F140Controller(name="left", base_position=LEFT_BASE_POSITION)
+    right_controller = Robotiq2F140Controller(name="right", base_position=RIGHT_BASE_POSITION)
 
-    left_id = left_controller.load_panda()
-    right_id = right_controller.load_panda()
+    left_id = left_controller.load_robot()
+    right_id = right_controller.load_robot()
 
     controllers = {
         "left": left_controller,
@@ -853,7 +857,7 @@ def _estimate_topdown_grasp_orientation(body_id: int) -> tuple[list[float], dict
     """
     Estimate wrist yaw and gripped width from the object's top-view geometry.
 
-    The wrist yaw follows the object's long axis because the Panda opening
+    The wrist yaw follows the object's long axis because the Robotiq opening
     axis is perpendicular to it. Collision-mesh PCA preserves arbitrary yaw;
     the AABB branch is a conservative fallback for shapes without mesh data.
     """
@@ -1364,7 +1368,7 @@ def run_optional_affordance_probe(
                 ),
                 extra_context={
                     "target_object": label,
-                    "scene": "dual-panda-tabletop",
+                    "scene": "dual-robotiq-2f140-tabletop",
                     "grasp_direction": "top-down",
                 },
                 max_new_tokens=128,
@@ -1805,11 +1809,9 @@ def run_sequential_demo(
     # move_end_effector_to ?대??먯꽌 留??ㅽ뀦 _update_grasp_hold_feedback() +
     # _set_gripper_target()???몄텧?섎?濡?slip 媛먯? ???먮룞?쇰줈 force媛 利앷???
     # EE z compensation: when a top-down gripper holds a body, the body's
-    # AABB center sits below the EE by (FINGER_TIP_OFFSET + half body z).
+    # AABB center sits below the EE by (gripper fingertip offset + half body z).
     # If we want the BODY to be at JSON target z, the EE must be that much
     # higher. Without this, the body ends up 5-7cm below the JSON target.
-    FINGER_TIP_OFFSET = 0.058
-
     def _ee_pose_with_grip_z_comp(target_pos: list[float], body_id: int) -> list[float]:
         try:
             aabb_min, aabb_max = p.getAABB(body_id)
@@ -1819,7 +1821,7 @@ def run_sequential_demo(
         return [
             float(target_pos[0]),
             float(target_pos[1]),
-            float(target_pos[2]) + half_z + FINGER_TIP_OFFSET,
+            float(target_pos[2]) + half_z + GRIPPER_FINGER_TIP_OFFSET,
         ]
 
     if left_ok:
@@ -2045,7 +2047,7 @@ def run_sequential_demo(
                     print(f"[Demo][WARN] right.open_gripper (phaseB pre) failed: {exc}")
                 # Reset right arm to home before grasping sponge. After Phase
                 # A, right was at the edge of reach (~0.84 m from base, near
-                # Panda's 0.855 m limit) with stretched/twisted joints. IK
+                # the Panda arm's 0.855 m limit) with stretched/twisted joints. IK
                 # called from that seed diverges (EE shoots to z=1.4+ instead
                 # of descending). reset_to_home gives IK a clean starting
                 # joint configuration close to PANDA_HOME_JOINTS, which is

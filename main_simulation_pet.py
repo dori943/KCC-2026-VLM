@@ -33,12 +33,13 @@ AFFORDANCE_MODEL_ID = "hqking/affordance-r1"
 SAM2_MODEL_ID = "facebook/sam2-hiera-large"
 AFFORDANCE_CAPTURE_WIDTH = 640
 AFFORDANCE_CAPTURE_HEIGHT = 480
-MODULE1_MAP_PATH = "/workspace/KCC-2026-VLM/module1-2B/configs/module1_to_pybullet_map.yaml"
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+MODULE1_MAP_PATH = os.path.join(CURRENT_DIR, "module1-2B", "configs", "label_to_category_map.json")
 
 LEFT_BASE_POSITION = [0.0, -0.35, 0.65]
 RIGHT_BASE_POSITION = [0.0, 0.35, 0.65]
 TABLE_BASE_POSITION = [0.6, 0.0, 0.0]
-YCB_DIR = "/workspace/KCC-2026-VLM/data/object2urdf/examples/ycb"
+YCB_DIR = os.path.join(CURRENT_DIR, "data", "object2urdf", "examples", "ycb")
 
 YCB_OBJECT_SPECS = [
     ("cracker_box", "003_cracker_box.urdf", [1.2, 0.3, 0.82]),

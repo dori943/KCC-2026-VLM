@@ -1,6 +1,6 @@
 """
-robot_controller_3.py
-Lightweight Panda controller module for simulation boot/demo.
+robot_controller_balloon.py
+Lightweight Panda-arm + Robotiq 2F-140 controller module for simulation boot/demo.
 
 Notes:
 - This module keeps dependencies minimal on purpose:
@@ -14,9 +14,22 @@ import numpy as np
 import pybullet as p
 
 
+ROBOT_MODEL_NAME = "Panda arm + Robotiq 2F-140 gripper"
+ROBOT_URDF = "franka_panda/panda.urdf"
+
+# This repository does not ship a Robotiq 2F-140 URDF.  The PyBullet Panda
+# hand joints are kept as the controllable surrogate, while grasp planning and
+# controller targets use Robotiq 2F-140 dimensions.
 END_EFFECTOR_INDEX = 11
 NUM_JOINTS = 7
 GRIPPER_JOINT_INDICES = (9, 10)
+GRIPPER_CONTACT_LINK_INDICES = GRIPPER_JOINT_INDICES
+
+ROBOTIQ_2F140_MAX_OPENING = 0.140
+ROBOTIQ_2F140_SURROGATE_FINGER_MAX = 0.040
+GRIPPER_MAX_TARGET = ROBOTIQ_2F140_SURROGATE_FINGER_MAX
+GRIPPER_MIN_TARGET = 0.0
+GRIPPER_FINGER_TIP_OFFSET = 0.085
 
 PANDA_HOME_JOINTS = [0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785]
 
@@ -165,12 +178,27 @@ def _step_simulation(steps: int, hold_companion: "PandaController | None" = None
         time.sleep(SIM_TIMESTEP)
 
 
-def load_panda(base_position, use_fixed_base: bool = True) -> int:
+def _opening_to_joint_target(opening_width: float) -> float:
+    """Map desired Robotiq opening width to the Panda surrogate finger joint."""
+    normalized = _clamp(opening_width / ROBOTIQ_2F140_MAX_OPENING, 0.0, 1.0)
+    return normalized * ROBOTIQ_2F140_SURROGATE_FINGER_MAX
+
+
+def _joint_target_to_opening(joint_target: float) -> float:
+    normalized = _clamp(joint_target / ROBOTIQ_2F140_SURROGATE_FINGER_MAX, 0.0, 1.0)
+    return normalized * ROBOTIQ_2F140_MAX_OPENING
+
+
+def load_robot(base_position, use_fixed_base: bool = True) -> int:
     return p.loadURDF(
-        "franka_panda/panda.urdf",
+        ROBOT_URDF,
         useFixedBase=use_fixed_base,
         basePosition=base_position,
     )
+
+
+def load_panda(base_position, use_fixed_base: bool = True) -> int:
+    return load_robot(base_position=base_position, use_fixed_base=use_fixed_base)
 
 
 def reset_to_home(panda_id, steps=800):
@@ -216,12 +244,13 @@ def move_end_effector_to(panda_id, position, orientation=None, steps=1000):
 
 
 def open_gripper(panda_id: int, steps: int = 100):
+    target = _opening_to_joint_target(ROBOTIQ_2F140_MAX_OPENING)
     for finger_joint in GRIPPER_JOINT_INDICES:
         p.setJointMotorControl2(
             panda_id,
             finger_joint,
             p.POSITION_CONTROL,
-            targetPosition=0.04,
+            targetPosition=target,
             force=GRIPPER_FORCE,
         )
     _step_simulation(steps)
@@ -275,7 +304,7 @@ def select_top_grasp_candidate(inference_result: dict) -> dict | None:
     }
 
 
-class PandaController:
+class Robotiq2F140Controller:
     def __init__(self, name: str, base_position, use_fixed_base: bool = True):
         self.name = name
         self.base_position = list(base_position)
@@ -298,15 +327,18 @@ class PandaController:
 
     def _ensure_loaded(self) -> None:
         if self.panda_id is None:
-            raise RuntimeError(f"[{self.name}] panda is not loaded yet.")
+            raise RuntimeError(f"[{self.name}] robot is not loaded yet.")
 
-    def load_panda(self):
-        self.panda_id = load_panda(
+    def load_robot(self):
+        self.panda_id = load_robot(
             base_position=self.base_position,
             use_fixed_base=self.use_fixed_base,
         )
         self.configure_gripper_contact_dynamics()
         return self.panda_id
+
+    def load_panda(self):
+        return self.load_robot()
 
     def reset_to_home(self, steps=800):
         self._ensure_loaded()
@@ -676,8 +708,7 @@ class PandaController:
         size_z = max(1e-4, top_z - bottom_z)
         # approach 기준점: top_z 바로 위
         # 실제 contact z는 _descend_until_precontact가 contact 감지로 결정
-        FINGER_TIP_OFFSET = 0.058
-        nominal_grasp_z = top_z + FINGER_TIP_OFFSET + grasp_clearance
+        nominal_grasp_z = top_z + GRIPPER_FINGER_TIP_OFFSET + grasp_clearance
         target_grasp_z = nominal_grasp_z
         if r1_world_pos is not None and len(r1_world_pos) >= 3:
             requested_grasp_z = float(r1_world_pos[2])
@@ -783,7 +814,7 @@ class PandaController:
         blocked = 0
         for contact in contacts:
             link_a = int(contact[3])
-            if link_a in GRIPPER_JOINT_INDICES:
+            if link_a in GRIPPER_CONTACT_LINK_INDICES:
                 continue
             blocked += 1
         return blocked
@@ -796,7 +827,7 @@ class PandaController:
         min_distance = float(max_distance)
         num_links = p.getNumJoints(self.panda_id)
         for link_idx in range(-1, num_links):
-            if link_idx in GRIPPER_JOINT_INDICES:
+            if link_idx in GRIPPER_CONTACT_LINK_INDICES:
                 continue
             points = p.getClosestPoints(
                 bodyA=self.panda_id,
@@ -1083,8 +1114,8 @@ class PandaController:
     def _close_until_contact(
         self,
         body_id: int,
-        start_open: float = 0.04,
-        end_closed: float = 0.0,
+        start_open: float = GRIPPER_MAX_TARGET,
+        end_closed: float = GRIPPER_MIN_TARGET,
         steps: int | None = None,
         close_force: float | None = None,
         hold_companion: "PandaController | None" = None,
@@ -1203,13 +1234,19 @@ class PandaController:
         try:
             _geometry = self._estimate_planar_grasp_geometry(body_id)
             _obj_width = float(_geometry["grasp_width"])
-            _finger_open = _clamp((_obj_width + 0.010) / 2.0, 0.008, 0.04)
+            desired_opening = _clamp(
+                _obj_width + 0.014,
+                0.025,
+                ROBOTIQ_2F140_MAX_OPENING,
+            )
+            _finger_open = _opening_to_joint_target(desired_opening)
             print(
-                f"[{self.name}] dynamic gripper opening={2.0 * _finger_open:.4f}m "
+                f"[{self.name}] dynamic Robotiq 2F-140 opening={desired_opening:.4f}m "
+                f"(surrogate_joint={_finger_open:.4f}) "
                 f"for object width={_obj_width:.4f}m ({_geometry['source']})"
             )
         except Exception:
-            _finger_open = 0.04
+            _finger_open = GRIPPER_MAX_TARGET
         for _fj in GRIPPER_JOINT_INDICES:
             p.setJointMotorControl2(
                 self.panda_id, _fj,
@@ -1456,3 +1493,6 @@ class PandaController:
                     hold_companion=hold_companion,
                 )
         return False
+
+
+PandaController = Robotiq2F140Controller

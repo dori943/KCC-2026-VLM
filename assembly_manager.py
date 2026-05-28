@@ -1,29 +1,4 @@
-﻿"""
-assembly_manager.py
-??臾쇱껜瑜?PyBullet fixed constraint濡?寃고빀/遺꾨━?섎뒗 ?좏떥由ы떚.
-module3_output.json??assembly_steps瑜??뚯떛???먮룞?쇰줈 ?ㅽ뻾 怨꾪쉷???앹꽦?쒕떎.
-
-?ъ슜 ??
-    from assembly_manager import AssemblyManager
-    asm = AssemblyManager()
-
-    # JSON?먯꽌 怨꾪쉷 濡쒕뱶
-    plan = asm.load_plan_from_json("module3_output.json")
-
-    # label ??pybullet body_id 留ㅽ븨 ?깅줉
-    asm.register_body("ruler",        body_id=2)
-    asm.register_body("tweezers",     body_id=3)
-    asm.register_body("sticky notes", body_id=4)
-
-    # 怨꾪쉷 ?꾩껜 ?ㅽ뻾
-    results = asm.execute_plan()
-
-    # 媛쒕퀎 detach
-    asm.detach_by_label("step2_ruler_tweezers")
-    asm.detach_all()
-"""
-
-import json
+﻿import json
 import math
 import time
 from pathlib import Path
