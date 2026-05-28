@@ -41,7 +41,7 @@ ROBOTIQ_2F140_SURROGATE_FINGER_MAX = (
 ) / 2.0
 GRIPPER_MAX_TARGET = ROBOTIQ_2F140_SURROGATE_FINGER_MAX
 GRIPPER_MIN_TARGET = 0.0
-GRIPPER_FINGER_TIP_OFFSET = 0.025
+GRIPPER_FINGER_TIP_OFFSET = 0.085
 
 PANDA_HOME_JOINTS = [0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785]
 
@@ -763,23 +763,12 @@ class Robotiq2F140Controller:
         size_y = max(1e-4, float(aabb_max[1] - aabb_min[1]))
         span_xy = max(size_x, size_y)
 
-        # R1 world_pos가 있으면 grasp seed를 R1 기준으로 사용
+        # R1 world_pos가 있으면 grasp seed를 R1 기준으로 사용 (AABB 강제 보정 제거)
+        # AABB fallback은 r1_world_pos=None일 때만 발동
         if r1_world_pos is not None:
             r1_xy = np.array([float(r1_world_pos[0]), float(r1_world_pos[1])], dtype=float)
-            center_delta = float(np.linalg.norm(r1_xy - aabb_center_xy))
-            max_center_delta = _clamp(0.22 * span_xy, 0.02, 0.055)
-            # R1이 물체 중심에서 과도하게 벗어나면(끝단 파지) 이동 중 slip이 커진다.
-            # 이런 경우 중심 파지로 강제 보정한다.
-            if center_delta > max_center_delta:
-                base_xy = aabb_center_xy
-                print(
-                    f"[{self.name}] grasp xy from R1 world_pos corrected to AABB center "
-                    f"(r1_xy={r1_xy.tolist()}, aabb_center={aabb_center_xy.tolist()}, "
-                    f"delta={center_delta:.4f} > limit={max_center_delta:.4f})"
-                )
-            else:
-                base_xy = r1_xy
-                print(f"[{self.name}] grasp xy from R1 world_pos: {base_xy.tolist()}")
+            base_xy = r1_xy
+            print(f"[{self.name}] grasp xy from R1 world_pos: {base_xy.tolist()}")
         else:
             base_xy = aabb_center_xy
         target_xy = base_xy + np.array(xy_offset, dtype=float)
@@ -802,7 +791,7 @@ class Robotiq2F140Controller:
                 f"[{self.name}] grasp z from R1 world_pos: {requested_grasp_z:.4f} "
                 f"-> clamped {target_grasp_z:.4f} (nominal={nominal_grasp_z:.4f})"
             )
-        safe_descend_floor_z = float(bottom_z + GRIPPER_FINGER_TIP_OFFSET + 0.006)
+        safe_descend_floor_z = float(bottom_z + 0.006)
         return {
             "target_xy": target_xy,
             "top_z": top_z,
@@ -1289,18 +1278,6 @@ class Robotiq2F140Controller:
         )
         return np.array(link_state[0]), np.array(link_state[1])
 
-    def _gripper_tip_z(self) -> float | None:
-        if self.gripper_id is None:
-            return None
-        try:
-            finger_aabbs = [
-                p.getAABB(self.gripper_id, link_idx)
-                for link_idx in ROBOTIQ_GRIPPER_CONTACT_LINK_INDICES
-            ]
-            return float(min(aabb[0][2] for aabb in finger_aabbs))
-        except Exception:
-            return None
-
     def _enable_hold_control(
         self,
         body_id: int,
@@ -1399,12 +1376,6 @@ class Robotiq2F140Controller:
         self.move_end_effector_to(grasp, orientation=selected_orientation, steps=360, hold_companion=hold_companion)
         ee_pos_dbg, _ = self.get_end_effector_pose()
         print(f"[{self.name}] EE after grasp move: {[round(v,4) for v in ee_pos_dbg]}")
-        tip_z_dbg = self._gripper_tip_z()
-        if tip_z_dbg is not None:
-            print(
-                f"[{self.name}] gripper tip z after grasp move: {tip_z_dbg:.4f} "
-                f"(offset={float(ee_pos_dbg[2] - tip_z_dbg):.4f})"
-            )
         # grasp 위치 도달 직후 이미 contact인지 확인 — 있으면 descend 생략
         _pre_summary = self._finger_contact_summary(body_id)
         if self._finger_contact_count(_pre_summary) == 0:
@@ -1416,12 +1387,6 @@ class Robotiq2F140Controller:
             )
         ee_pos_dbg2, _ = self.get_end_effector_pose()
         print(f"[{self.name}] EE after descend: {[round(v,4) for v in ee_pos_dbg2]}")
-        tip_z_dbg2 = self._gripper_tip_z()
-        if tip_z_dbg2 is not None:
-            print(
-                f"[{self.name}] gripper tip z after descend: {tip_z_dbg2:.4f} "
-                f"(offset={float(ee_pos_dbg2[2] - tip_z_dbg2):.4f})"
-            )
 
         # _finger_open: AABB 기반 계산값을 start_open으로 전달해
         # _close_until_contact가 다시 0.04로 벌리지 않도록 함
