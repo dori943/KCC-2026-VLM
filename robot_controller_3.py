@@ -9,6 +9,7 @@ Notes:
   https://huggingface.co/hqking/affordance-r1
 """
 
+import os
 import time
 import numpy as np
 import pybullet as p
@@ -17,6 +18,21 @@ import pybullet as p
 END_EFFECTOR_INDEX = 11
 NUM_JOINTS = 7
 GRIPPER_JOINT_INDICES = (9, 10)
+
+# ── Custom soft bent gripper ────────────────────────────────────────────────
+# Put the URDF at:
+#   /workspace/KCC-2026-VLM/assets/grippers/soft_bent_parallel_gripper.urdf
+# The path below is repo-relative so it works after copying the file into assets/.
+USE_SOFT_BENT_GRIPPER = True
+SOFT_GRIPPER_URDF_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "assets",
+    "grippers",
+    "soft_bent_parallel_gripper.urdf",
+)
+SOFT_GRIPPER_JOINT_INDICES = (0, 1)
+SOFT_GRIPPER_OPEN_TARGET = 0.038
+SOFT_GRIPPER_CLOSE_TARGET = 0.0
 
 PANDA_HOME_JOINTS = [0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785]
 
@@ -112,14 +128,14 @@ OBJECT_GRASP_PROFILE_TABLE = {
 }
 
 # ── 카메라 파라미터 ───────────────────────────────────────────────────────────
-CAM_WIDTH  = 640
-CAM_HEIGHT = 480
+CAM_WIDTH  = 1280
+CAM_HEIGHT = 960
 CAM_FOV    = 60
 CAM_NEAR   = 0.1
 CAM_FAR    = 5.0
 
-def render_camera(cam_target=[0.55, -0.35, 0.8], cam_distance=1.2,
-                  cam_yaw=0, cam_pitch=-45):
+def render_camera(cam_target=[0.55, -0.35, 0.8], cam_distance=1.0,
+                  cam_yaw=45, cam_pitch=-45):
     view_matrix = p.computeViewMatrixFromYawPitchRoll(
         cameraTargetPosition=cam_target,
         distance=cam_distance,
@@ -131,15 +147,23 @@ def render_camera(cam_target=[0.55, -0.35, 0.8], cam_distance=1.2,
         nearVal=CAM_NEAR, farVal=CAM_FAR
     )
     _, _, rgb_raw, depth_raw, _ = p.getCameraImage(
-        CAM_WIDTH, CAM_HEIGHT,
+        CAM_WIDTH, CAM_HEIGHT,       # ← 해상도를 1280x960 등으로 키우세요
         viewMatrix=view_matrix,
         projectionMatrix=proj_matrix,
-        renderer=p.ER_TINY_RENDERER
+        renderer=p.ER_BULLET_HARDWARE_OPENGL,  # ← TINY → OpenGL
+        shadow=1,
+        lightDirection=[1, 1, 1],
+        lightColor=[1, 1, 1],
+        lightDistance=2,
+        lightAmbientCoeff=0.8,
+        lightDiffuseCoeff=0.8,
+        lightSpecularCoeff=0.1,
     )
-    rgb       = np.array(rgb_raw, dtype=np.uint8).reshape(CAM_HEIGHT, CAM_WIDTH, 4)[:, :, :3]
+    rgb = np.array(rgb_raw, dtype=np.uint8).reshape(CAM_HEIGHT, CAM_WIDTH, 4)[:, :, :3]
     depth_buf = np.array(depth_raw, dtype=np.float32).reshape(CAM_HEIGHT, CAM_WIDTH)
-    depth     = CAM_FAR * CAM_NEAR / (CAM_FAR - (CAM_FAR - CAM_NEAR) * depth_buf)
+    depth = CAM_FAR * CAM_NEAR / (CAM_FAR - (CAM_FAR - CAM_NEAR) * depth_buf)
     return rgb, depth, proj_matrix, view_matrix
+
 
 def _clamp(value: float, lower: float, upper: float) -> float:
     return max(lower, min(upper, float(value)))
@@ -273,6 +297,17 @@ class PandaController:
         self.base_position = list(base_position)
         self.use_fixed_base = use_fixed_base
         self.panda_id = None
+
+        # Custom soft bent gripper state. The custom gripper is loaded as a
+        # separate PyBullet body and fixed to the Panda end-effector.
+        self.soft_gripper_id = None
+        self.soft_gripper_constraint_id = None
+        self.soft_gripper_joint_indices = SOFT_GRIPPER_JOINT_INDICES
+        self.soft_gripper_pad_links = {
+            "left": [],
+            "right": [],
+        }
+
         self.last_target_position = None
         self.last_target_orientation = None
         self.last_affordance_hint = None
@@ -298,7 +333,145 @@ class PandaController:
             use_fixed_base=self.use_fixed_base,
         )
         self.configure_gripper_contact_dynamics()
+
+        if USE_SOFT_BENT_GRIPPER:
+            if os.path.isfile(SOFT_GRIPPER_URDF_PATH):
+                self._attach_soft_bent_gripper(SOFT_GRIPPER_URDF_PATH)
+            else:
+                print(
+                    f"[{self.name}][WARN] soft gripper URDF not found: "
+                    f"{SOFT_GRIPPER_URDF_PATH}"
+                )
+
         return self.panda_id
+
+    def _attach_soft_bent_gripper(self, urdf_path: str) -> None:
+        """Attach the custom soft bent gripper to Panda end-effector.
+
+        The original Panda gripper remains loaded, but gripper commands and
+        contact checks are redirected to this custom gripper when present.
+        """
+        self._ensure_loaded()
+
+        ee_state = p.getLinkState(
+            self.panda_id,
+            END_EFFECTOR_INDEX,
+            computeForwardKinematics=True,
+        )
+        ee_pos = ee_state[0]
+        ee_orn = ee_state[1]
+
+        self.soft_gripper_id = p.loadURDF(
+            urdf_path,
+            basePosition=ee_pos,
+            baseOrientation=ee_orn,
+            useFixedBase=False,
+        )
+
+        self.soft_gripper_constraint_id = p.createConstraint(
+            parentBodyUniqueId=self.panda_id,
+            parentLinkIndex=END_EFFECTOR_INDEX,
+            childBodyUniqueId=self.soft_gripper_id,
+            childLinkIndex=-1,
+            jointType=p.JOINT_FIXED,
+            jointAxis=[0, 0, 0],
+            parentFramePosition=[0.0, 0.0, 0.02],
+            childFramePosition=[0.0, 0.0, 0.0],
+            parentFrameOrientation=[0.0, 0.0, 0.0, 1.0],
+            childFrameOrientation=[0.0, 0.0, 0.0, 1.0],
+        )
+        p.changeConstraint(self.soft_gripper_constraint_id, maxForce=10000)
+
+        # Prevent the attached custom gripper from colliding with the Panda body.
+        for panda_link in range(-1, p.getNumJoints(self.panda_id)):
+            for gripper_link in range(-1, p.getNumJoints(self.soft_gripper_id)):
+                p.setCollisionFilterPair(
+                    self.panda_id,
+                    self.soft_gripper_id,
+                    panda_link,
+                    gripper_link,
+                    enableCollision=0,
+                )
+
+        self._discover_soft_gripper_links()
+        self._configure_soft_gripper_dynamics()
+
+        # Keep original Panda fingers open so they interfere less with contact.
+        for finger_joint in GRIPPER_JOINT_INDICES:
+            p.setJointMotorControl2(
+                self.panda_id,
+                finger_joint,
+                p.POSITION_CONTROL,
+                targetPosition=0.04,
+                force=20,
+                maxVelocity=0.10,
+            )
+
+        print(
+            f"[{self.name}] soft bent gripper attached "
+            f"(body_id={self.soft_gripper_id}, "
+            f"constraint={self.soft_gripper_constraint_id})"
+        )
+        print(f"[{self.name}] soft gripper pad links: {self.soft_gripper_pad_links}")
+
+    def _discover_soft_gripper_links(self) -> None:
+        """Find rubber pad link indices by link name."""
+        self.soft_gripper_pad_links = {
+            "left": [],
+            "right": [],
+        }
+
+        if self.soft_gripper_id is None:
+            return
+
+        print(f"[{self.name}] soft gripper joints/links:")
+        for joint_idx in range(p.getNumJoints(self.soft_gripper_id)):
+            info = p.getJointInfo(self.soft_gripper_id, joint_idx)
+            joint_name = info[1].decode("utf-8")
+            link_name = info[12].decode("utf-8")
+            print(f"  [{joint_idx}] joint={joint_name} -> link={link_name}")
+
+            if "left_rubber_pad" in link_name:
+                self.soft_gripper_pad_links["left"].append(joint_idx)
+            elif "right_rubber_pad" in link_name:
+                self.soft_gripper_pad_links["right"].append(joint_idx)
+
+        if not self.soft_gripper_pad_links["left"] or not self.soft_gripper_pad_links["right"]:
+            print(
+                f"[{self.name}][WARN] rubber pad link discovery is incomplete. "
+                "Contact check will still count total custom-gripper contacts, "
+                "but bilateral pad contact may be unavailable."
+            )
+
+    def _configure_soft_gripper_dynamics(self) -> None:
+        """Set high friction on the custom gripper, especially rubber pads."""
+        if self.soft_gripper_id is None:
+            return
+
+        for link_idx in range(-1, p.getNumJoints(self.soft_gripper_id)):
+            p.changeDynamics(
+                self.soft_gripper_id,
+                link_idx,
+                lateralFriction=1.6,
+                rollingFriction=0.004,
+                spinningFriction=0.004,
+                restitution=0.0,
+                contactStiffness=8000,
+                contactDamping=120,
+            )
+
+        for side_links in self.soft_gripper_pad_links.values():
+            for link_idx in side_links:
+                p.changeDynamics(
+                    self.soft_gripper_id,
+                    link_idx,
+                    lateralFriction=2.4,
+                    rollingFriction=0.006,
+                    spinningFriction=0.006,
+                    restitution=0.0,
+                    contactStiffness=12000,
+                    contactDamping=180,
+                )
 
     def reset_to_home(self, steps=800):
         self._ensure_loaded()
@@ -348,12 +521,32 @@ class PandaController:
     def open_gripper(self, steps: int = 100):
         self._ensure_loaded()
         self._clear_hold_control()
+
+        if self.soft_gripper_id is not None:
+            self._set_gripper_target(
+                target_position=SOFT_GRIPPER_OPEN_TARGET,
+                force=80,
+                max_velocity=0.18,
+            )
+            _step_simulation(steps)
+            return
+
         open_gripper(self.panda_id, steps=steps)
 
     def close_gripper(self, steps: int = 100):
         self._ensure_loaded()
-        self._active_gripper_hold_target = 0.0
+        self._active_gripper_hold_target = SOFT_GRIPPER_CLOSE_TARGET
         self._active_gripper_hold_force = self._active_grasp_profile["gripper_force"]
+
+        if self.soft_gripper_id is not None:
+            self._set_gripper_target(
+                target_position=SOFT_GRIPPER_CLOSE_TARGET,
+                force=self._active_gripper_hold_force,
+                max_velocity=0.18,
+            )
+            _step_simulation(steps)
+            return
+
         close_gripper(self.panda_id, steps=steps)
 
     def set_affordance_hint(self, inference_result: dict) -> dict | None:
@@ -900,6 +1093,34 @@ class PandaController:
         force: float,
         max_velocity: float = 0.25,
     ) -> None:
+        # If custom soft gripper is attached, control it instead of the default
+        # Panda fingers. Both prismatic joints use the same positive target for
+        # opening because their axes are opposite in the URDF.
+        if self.soft_gripper_id is not None:
+            target_position = _clamp(target_position, 0.0, SOFT_GRIPPER_OPEN_TARGET)
+
+            for joint_idx in self.soft_gripper_joint_indices:
+                p.setJointMotorControl2(
+                    self.soft_gripper_id,
+                    joint_idx,
+                    p.POSITION_CONTROL,
+                    targetPosition=target_position,
+                    force=force,
+                    maxVelocity=max_velocity,
+                )
+
+            # Keep original Panda fingers open to reduce interference.
+            for finger_joint in GRIPPER_JOINT_INDICES:
+                p.setJointMotorControl2(
+                    self.panda_id,
+                    finger_joint,
+                    p.POSITION_CONTROL,
+                    targetPosition=0.04,
+                    force=20,
+                    maxVelocity=0.10,
+                )
+            return
+
         for finger_joint in GRIPPER_JOINT_INDICES:
             p.setJointMotorControl2(
                 self.panda_id,
@@ -991,6 +1212,55 @@ class PandaController:
         )
 
     def _finger_contact_summary(self, body_id: int) -> dict:
+        # Custom soft gripper contact check. Count rubber pad contacts first.
+        # If pad links are not discovered for any reason, fall back to total
+        # custom-gripper contacts so contact-based descent can still stop.
+        if self.soft_gripper_id is not None:
+            left = 0
+            right = 0
+
+            for link_idx in self.soft_gripper_pad_links.get("left", []):
+                left += len(
+                    p.getContactPoints(
+                        bodyA=self.soft_gripper_id,
+                        bodyB=body_id,
+                        linkIndexA=link_idx,
+                    )
+                )
+
+            for link_idx in self.soft_gripper_pad_links.get("right", []):
+                right += len(
+                    p.getContactPoints(
+                        bodyA=self.soft_gripper_id,
+                        bodyB=body_id,
+                        linkIndexA=link_idx,
+                    )
+                )
+
+            all_contacts = len(
+                p.getContactPoints(
+                    bodyA=self.soft_gripper_id,
+                    bodyB=body_id,
+                )
+            )
+
+            hand = max(0, all_contacts - left - right)
+
+            # Fallback: if rubber pad links were not discovered, do not lose
+            # all contact information. Split total contacts as weak finger
+            # evidence so _finger_contact_count can proceed.
+            if left == 0 and right == 0 and all_contacts > 0:
+                left = max(1, all_contacts // 2)
+                right = max(0, all_contacts - left)
+                hand = 0
+
+            return {
+                "left": left,
+                "right": right,
+                "hand": hand,
+                "total": left + right + hand,
+            }
+
         left = len(
             p.getContactPoints(
                 bodyA=self.panda_id,
@@ -1155,13 +1425,14 @@ class PandaController:
             _finger_open = _clamp(_obj_width / 2.0 + 0.012, 0.015, 0.04)
         except Exception:
             _finger_open = 0.04
-        for _fj in GRIPPER_JOINT_INDICES:
-            p.setJointMotorControl2(
-                self.panda_id, _fj,
-                p.POSITION_CONTROL,
-                targetPosition=_finger_open,
-                force=GRIPPER_FORCE,
-            )
+        # Open the active gripper to object-adaptive width. If the custom
+        # gripper is attached, _set_gripper_target redirects this command to
+        # the custom prismatic joints.
+        self._set_gripper_target(
+            target_position=_finger_open,
+            force=GRIPPER_FORCE,
+            max_velocity=0.18,
+        )
         _step_simulation(90)
         candidate = self._select_grasp_candidate(
             body_id=body_id,
