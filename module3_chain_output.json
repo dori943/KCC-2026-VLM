@@ -1,6 +1,6 @@
 {
   "assembly_strategy": {
-    "base_object": "plate",
+    "base_object": "mug",
     "strategy_summary": "Use the plate as a stable support base, attach the bowl for rotational contact, and thread the chain for pulling.",
     "sequence_reason": "The plate provides a stable base, the bowl offers rotational contact, and the chain acts as a flexible pulling path.",
     "filter_result_reflection": "Addressed weak points by ensuring stable placement and proper attachment regions."
@@ -9,7 +9,7 @@
     {
       "step": 1,
       "partial_assembly_state_before": [],
-      "base_object": "plate",
+      "base_object": "mug",
       "attach_object": null,
       "attach_region_base": "mid_body",
       "attach_region_object": null,
@@ -66,9 +66,9 @@
     {
       "step": 2,
       "partial_assembly_state_before": [
-        "plate"
+        "mug"
       ],
-      "base_object": "plate",
+      "base_object": "mug",
       "attach_object": "bowl",
       "attach_region_base": "upper_surface",
       "attach_region_object": "rim_or_cavity",
@@ -125,7 +125,7 @@
     {
       "step": 3,
       "partial_assembly_state_before": [
-        "plate",
+        "mug",
         "bowl"
       ],
       "base_object": "bowl",
@@ -186,7 +186,7 @@
   "final_structure": {
     "description": "Bowl for rotational contact, plate stabilizes with a flat surface, chain threads for pulling.",
     "functional_end": "curved_body",
-    "handle_end": "plate"
+    "handle_end": "mug"
   },
   "verification": {
     "is_valid": true,
@@ -257,7 +257,7 @@
         "planned_sequence": [
           {
             "step": 1,
-            "base_object": "plate",
+            "base_object": "mug",
             "attach_object": null,
             "attach_region_base": "mid_body",
             "attach_region_object": null,
@@ -270,7 +270,7 @@
           },
           {
             "step": 2,
-            "base_object": "plate",
+            "base_object": "mug",
             "attach_object": "bowl",
             "attach_region_base": "upper_surface",
             "attach_region_object": "rim_or_cavity",
@@ -305,7 +305,7 @@
         "planned_sequence": [
           {
             "step": 1,
-            "base_object": "plate",
+            "base_object": "mug",
             "attach_object": null,
             "attach_region_base": "mid_body",
             "attach_region_object": null,
@@ -318,7 +318,7 @@
           },
           {
             "step": 2,
-            "base_object": "plate",
+            "base_object": "mug",
             "attach_object": "bowl",
             "attach_region_base": "upper_surface",
             "attach_region_object": "rim_or_cavity",

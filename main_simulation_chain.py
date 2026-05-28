@@ -17,7 +17,11 @@ import numpy as np
 import pybullet as p
 import pybullet_data
 
-from robot_controller_3 import PandaController, render_camera
+from robot_controller_balloon import (
+    GRIPPER_FINGER_TIP_OFFSET,
+    Robotiq2F140Controller,
+    render_camera,
+)
 from assembly_manager import AssemblyManager
 
 
@@ -33,12 +37,12 @@ AFFORDANCE_MODEL_ID = "hqking/affordance-r1"
 SAM2_MODEL_ID = "facebook/sam2-hiera-large"
 AFFORDANCE_CAPTURE_WIDTH = 640
 AFFORDANCE_CAPTURE_HEIGHT = 480
-MODULE1_MAP_PATH = "/workspace/KCC-2026-VLM/module1-2B/configs/module1_to_pybullet_map.yaml"
+MODULE1_MAP_PATH = "/Users/jungsubin/KCC2026_public/module1-2B/configs/module1_to_pybullet_map.yaml"
 
-LEFT_BASE_POSITION = [0.0, -0.35, 0.65]
-RIGHT_BASE_POSITION = [0.0, 0.35, 0.65]
+LEFT_BASE_POSITION = [0.3, -0.35, 0.65]
+RIGHT_BASE_POSITION = [0.3, 0.35, 0.65]
 TABLE_BASE_POSITION = [0.6, 0.0, 0.0]
-YCB_DIR = "/workspace/KCC-2026-VLM/data/object2urdf/examples/ycb"
+YCB_DIR = "/Users/jungsubin/KCC2026/Module1-2B/KCC-2026-VLM/data/object2urdf/examples/ycb"
 
 YCB_OBJECT_SPECS = [
     ("cracker_box", "003_cracker_box.urdf", [1.2, 0.3, 0.82]),
@@ -57,6 +61,10 @@ YCB_OBJECT_SPECS = [
     ("phillips_screwdriver", "043_phillips_screwdriver.urdf", [0.45, -0.2, 0.82]),
     ("flat_screwdriver", "044_flat_screwdriver.urdf", [0.45, -0.35, 0.82]),
     ("sponge", "026_sponge.urdf", [0.45, 0.35, 0.82]),
+    # TODO: verify the actual chain URDF filename in YCB_DIR and replace
+    # "077_chain.urdf" with the correct name. y=0.4 places chain outside
+    # the (plate,bowl) Phase-A pair so right arm picks it up in Phase B.
+    ("chain", "059_chain.urdf", [1.0, 0.4, 0.82]),
 ]
 
 def _load_module3_object_labels(json_path: str) -> list[str]:
@@ -107,6 +115,8 @@ def _build_ycb_object_specs(json_path: str) -> list[tuple]:
             ("phillips_screwdriver", "043_phillips_screwdriver.urdf", [0.45, 0.1, 0.82]),
             ("flat_screwdriver", "044_flat_screwdriver.urdf", [0.45, 0.1, 0.82]),
             ("sponge", "026_sponge.urdf", [0.45, 0.35, 0.82]),
+            # TODO: verify URDF filename for "chain" in YCB_DIR.
+            ("chain", "059_chain.urdf", [1.0, 0.4, 0.82]),
         ]
     specs = []
     for raw_label in labels:
@@ -119,7 +129,7 @@ def _build_ycb_object_specs(json_path: str) -> list[tuple]:
 
 
 # Resolve JSON path once for reuse before main().
-_MODULE3_JSON_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "module3_pet_output.json")
+_MODULE3_JSON_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "module3_chain_output.json")
 
 # Dynamically resolved YCB object specs.
 YCB_OBJECT_SPECS: list[tuple] = _build_ycb_object_specs(_MODULE3_JSON_PATH)
@@ -183,6 +193,7 @@ YCB_MODULE1_PROFILE_BY_LABEL = {
     "large_marker": {"surface_friction": "medium", "slip_tendency": "medium", "mass_category": "light", "size_relative": "small"},
     "sponge": {"surface_friction": "medium", "slip_tendency": "low", "mass_category": "light", "size_relative": "medium"},
     "flat_screwdriver": {"surface_friction": "medium", "slip_tendency": "low", "mass_category": "light", "size_relative": "medium"},
+    "chain": {"surface_friction": "high", "slip_tendency": "medium", "mass_category": "light", "size_relative": "medium"},
 }
 YCB_DYNAMICS_OVERRIDE_BY_LABEL = {
     
@@ -547,11 +558,11 @@ def load_ycb_objects(ycb_dir: str = YCB_DIR, table_body_id=None) -> dict:
 
 
 def create_dual_arm_controllers() -> tuple[dict, dict]:
-    left_controller = PandaController(name="left", base_position=LEFT_BASE_POSITION)
-    right_controller = PandaController(name="right", base_position=RIGHT_BASE_POSITION)
+    left_controller = Robotiq2F140Controller(name="left", base_position=LEFT_BASE_POSITION)
+    right_controller = Robotiq2F140Controller(name="right", base_position=RIGHT_BASE_POSITION)
 
-    left_id = left_controller.load_panda()
-    right_id = right_controller.load_panda()
+    left_id = left_controller.load_robot()
+    right_id = right_controller.load_robot()
 
     controllers = {
         "left": left_controller,
@@ -936,10 +947,17 @@ def _grasp_with_orientation_sweep(
             [90.0, -90.0, 135.0, -135.0, 180.0],
         ]
 
+    MAX_GRASP_ATTEMPTS = 3  # team agreement: cap grasp retries
     attempt_idx = 0
     for stage_idx, stage_offsets in enumerate(yaw_offset_stages):
         for yaw_offset_deg in stage_offsets:
             attempt_idx += 1
+            if attempt_idx > MAX_GRASP_ATTEMPTS:
+                print(
+                    f"[Grasp-Retry] {object_label} reached MAX_GRASP_ATTEMPTS="
+                    f"{MAX_GRASP_ATTEMPTS}; giving up."
+                )
+                return False
             try_orientation = _offset_orientation_yaw(seed_orientation, yaw_offset_deg)
             print(
                 f"[Grasp-Retry] {object_label} attempt={attempt_idx} "
@@ -1182,6 +1200,7 @@ def run_optional_affordance_probe(
             "spoon",
             "phillipsscrewdriver",
             "flatscrewdriver",
+            "chain",
         }
         if save_mask_png or save_view_png:
             try:
@@ -1330,7 +1349,7 @@ def run_optional_affordance_probe(
                 ),
                 extra_context={
                     "target_object": label,
-                    "scene": "dual-panda-tabletop",
+                    "scene": "dual-robotiq-2f140-tabletop",
                     "grasp_direction": "top-down",
                 },
                 max_new_tokens=128,
@@ -1768,8 +1787,6 @@ def run_sequential_demo(
     # AABB center sits below the EE by (FINGER_TIP_OFFSET + half body z).
     # If we want the BODY to be at JSON target z, the EE must be that much
     # higher. Without this, the body ends up 5-7cm below the JSON target.
-    FINGER_TIP_OFFSET = 0.058
-
     def _ee_pose_with_grip_z_comp(target_pos: list[float], body_id: int) -> list[float]:
         try:
             aabb_min, aabb_max = p.getAABB(body_id)
@@ -1779,7 +1796,7 @@ def run_sequential_demo(
         return [
             float(target_pos[0]),
             float(target_pos[1]),
-            float(target_pos[2]) + half_z + FINGER_TIP_OFFSET,
+            float(target_pos[2]) + half_z + GRIPPER_FINGER_TIP_OFFSET,
         ]
 
     if left_ok:
@@ -1877,9 +1894,9 @@ def run_sequential_demo(
         # plus closed grippers hold everything in place against gravity.
         if _plan_loaded:
             print("[Demo] Phase A snap (gravity ON, grippers closed)...")
-            # Phase A snap: ONLY phillips_screwdriver + fork (the two bodies
-            # we just grasped). Sponge stays on the table for Phase B, where
-            # right arm will pick it up and bring it to the assembly.
+            # Phase A snap: ONLY the two bodies currently grasped by left/right
+            # arms. The remaining (3rd) plan object stays on the table for
+            # Phase B, where right arm picks it up and brings it to the assembly.
             phase_a_labels = {left_target_label, right_target_label}
             snapped = assembly_manager.snap_objects_to_targets(
                 settle_steps=0,
@@ -1894,8 +1911,9 @@ def run_sequential_demo(
             # ?? module3 JSON 怨꾪쉷 ?ㅽ뻾 ??????????????????????????????????????
             # step1(position-only)? 諛곗튂 湲곕줉留? step2 ?댄썑 attach ?ㅽ뻾
             # Phase A only handles steps whose objects are in {left, right}
-            # grasp set (phillips + fork). Step 3 (sponge) is intentionally
-            # skipped here and run in Phase B after sponge is picked up.
+            # grasp set. Steps whose attach_object is outside this set
+            # are intentionally skipped here and run in Phase B after
+            # that remaining object is picked up.
             _active_labels = {left_target_label, right_target_label}
             _selected_steps = []
             _plan_obj = getattr(assembly_manager, "_plan", None)
@@ -1980,22 +1998,28 @@ def run_sequential_demo(
                 world_pin_id = None
 
         # =========================================================
-        # Phase B: pick sponge with right arm and attach to fork
+        # Phase B: pick the remaining (3rd) object with right arm and
+        # attach it to the Phase-A combo per the JSON plan.
         # =========================================================
         # Conditions: Phase A succeeded (_plan_loaded still True) AND
-        # plan has a step 3 with sponge as attach object.
+        # plan has an attach step whose attach_object is outside the
+        # Phase-A grasp set (left+right targets).
         _phase_b_done = False
         if _plan_loaded:
             _plan_obj_b = getattr(assembly_manager, "_plan", None)
             _step3 = None
             if _plan_obj_b is not None:
                 for _s in _plan_obj_b.steps:
-                    if _s.has_attach() and _s.attach_object == "sponge":
+                    if _s.has_attach() and _s.attach_object not in _active_labels:
                         _step3 = _s
                         break
-            sponge_id = ycb_object_ids.get("sponge")
+            phase_b_label = _step3.attach_object if _step3 is not None else None
+            sponge_id = ycb_object_ids.get(phase_b_label) if phase_b_label else None
             if _step3 is not None and sponge_id is not None:
-                print("[Demo] === Phase B: pick sponge and attach to fork (gravity ON) ===")
+                print(
+                    f"[Demo] === Phase B: pick '{phase_b_label}' and attach to "
+                    f"'{_step3.base_object}' (gravity ON) ==="
+                )
                 # Right arm currently holds fork at right_assembly_ee. Fork is
                 # already constrained to phillips (Step 2), and combo is
                 # world-pinned, so right's grip is no longer needed.
@@ -2016,27 +2040,27 @@ def run_sequential_demo(
                     right.reset_to_home(steps=240)
                 except Exception as exc:
                     print(f"[Demo][WARN] right.reset_to_home (phaseB pre) failed: {exc}")
-                # Grasp sponge with right arm (R1 hint may be empty - the
-                # routine falls back to AABB-based pose automatically).
-                _sponge_hint = r1_hints.get("sponge", {})
+                # Grasp the Phase-B object with right arm (R1 hint may be
+                # empty - the routine falls back to AABB-based pose).
+                _sponge_hint = r1_hints.get(phase_b_label, {})
                 sponge_ok, sponge_grasp_src = _grasp_with_r1_then_aabb_fallback(
                     controller=right,
                     body_id=sponge_id,
-                    object_label="sponge",
+                    object_label=phase_b_label,
                     r1_hint=_sponge_hint,
                 )
                 if not sponge_ok:
-                    print("[Demo][WARN] Phase B sponge grasp failed; skipping step 3.")
+                    print(f"[Demo][WARN] Phase B '{phase_b_label}' grasp failed; skipping step 3.")
                 else:
-                    print(f"[Demo] sponge grasp succeeded via source={sponge_grasp_src}")
+                    print(f"[Demo] '{phase_b_label}' grasp succeeded via source={sponge_grasp_src}")
                     right.maintain_grasp_hold(steps=60)
-                    # Move sponge to step 3 attach pose with EE z-comp so
-                    # sponge body lands at JSON target_pose_world.
+                    # Move object to step 3 attach pose with EE z-comp so
+                    # body lands at JSON target_pose_world.
                     sponge_target_pos = list(_step3.target_position)
                     sponge_target_orn = list(_step3.target_orientation)
                     sponge_assembly_ee = _ee_pose_with_grip_z_comp(sponge_target_pos, sponge_id)
                     print(
-                        f"[Demo] sponge assembly move: object_target={[round(v, 4) for v in sponge_target_pos]}, "
+                        f"[Demo] '{phase_b_label}' assembly move: object_target={[round(v, 4) for v in sponge_target_pos]}, "
                         f"ee_pose={[round(v, 4) for v in sponge_assembly_ee]}"
                     )
                     right.move_end_effector_to(
@@ -2046,7 +2070,7 @@ def run_sequential_demo(
                         hold_companion=left if left_ok else None,
                     )
                     right.maintain_grasp_hold(steps=60)
-                    print("[Demo] right arm at sponge assembly position.")
+                    print(f"[Demo] right arm at '{phase_b_label}' assembly position.")
                     # CRITICAL: open right gripper BEFORE snap+attach. With
                     # the gripper still closed, the motor tries to keep EE
                     # at z=0.77 while the soon-to-be-created constraint
@@ -2069,7 +2093,7 @@ def run_sequential_demo(
                     snapped_b = assembly_manager.snap_objects_to_targets(
                         settle_steps=0,
                         use_aabb_offset=True,
-                        labels={"sponge"},
+                        labels={phase_b_label},
                     )
                     print(f"[Demo] Phase B snapped {len(snapped_b)} body: {sorted(list(snapped_b.keys()))}")
                     step3_result = assembly_manager.execute_step(
@@ -2079,7 +2103,10 @@ def run_sequential_demo(
                         suspend_gravity=False,
                     )
                     if step3_result.get("constraint_id") is not None:
-                        print("[Demo] Phase B assembly successful (sponge attached to fork).")
+                        print(
+                            f"[Demo] Phase B assembly successful "
+                            f"('{phase_b_label}' attached to '{_step3.base_object}')."
+                        )
                         _phase_b_done = True
                         # Sponge is now constrained to fork; right's grip
                         # on sponge is redundant. Release it so Phase 4
@@ -2092,7 +2119,10 @@ def run_sequential_demo(
                     else:
                         print(f"[Demo][WARN] Phase B step 3 failed: {step3_result}")
             else:
-                print("[Demo] Phase B skipped (no step 3 or sponge missing).")
+                print(
+                    f"[Demo] Phase B skipped "
+                    f"(no eligible step3 or body for '{phase_b_label}')."
+                )
 
         # Remove the world pin so the assembled tool is free to be carried
         # or released. This must happen before the place/release/home stage.

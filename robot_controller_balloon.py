@@ -1,6 +1,6 @@
-﻿"""
-robot_controller_3.py
-Lightweight Panda controller module for simulation boot/demo.
+"""
+robot_controller_balloon.py
+Lightweight Panda-arm + Robotiq 2F-140 controller module for simulation boot/demo.
 
 Notes:
 - This module keeps dependencies minimal on purpose:
@@ -9,14 +9,39 @@ Notes:
   https://huggingface.co/hqking/affordance-r1
 """
 
+import os
 import time
 import numpy as np
 import pybullet as p
 
 
+ROBOT_MODEL_NAME = "Panda arm + Robotiq 2F-140 gripper"
+ROBOT_URDF = "franka_panda/panda.urdf"
+ROBOTIQ_GRIPPER_URDF = os.path.join(
+    os.path.dirname(__file__),
+    "assets",
+    "robots",
+    "robotiq_2f140_box.urdf",
+)
+
+# Panda remains the arm carrier; a lightweight box-finger Robotiq 2F-140
+# surrogate is fixed to the wrist and used for gripper contacts/control.
 END_EFFECTOR_INDEX = 11
 NUM_JOINTS = 7
 GRIPPER_JOINT_INDICES = (9, 10)
+GRIPPER_CONTACT_LINK_INDICES = GRIPPER_JOINT_INDICES
+PANDA_HAND_LINK_INDICES = (8, 9, 10, 11)
+ROBOTIQ_GRIPPER_JOINT_INDICES = (0, 1)
+ROBOTIQ_GRIPPER_CONTACT_LINK_INDICES = (0, 1)
+
+ROBOTIQ_2F140_MAX_OPENING = 0.140
+ROBOTIQ_2F140_BOX_FINGER_THICKNESS = 0.014
+ROBOTIQ_2F140_SURROGATE_FINGER_MAX = (
+    ROBOTIQ_2F140_MAX_OPENING + ROBOTIQ_2F140_BOX_FINGER_THICKNESS
+) / 2.0
+GRIPPER_MAX_TARGET = ROBOTIQ_2F140_SURROGATE_FINGER_MAX
+GRIPPER_MIN_TARGET = 0.0
+GRIPPER_FINGER_TIP_OFFSET = 0.085
 
 PANDA_HOME_JOINTS = [0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785]
 
@@ -25,14 +50,18 @@ PANDA_UPPER = [2.8973, 1.7628, 2.8973, -0.0698, 2.8973, 3.7525, 2.8973]
 PANDA_RANGE = [5.7946, 3.5256, 5.7946, 3.0020, 5.7946, 3.7700, 5.7946]
 
 ARM_FORCE = 500
-ARM_MAX_VELOCITY = 2.5
+ARM_MAX_VELOCITY = 1.0
 GRIPPER_FORCE = 160
-GRIPPER_HOLD_FORCE = 320
-GRIPPER_HOLD_FORCE_MAX = 520
-HOLD_TIGHTEN_STEP = 0.0018
+GRIPPER_HOLD_FORCE = 500
+GRIPPER_HOLD_FORCE_MAX = 900
+RUBBER_PAD_LATERAL_FRICTION = 4.5
+RUBBER_PAD_ROLLING_FRICTION = 0.08
+RUBBER_PAD_SPINNING_FRICTION = 0.08
+RUBBER_PAD_CONTACT_STIFFNESS = 60000
+RUBBER_PAD_CONTACT_DAMPING = 1800
+HOLD_TIGHTEN_STEP = 0.003
 HOLD_SLIP_DISTANCE_MARGIN = 0.05
 SIM_TIMESTEP = 1.0 / 240.0
-PLAYBACK_SLEEP = SIM_TIMESTEP / 3.0
 NO_CONSTRAINT_CLOSE_STEPS = 220
 NO_CONSTRAINT_MIN_LIFT_GAIN = 0.02
 
@@ -163,15 +192,29 @@ def _step_simulation(steps: int, hold_companion: "PandaController | None" = None
         if hold_companion is not None:
             hold_companion._tick_gripper_hold()
         p.stepSimulation()
-        time.sleep(PLAYBACK_SLEEP)
+        time.sleep(SIM_TIMESTEP)
 
 
-def load_panda(base_position, use_fixed_base: bool = True) -> int:
+def _opening_to_joint_target(opening_width: float) -> float:
+    """Map desired inner-finger opening width to one prismatic finger joint."""
+    opening = _clamp(opening_width, 0.0, ROBOTIQ_2F140_MAX_OPENING)
+    return (opening + ROBOTIQ_2F140_BOX_FINGER_THICKNESS) / 2.0
+
+
+def _joint_target_to_opening(joint_target: float) -> float:
+    return max(0.0, 2.0 * float(joint_target) - ROBOTIQ_2F140_BOX_FINGER_THICKNESS)
+
+
+def load_robot(base_position, use_fixed_base: bool = True) -> int:
     return p.loadURDF(
-        "franka_panda/panda.urdf",
+        ROBOT_URDF,
         useFixedBase=use_fixed_base,
         basePosition=base_position,
     )
+
+
+def load_panda(base_position, use_fixed_base: bool = True) -> int:
+    return load_robot(base_position=base_position, use_fixed_base=use_fixed_base)
 
 
 def reset_to_home(panda_id, steps=800):
@@ -217,12 +260,13 @@ def move_end_effector_to(panda_id, position, orientation=None, steps=1000):
 
 
 def open_gripper(panda_id: int, steps: int = 100):
+    target = _opening_to_joint_target(ROBOTIQ_2F140_MAX_OPENING)
     for finger_joint in GRIPPER_JOINT_INDICES:
         p.setJointMotorControl2(
             panda_id,
             finger_joint,
             p.POSITION_CONTROL,
-            targetPosition=0.04,
+            targetPosition=target,
             force=GRIPPER_FORCE,
         )
     _step_simulation(steps)
@@ -276,12 +320,14 @@ def select_top_grasp_candidate(inference_result: dict) -> dict | None:
     }
 
 
-class PandaController:
+class Robotiq2F140Controller:
     def __init__(self, name: str, base_position, use_fixed_base: bool = True):
         self.name = name
         self.base_position = list(base_position)
         self.use_fixed_base = use_fixed_base
         self.panda_id = None
+        self.gripper_id = None
+        self.gripper_constraint_id = None
         self.last_target_position = None
         self.last_target_orientation = None
         self.last_affordance_hint = None
@@ -299,19 +345,74 @@ class PandaController:
 
     def _ensure_loaded(self) -> None:
         if self.panda_id is None:
-            raise RuntimeError(f"[{self.name}] panda is not loaded yet.")
+            raise RuntimeError(f"[{self.name}] robot is not loaded yet.")
 
-    def load_panda(self):
-        self.panda_id = load_panda(
+    def load_robot(self):
+        self.panda_id = load_robot(
             base_position=self.base_position,
             use_fixed_base=self.use_fixed_base,
         )
+        self._hide_builtin_panda_hand()
+        self._load_and_attach_robotiq_gripper()
         self.configure_gripper_contact_dynamics()
         return self.panda_id
+
+    def load_panda(self):
+        return self.load_robot()
 
     def reset_to_home(self, steps=800):
         self._ensure_loaded()
         reset_to_home(self.panda_id, steps=steps)
+
+    def _hide_builtin_panda_hand(self) -> None:
+        for link_idx in PANDA_HAND_LINK_INDICES:
+            try:
+                p.changeVisualShape(self.panda_id, link_idx, rgbaColor=[1, 1, 1, 0])
+                p.setCollisionFilterGroupMask(self.panda_id, link_idx, 0, 0)
+            except Exception:
+                pass
+
+    def _load_and_attach_robotiq_gripper(self) -> None:
+        if not os.path.isfile(ROBOTIQ_GRIPPER_URDF):
+            raise FileNotFoundError(f"Missing Robotiq surrogate URDF: {ROBOTIQ_GRIPPER_URDF}")
+
+        ee_pos, ee_orn = self.get_end_effector_pose()
+        self.gripper_id = p.loadURDF(
+            ROBOTIQ_GRIPPER_URDF,
+            basePosition=ee_pos.tolist(),
+            baseOrientation=ee_orn.tolist(),
+            useFixedBase=False,
+        )
+        self.gripper_constraint_id = p.createConstraint(
+            parentBodyUniqueId=self.panda_id,
+            parentLinkIndex=END_EFFECTOR_INDEX,
+            childBodyUniqueId=self.gripper_id,
+            childLinkIndex=-1,
+            jointType=p.JOINT_FIXED,
+            jointAxis=[0, 0, 0],
+            parentFramePosition=[0, 0, -0.1],
+            childFramePosition=[0, 0, 0],
+            parentFrameOrientation=[0, 0, 0, 1],
+            childFrameOrientation=[0, 0, 0, 1],
+        )
+        p.changeConstraint(self.gripper_constraint_id, maxForce=10000)
+        self._disable_arm_gripper_self_collision()
+
+    def _disable_arm_gripper_self_collision(self) -> None:
+        if self.gripper_id is None:
+            return
+        for panda_link in range(-1, p.getNumJoints(self.panda_id)):
+            for gripper_link in range(-1, p.getNumJoints(self.gripper_id)):
+                try:
+                    p.setCollisionFilterPair(
+                        self.panda_id,
+                        self.gripper_id,
+                        panda_link,
+                        gripper_link,
+                        enableCollision=0,
+                    )
+                except Exception:
+                    pass
 
     def move_end_effector_to(self, position, orientation=None, steps=1000, hold_companion: "PandaController | None" = None):
         self._ensure_loaded()
@@ -352,18 +453,28 @@ class PandaController:
             if hold_companion is not None:
                 hold_companion._tick_gripper_hold()
             p.stepSimulation()
-            time.sleep(PLAYBACK_SLEEP)
+            time.sleep(SIM_TIMESTEP)
 
     def open_gripper(self, steps: int = 100):
         self._ensure_loaded()
         self._clear_hold_control()
-        open_gripper(self.panda_id, steps=steps)
+        self._set_gripper_target(
+            target_position=GRIPPER_MAX_TARGET,
+            force=GRIPPER_FORCE,
+            max_velocity=0.25,
+        )
+        _step_simulation(steps)
 
     def close_gripper(self, steps: int = 100):
         self._ensure_loaded()
         self._active_gripper_hold_target = 0.0
         self._active_gripper_hold_force = self._active_grasp_profile["gripper_force"]
-        close_gripper(self.panda_id, steps=steps)
+        self._set_gripper_target(
+            target_position=GRIPPER_MIN_TARGET,
+            force=self._active_gripper_hold_force,
+            max_velocity=0.25,
+        )
+        _step_simulation(steps)
 
     def set_affordance_hint(self, inference_result: dict) -> dict | None:
         """
@@ -525,34 +636,79 @@ class PandaController:
         euler = p.getEulerFromQuaternion(orientation)
         return float(euler[0]), float(euler[1])
 
-    def _estimate_object_inplane_angle(self, body_id: int) -> float:
-        """
-        Estimate object in-plane (world Z) yaw.
-        AABB 긴 축 기준으로 gripper 오픈축이 긴 축과 수직이 되게 yaw를 반환한다.
-        Panda 매핑상 yaw=0이면 오픈축이 +Y, yaw=90deg이면 오픈축이 +X이므로:
-        - AABB x_long -> yaw=0deg
-        - AABB y_long -> yaw=90deg
-        near-square 물체는 pose yaw를 사용한다.
-        """
+    def _estimate_planar_grasp_geometry(self, body_id: int) -> dict:
+        """Estimate top-view major axis and the gripped width of an object."""
+        aabb_min, aabb_max = p.getAABB(body_id)
+        dx = max(1e-4, float(aabb_max[0] - aabb_min[0]))
+        dy = max(1e-4, float(aabb_max[1] - aabb_min[1]))
+        _, body_orn = p.getBasePositionAndOrientation(body_id)
+        pose_yaw = float(p.getEulerFromQuaternion(body_orn)[2])
+
+        geometry = {
+            "grasp_yaw": pose_yaw,
+            "grasp_width": min(dx, dy),
+            "long_extent": max(dx, dy),
+            "aspect_ratio": max(dx, dy) / min(dx, dy),
+            "source": "aabb",
+        }
+        if dx > dy * 1.12:
+            geometry["grasp_yaw"] = 0.0
+        elif dy > dx * 1.12:
+            geometry["grasp_yaw"] = np.pi / 2.0
+
         try:
-            _, body_orn = p.getBasePositionAndOrientation(body_id)
-            pose_yaw = float(p.getEulerFromQuaternion(body_orn)[2])
+            mesh_data = p.getMeshData(
+                body_id,
+                -1,
+                flags=p.MESH_DATA_SIMULATION_MESH,
+            )
+            local_vertices = mesh_data[1] if mesh_data and len(mesh_data) > 1 else []
+            if len(local_vertices) < 3:
+                return geometry
 
-            aabb_min, aabb_max = p.getAABB(body_id)
-            dx = float(aabb_max[0] - aabb_min[0])
-            dy = float(aabb_max[1] - aabb_min[1])
+            body_pos, body_orn = p.getBasePositionAndOrientation(body_id)
+            world_xy = []
+            for vertex in local_vertices:
+                world_pos, _ = p.multiplyTransforms(
+                    body_pos,
+                    body_orn,
+                    vertex,
+                    [0.0, 0.0, 0.0, 1.0],
+                )
+                world_xy.append([float(world_pos[0]), float(world_pos[1])])
+            points = np.asarray(world_xy, dtype=float)
+            centered = points - np.mean(points, axis=0)
+            covariance = np.cov(centered, rowvar=False)
+            eigenvalues, eigenvectors = np.linalg.eigh(covariance)
+            long_axis = eigenvectors[:, int(np.argmax(eigenvalues))]
+            short_axis = np.array([-long_axis[1], long_axis[0]], dtype=float)
+            along_long = centered @ long_axis
+            along_short = centered @ short_axis
+            long_extent = max(1e-4, float(np.ptp(along_long)))
+            short_extent = max(1e-4, float(np.ptp(along_short)))
+            if short_extent > long_extent:
+                long_axis, short_axis = short_axis, long_axis
+                long_extent, short_extent = short_extent, long_extent
 
-            # 긴 축에 수직 방향으로 gripper 오픈축 정렬
-            if dx > dy * 1.2:
-                # x_long -> yaw=0 (finger opening axis aligns +Y)
-                grasp_yaw = 0.0
-            elif dy > dx * 1.2:
-                # y_long -> yaw=90deg (finger opening axis aligns +X)
-                grasp_yaw = np.pi / 2.0
+            aspect_ratio = long_extent / short_extent
+            if aspect_ratio > 1.08:
+                grasp_yaw = float(np.arctan2(long_axis[1], long_axis[0]))
             else:
                 grasp_yaw = pose_yaw
+            return {
+                "grasp_yaw": _normalize_angle_rad(grasp_yaw),
+                "grasp_width": short_extent,
+                "long_extent": long_extent,
+                "aspect_ratio": aspect_ratio,
+                "source": "collision_mesh_pca",
+            }
+        except Exception:
+            return geometry
 
-            return _normalize_angle_rad(grasp_yaw)
+    def _estimate_object_inplane_angle(self, body_id: int) -> float:
+        """Return wrist yaw whose finger opening axis crosses the short axis."""
+        try:
+            return float(self._estimate_planar_grasp_geometry(body_id)["grasp_yaw"])
         except Exception:
             return 0.0
 
@@ -561,8 +717,7 @@ class PandaController:
         object_angle: float,
         orientation_hint,
     ) -> list[float]:
-        # Always prioritize AABB-axis rule first:
-        # gripper opening axis must stay perpendicular to AABB long axis.
+        # Prioritize measured object geometry before optional vision yaw hints.
         base = [
             object_angle,
             object_angle + np.pi,
@@ -608,9 +763,8 @@ class PandaController:
         size_y = max(1e-4, float(aabb_max[1] - aabb_min[1]))
         span_xy = max(size_x, size_y)
 
-        # R1 world_pos가 있으면 항상 R1 예측값을 그대로 사용한다.
-        # (이전에는 AABB 중심과의 차이가 크면 AABB 중심으로 강제 보정했으나,
-        #  이는 시뮬레이션 좌표로 비전 예측을 덮어쓰는 셈이라 의미가 없어 제거함.)
+        # R1 world_pos가 있으면 grasp seed를 R1 기준으로 사용 (AABB 강제 보정 제거)
+        # AABB fallback은 r1_world_pos=None일 때만 발동
         if r1_world_pos is not None:
             r1_xy = np.array([float(r1_world_pos[0]), float(r1_world_pos[1])], dtype=float)
             base_xy = r1_xy
@@ -623,8 +777,7 @@ class PandaController:
         size_z = max(1e-4, top_z - bottom_z)
         # approach 기준점: top_z 바로 위
         # 실제 contact z는 _descend_until_precontact가 contact 감지로 결정
-        FINGER_TIP_OFFSET = 0.058
-        nominal_grasp_z = top_z + FINGER_TIP_OFFSET + grasp_clearance
+        nominal_grasp_z = top_z + GRIPPER_FINGER_TIP_OFFSET + grasp_clearance
         target_grasp_z = nominal_grasp_z
         if r1_world_pos is not None and len(r1_world_pos) >= 3:
             requested_grasp_z = float(r1_world_pos[2])
@@ -730,9 +883,15 @@ class PandaController:
         blocked = 0
         for contact in contacts:
             link_a = int(contact[3])
-            if link_a in GRIPPER_JOINT_INDICES:
+            if link_a in PANDA_HAND_LINK_INDICES:
                 continue
             blocked += 1
+        if self.gripper_id is not None:
+            for contact in p.getContactPoints(bodyA=self.gripper_id, bodyB=body_id):
+                link_a = int(contact[3])
+                if link_a in ROBOTIQ_GRIPPER_CONTACT_LINK_INDICES:
+                    continue
+                blocked += 1
         return blocked
 
     def _compute_nonfinger_min_distance(
@@ -743,7 +902,7 @@ class PandaController:
         min_distance = float(max_distance)
         num_links = p.getNumJoints(self.panda_id)
         for link_idx in range(-1, num_links):
-            if link_idx in GRIPPER_JOINT_INDICES:
+            if link_idx in PANDA_HAND_LINK_INDICES:
                 continue
             points = p.getClosestPoints(
                 bodyA=self.panda_id,
@@ -753,6 +912,19 @@ class PandaController:
             )
             for pt in points:
                 min_distance = min(min_distance, float(pt[8]))
+        if self.gripper_id is not None:
+            num_gripper_links = p.getNumJoints(self.gripper_id)
+            for link_idx in range(-1, num_gripper_links):
+                if link_idx in ROBOTIQ_GRIPPER_CONTACT_LINK_INDICES:
+                    continue
+                points = p.getClosestPoints(
+                    bodyA=self.gripper_id,
+                    bodyB=body_id,
+                    distance=max_distance,
+                    linkIndexA=link_idx,
+                )
+                for pt in points:
+                    min_distance = min(min_distance, float(pt[8]))
         return float(min_distance)
 
     def _evaluate_grasp_candidate_collision(self, body_id: int, candidate: dict) -> dict:
@@ -799,8 +971,10 @@ class PandaController:
             xy_offset=xy_offset,
             r1_world_pos=r1_world_pos,
         )
-        # Use AABB-derived axis guidance as primary yaw seed even when R1 hint exists.
-        object_angle = self._estimate_object_inplane_angle(body_id=body_id)
+        geometry = self._estimate_planar_grasp_geometry(body_id=body_id)
+        object_angle = float(geometry["grasp_yaw"])
+        grasp_frame["grasp_width"] = float(geometry["grasp_width"])
+        grasp_frame["geometry_source"] = str(geometry["source"])
         hinted_yaw = None
         if orientation_hint is not None:
             hinted_yaw = float(p.getEulerFromQuaternion(orientation_hint)[2])
@@ -811,10 +985,14 @@ class PandaController:
         if hinted_yaw is not None:
             print(
                 f"[{self.name}] seed grasp angle={np.degrees(object_angle):.1f} deg "
-                f"(aabb), r1_hint_yaw={np.degrees(hinted_yaw):.1f} deg"
+                f"({geometry['source']}, width={geometry['grasp_width']:.4f}m), "
+                f"r1_hint_yaw={np.degrees(hinted_yaw):.1f} deg"
             )
         else:
-            print(f"[{self.name}] seed grasp angle={np.degrees(object_angle):.1f} deg")
+            print(
+                f"[{self.name}] seed grasp angle={np.degrees(object_angle):.1f} deg "
+                f"({geometry['source']}, width={geometry['grasp_width']:.4f}m)"
+            )
 
         best = None
         best_rank = None
@@ -877,20 +1055,26 @@ class PandaController:
 
     def configure_gripper_contact_dynamics(
         self,
-        lateral_friction: float = 1.6,
-        rolling_friction: float = 0.003,
-        spinning_friction: float = 0.003,
+        lateral_friction: float = RUBBER_PAD_LATERAL_FRICTION,
+        rolling_friction: float = RUBBER_PAD_ROLLING_FRICTION,
+        spinning_friction: float = RUBBER_PAD_SPINNING_FRICTION,
         restitution: float = 0.0,
+        contact_stiffness: float = RUBBER_PAD_CONTACT_STIFFNESS,
+        contact_damping: float = RUBBER_PAD_CONTACT_DAMPING,
     ) -> None:
         self._ensure_loaded()
-        for finger_joint in GRIPPER_JOINT_INDICES:
+        if self.gripper_id is None:
+            return
+        for finger_link in ROBOTIQ_GRIPPER_CONTACT_LINK_INDICES:
             p.changeDynamics(
-                self.panda_id,
-                finger_joint,
+                self.gripper_id,
+                finger_link,
                 lateralFriction=lateral_friction,
                 rollingFriction=rolling_friction,
                 spinningFriction=spinning_friction,
                 restitution=restitution,
+                contactStiffness=contact_stiffness,
+                contactDamping=contact_damping,
             )
 
     def _set_gripper_target(
@@ -899,9 +1083,11 @@ class PandaController:
         force: float,
         max_velocity: float = 0.25,
     ) -> None:
-        for finger_joint in GRIPPER_JOINT_INDICES:
+        if self.gripper_id is None:
+            return
+        for finger_joint in ROBOTIQ_GRIPPER_JOINT_INDICES:
             p.setJointMotorControl2(
-                self.panda_id,
+                self.gripper_id,
                 finger_joint,
                 p.POSITION_CONTROL,
                 targetPosition=target_position,
@@ -945,7 +1131,7 @@ class PandaController:
             if hold_companion is not None:
                 hold_companion._tick_gripper_hold()
             p.stepSimulation()
-            time.sleep(PLAYBACK_SLEEP)
+            time.sleep(SIM_TIMESTEP)
 
     def _update_grasp_hold_feedback(self) -> None:
         """
@@ -990,25 +1176,27 @@ class PandaController:
         )
 
     def _finger_contact_summary(self, body_id: int) -> dict:
+        if self.gripper_id is None:
+            return {"left": 0, "right": 0, "hand": 0, "total": 0}
         left = len(
             p.getContactPoints(
-                bodyA=self.panda_id,
+                bodyA=self.gripper_id,
                 bodyB=body_id,
-                linkIndexA=GRIPPER_JOINT_INDICES[0],
+                linkIndexA=ROBOTIQ_GRIPPER_CONTACT_LINK_INDICES[0],
             )
         )
         right = len(
             p.getContactPoints(
-                bodyA=self.panda_id,
+                bodyA=self.gripper_id,
                 bodyB=body_id,
-                linkIndexA=GRIPPER_JOINT_INDICES[1],
+                linkIndexA=ROBOTIQ_GRIPPER_CONTACT_LINK_INDICES[1],
             )
         )
         hand = len(
             p.getContactPoints(
-                bodyA=self.panda_id,
+                bodyA=self.gripper_id,
                 bodyB=body_id,
-                linkIndexA=END_EFFECTOR_INDEX,
+                linkIndexA=-1,
             )
         )
         return {
@@ -1024,8 +1212,8 @@ class PandaController:
     def _close_until_contact(
         self,
         body_id: int,
-        start_open: float = 0.04,
-        end_closed: float = 0.0,
+        start_open: float = GRIPPER_MAX_TARGET,
+        end_closed: float = GRIPPER_MIN_TARGET,
         steps: int | None = None,
         close_force: float | None = None,
         hold_companion: "PandaController | None" = None,
@@ -1140,27 +1328,28 @@ class PandaController:
         start_obj_pos = np.array(p.getBasePositionAndOrientation(body_id)[0])
         self._last_grasp_failure = None
 
-        # 물체 AABB 기반으로 gripper open width를 물체 크기에 맞게 조정.
-        # 기본 0.04(=8cm total)는 globalScaling=0.1 물체에 비해 너무 커서
-        # 손가락 사이로 빠짐. 물체 최대 폭의 절반 + 여유 0.005m로 제한.
+        # Set opening from the same width axis used for wrist yaw selection.
         try:
-            _aabb_min, _aabb_max = p.getAABB(body_id)
-            # 물체의 짧은 방향(폭)으로 잡아야 접촉이 잘 됨
-            # max(긴 방향) 대신 min(짧은 방향) 사용
-            _obj_width = min(
-                float(_aabb_max[0] - _aabb_min[0]),
-                float(_aabb_max[1] - _aabb_min[1]),
+            _geometry = self._estimate_planar_grasp_geometry(body_id)
+            _obj_width = float(_geometry["grasp_width"])
+            desired_opening = _clamp(
+                _obj_width + 0.014,
+                0.025,
+                ROBOTIQ_2F140_MAX_OPENING,
             )
-            _finger_open = _clamp(_obj_width / 2.0 + 0.012, 0.015, 0.04)
+            _finger_open = _opening_to_joint_target(desired_opening)
+            print(
+                f"[{self.name}] dynamic Robotiq 2F-140 opening={desired_opening:.4f}m "
+                f"(surrogate_joint={_finger_open:.4f}) "
+                f"for object width={_obj_width:.4f}m ({_geometry['source']})"
+            )
         except Exception:
-            _finger_open = 0.04
-        for _fj in GRIPPER_JOINT_INDICES:
-            p.setJointMotorControl2(
-                self.panda_id, _fj,
-                p.POSITION_CONTROL,
-                targetPosition=_finger_open,
-                force=GRIPPER_FORCE,
-            )
+            _finger_open = GRIPPER_MAX_TARGET
+        self._set_gripper_target(
+            target_position=_finger_open,
+            force=GRIPPER_FORCE,
+            max_velocity=0.25,
+        )
         _step_simulation(90)
         candidate = self._select_grasp_candidate(
             body_id=body_id,
@@ -1225,7 +1414,7 @@ class PandaController:
             self._clear_hold_control()
             return False
 
-        hold_target = max(0.0, hold_target - 0.003)
+        hold_target = max(0.0, hold_target - 0.007)
         self._enable_hold_control(
             body_id=body_id,
             hold_target=hold_target,
@@ -1400,3 +1589,6 @@ class PandaController:
                     hold_companion=hold_companion,
                 )
         return False
+
+
+PandaController = Robotiq2F140Controller
