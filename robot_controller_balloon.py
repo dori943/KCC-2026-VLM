@@ -9,6 +9,7 @@ Notes:
   https://huggingface.co/hqking/affordance-r1
 """
 
+import os
 import time
 import numpy as np
 import pybullet as p
@@ -16,17 +17,28 @@ import pybullet as p
 
 ROBOT_MODEL_NAME = "Panda arm + Robotiq 2F-140 gripper"
 ROBOT_URDF = "franka_panda/panda.urdf"
+ROBOTIQ_GRIPPER_URDF = os.path.join(
+    os.path.dirname(__file__),
+    "assets",
+    "robots",
+    "robotiq_2f140_box.urdf",
+)
 
-# This repository does not ship a Robotiq 2F-140 URDF.  The PyBullet Panda
-# hand joints are kept as the controllable surrogate, while grasp planning and
-# controller targets use Robotiq 2F-140 dimensions.
+# Panda remains the arm carrier; a lightweight box-finger Robotiq 2F-140
+# surrogate is fixed to the wrist and used for gripper contacts/control.
 END_EFFECTOR_INDEX = 11
 NUM_JOINTS = 7
 GRIPPER_JOINT_INDICES = (9, 10)
 GRIPPER_CONTACT_LINK_INDICES = GRIPPER_JOINT_INDICES
+PANDA_HAND_LINK_INDICES = (8, 9, 10, 11)
+ROBOTIQ_GRIPPER_JOINT_INDICES = (0, 1)
+ROBOTIQ_GRIPPER_CONTACT_LINK_INDICES = (0, 1)
 
 ROBOTIQ_2F140_MAX_OPENING = 0.140
-ROBOTIQ_2F140_SURROGATE_FINGER_MAX = 0.040
+ROBOTIQ_2F140_BOX_FINGER_THICKNESS = 0.014
+ROBOTIQ_2F140_SURROGATE_FINGER_MAX = (
+    ROBOTIQ_2F140_MAX_OPENING + ROBOTIQ_2F140_BOX_FINGER_THICKNESS
+) / 2.0
 GRIPPER_MAX_TARGET = ROBOTIQ_2F140_SURROGATE_FINGER_MAX
 GRIPPER_MIN_TARGET = 0.0
 GRIPPER_FINGER_TIP_OFFSET = 0.085
@@ -179,14 +191,13 @@ def _step_simulation(steps: int, hold_companion: "PandaController | None" = None
 
 
 def _opening_to_joint_target(opening_width: float) -> float:
-    """Map desired Robotiq opening width to the Panda surrogate finger joint."""
-    normalized = _clamp(opening_width / ROBOTIQ_2F140_MAX_OPENING, 0.0, 1.0)
-    return normalized * ROBOTIQ_2F140_SURROGATE_FINGER_MAX
+    """Map desired inner-finger opening width to one prismatic finger joint."""
+    opening = _clamp(opening_width, 0.0, ROBOTIQ_2F140_MAX_OPENING)
+    return (opening + ROBOTIQ_2F140_BOX_FINGER_THICKNESS) / 2.0
 
 
 def _joint_target_to_opening(joint_target: float) -> float:
-    normalized = _clamp(joint_target / ROBOTIQ_2F140_SURROGATE_FINGER_MAX, 0.0, 1.0)
-    return normalized * ROBOTIQ_2F140_MAX_OPENING
+    return max(0.0, 2.0 * float(joint_target) - ROBOTIQ_2F140_BOX_FINGER_THICKNESS)
 
 
 def load_robot(base_position, use_fixed_base: bool = True) -> int:
@@ -310,6 +321,8 @@ class Robotiq2F140Controller:
         self.base_position = list(base_position)
         self.use_fixed_base = use_fixed_base
         self.panda_id = None
+        self.gripper_id = None
+        self.gripper_constraint_id = None
         self.last_target_position = None
         self.last_target_orientation = None
         self.last_affordance_hint = None
@@ -334,6 +347,8 @@ class Robotiq2F140Controller:
             base_position=self.base_position,
             use_fixed_base=self.use_fixed_base,
         )
+        self._hide_builtin_panda_hand()
+        self._load_and_attach_robotiq_gripper()
         self.configure_gripper_contact_dynamics()
         return self.panda_id
 
@@ -343,6 +358,56 @@ class Robotiq2F140Controller:
     def reset_to_home(self, steps=800):
         self._ensure_loaded()
         reset_to_home(self.panda_id, steps=steps)
+
+    def _hide_builtin_panda_hand(self) -> None:
+        for link_idx in PANDA_HAND_LINK_INDICES:
+            try:
+                p.changeVisualShape(self.panda_id, link_idx, rgbaColor=[1, 1, 1, 0])
+                p.setCollisionFilterGroupMask(self.panda_id, link_idx, 0, 0)
+            except Exception:
+                pass
+
+    def _load_and_attach_robotiq_gripper(self) -> None:
+        if not os.path.isfile(ROBOTIQ_GRIPPER_URDF):
+            raise FileNotFoundError(f"Missing Robotiq surrogate URDF: {ROBOTIQ_GRIPPER_URDF}")
+
+        ee_pos, ee_orn = self.get_end_effector_pose()
+        self.gripper_id = p.loadURDF(
+            ROBOTIQ_GRIPPER_URDF,
+            basePosition=ee_pos.tolist(),
+            baseOrientation=ee_orn.tolist(),
+            useFixedBase=False,
+        )
+        self.gripper_constraint_id = p.createConstraint(
+            parentBodyUniqueId=self.panda_id,
+            parentLinkIndex=END_EFFECTOR_INDEX,
+            childBodyUniqueId=self.gripper_id,
+            childLinkIndex=-1,
+            jointType=p.JOINT_FIXED,
+            jointAxis=[0, 0, 0],
+            parentFramePosition=[0, 0, 0],
+            childFramePosition=[0, 0, 0],
+            parentFrameOrientation=[0, 0, 0, 1],
+            childFrameOrientation=[0, 0, 0, 1],
+        )
+        p.changeConstraint(self.gripper_constraint_id, maxForce=10000)
+        self._disable_arm_gripper_self_collision()
+
+    def _disable_arm_gripper_self_collision(self) -> None:
+        if self.gripper_id is None:
+            return
+        for panda_link in range(-1, p.getNumJoints(self.panda_id)):
+            for gripper_link in range(-1, p.getNumJoints(self.gripper_id)):
+                try:
+                    p.setCollisionFilterPair(
+                        self.panda_id,
+                        self.gripper_id,
+                        panda_link,
+                        gripper_link,
+                        enableCollision=0,
+                    )
+                except Exception:
+                    pass
 
     def move_end_effector_to(self, position, orientation=None, steps=1000, hold_companion: "PandaController | None" = None):
         self._ensure_loaded()
@@ -388,13 +453,23 @@ class Robotiq2F140Controller:
     def open_gripper(self, steps: int = 100):
         self._ensure_loaded()
         self._clear_hold_control()
-        open_gripper(self.panda_id, steps=steps)
+        self._set_gripper_target(
+            target_position=GRIPPER_MAX_TARGET,
+            force=GRIPPER_FORCE,
+            max_velocity=0.25,
+        )
+        _step_simulation(steps)
 
     def close_gripper(self, steps: int = 100):
         self._ensure_loaded()
         self._active_gripper_hold_target = 0.0
         self._active_gripper_hold_force = self._active_grasp_profile["gripper_force"]
-        close_gripper(self.panda_id, steps=steps)
+        self._set_gripper_target(
+            target_position=GRIPPER_MIN_TARGET,
+            force=self._active_gripper_hold_force,
+            max_velocity=0.25,
+        )
+        _step_simulation(steps)
 
     def set_affordance_hint(self, inference_result: dict) -> dict | None:
         """
@@ -814,9 +889,15 @@ class Robotiq2F140Controller:
         blocked = 0
         for contact in contacts:
             link_a = int(contact[3])
-            if link_a in GRIPPER_CONTACT_LINK_INDICES:
+            if link_a in PANDA_HAND_LINK_INDICES:
                 continue
             blocked += 1
+        if self.gripper_id is not None:
+            for contact in p.getContactPoints(bodyA=self.gripper_id, bodyB=body_id):
+                link_a = int(contact[3])
+                if link_a in ROBOTIQ_GRIPPER_CONTACT_LINK_INDICES:
+                    continue
+                blocked += 1
         return blocked
 
     def _compute_nonfinger_min_distance(
@@ -827,7 +908,7 @@ class Robotiq2F140Controller:
         min_distance = float(max_distance)
         num_links = p.getNumJoints(self.panda_id)
         for link_idx in range(-1, num_links):
-            if link_idx in GRIPPER_CONTACT_LINK_INDICES:
+            if link_idx in PANDA_HAND_LINK_INDICES:
                 continue
             points = p.getClosestPoints(
                 bodyA=self.panda_id,
@@ -837,6 +918,19 @@ class Robotiq2F140Controller:
             )
             for pt in points:
                 min_distance = min(min_distance, float(pt[8]))
+        if self.gripper_id is not None:
+            num_gripper_links = p.getNumJoints(self.gripper_id)
+            for link_idx in range(-1, num_gripper_links):
+                if link_idx in ROBOTIQ_GRIPPER_CONTACT_LINK_INDICES:
+                    continue
+                points = p.getClosestPoints(
+                    bodyA=self.gripper_id,
+                    bodyB=body_id,
+                    distance=max_distance,
+                    linkIndexA=link_idx,
+                )
+                for pt in points:
+                    min_distance = min(min_distance, float(pt[8]))
         return float(min_distance)
 
     def _evaluate_grasp_candidate_collision(self, body_id: int, candidate: dict) -> dict:
@@ -973,10 +1067,12 @@ class Robotiq2F140Controller:
         restitution: float = 0.0,
     ) -> None:
         self._ensure_loaded()
-        for finger_joint in GRIPPER_JOINT_INDICES:
+        if self.gripper_id is None:
+            return
+        for finger_link in ROBOTIQ_GRIPPER_CONTACT_LINK_INDICES:
             p.changeDynamics(
-                self.panda_id,
-                finger_joint,
+                self.gripper_id,
+                finger_link,
                 lateralFriction=lateral_friction,
                 rollingFriction=rolling_friction,
                 spinningFriction=spinning_friction,
@@ -989,9 +1085,11 @@ class Robotiq2F140Controller:
         force: float,
         max_velocity: float = 0.25,
     ) -> None:
-        for finger_joint in GRIPPER_JOINT_INDICES:
+        if self.gripper_id is None:
+            return
+        for finger_joint in ROBOTIQ_GRIPPER_JOINT_INDICES:
             p.setJointMotorControl2(
-                self.panda_id,
+                self.gripper_id,
                 finger_joint,
                 p.POSITION_CONTROL,
                 targetPosition=target_position,
@@ -1080,25 +1178,27 @@ class Robotiq2F140Controller:
         )
 
     def _finger_contact_summary(self, body_id: int) -> dict:
+        if self.gripper_id is None:
+            return {"left": 0, "right": 0, "hand": 0, "total": 0}
         left = len(
             p.getContactPoints(
-                bodyA=self.panda_id,
+                bodyA=self.gripper_id,
                 bodyB=body_id,
-                linkIndexA=GRIPPER_JOINT_INDICES[0],
+                linkIndexA=ROBOTIQ_GRIPPER_CONTACT_LINK_INDICES[0],
             )
         )
         right = len(
             p.getContactPoints(
-                bodyA=self.panda_id,
+                bodyA=self.gripper_id,
                 bodyB=body_id,
-                linkIndexA=GRIPPER_JOINT_INDICES[1],
+                linkIndexA=ROBOTIQ_GRIPPER_CONTACT_LINK_INDICES[1],
             )
         )
         hand = len(
             p.getContactPoints(
-                bodyA=self.panda_id,
+                bodyA=self.gripper_id,
                 bodyB=body_id,
-                linkIndexA=END_EFFECTOR_INDEX,
+                linkIndexA=-1,
             )
         )
         return {
@@ -1247,13 +1347,11 @@ class Robotiq2F140Controller:
             )
         except Exception:
             _finger_open = GRIPPER_MAX_TARGET
-        for _fj in GRIPPER_JOINT_INDICES:
-            p.setJointMotorControl2(
-                self.panda_id, _fj,
-                p.POSITION_CONTROL,
-                targetPosition=_finger_open,
-                force=GRIPPER_FORCE,
-            )
+        self._set_gripper_target(
+            target_position=_finger_open,
+            force=GRIPPER_FORCE,
+            max_velocity=0.25,
+        )
         _step_simulation(90)
         candidate = self._select_grasp_candidate(
             body_id=body_id,
