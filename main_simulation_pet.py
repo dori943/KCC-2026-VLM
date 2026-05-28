@@ -17,7 +17,7 @@ import numpy as np
 import pybullet as p
 import pybullet_data
 
-from robot_controller_3 import PandaController, render_camera
+from robot_controller_balloon import PandaController, render_camera
 from assembly_manager import AssemblyManager
 
 
