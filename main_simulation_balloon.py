@@ -475,7 +475,7 @@ def summarize_applied_dynamics(applied: dict) -> dict:
 
 
 def configure_simulation() -> None:
-    p.connect(p.GUI)
+    p.connect(p.DIRECT)
     p.resetDebugVisualizerCamera(
         cameraDistance=1.0,
         cameraYaw=45,
@@ -2134,7 +2134,7 @@ def run_sequential_demo(
                 print(f"[Demo][WARN] removing world pin failed: {exc}")
  
         if not _plan_loaded:
-            # ?? fallback: ?꾩옱 ?ㅼ젣 ?꾩튂 湲곕컲 吏곸젒 attach ??????????????????
+            
             main_orn_inv = p.invertTransform([0, 0, 0], list(main_orn))[1]
             contact_offset, _ = p.multiplyTransforms(
                 [0, 0, 0], main_orn_inv,
@@ -2156,7 +2156,7 @@ def run_sequential_demo(
             else:
                 print("[Demo][WARN] fallback assembly also failed.")
  
-        # ?덉젙??
+        
         for _ in range(DEMO_HOLD_STEPS):
             left._tick_gripper_hold()
             right._tick_gripper_hold()
@@ -2166,9 +2166,6 @@ def run_sequential_demo(
     else:
         print("[Demo][WARN] skipping assembly (one or both grasps failed).")
  
-    # ?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧
-    # Step 4. 寃고빀泥??대젮?볤린 & release
-    # ?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧
     if left_ok:
         left.move_end_effector_to(
             PLACE_POS, orientation=down_orn, steps=400,
@@ -2176,7 +2173,6 @@ def run_sequential_demo(
         )
         left.maintain_grasp_hold(steps=60)
  
-    # (carry_constraint ?놁쓬 ??gripper force ?좎?濡??대룞)
  
     if left_ok:
         left.release_grasp(open_after=True, steps=120)
@@ -2189,8 +2185,6 @@ def run_sequential_demo(
         right.maintain_grasp_hold(steps=60)
         right.release_grasp(open_after=True, steps=120)
  
-    # assembly constraint??release ?꾩뿉????臾쇱껜媛 遺숈뼱?덇쾶 ?좎?
-    # 遺꾨━?섎젮硫? p.removeConstraint(assembly_constraint)
  
     print("[Demo] return to home")
     left.reset_to_home(steps=600)

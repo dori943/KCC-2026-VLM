@@ -1,0 +1,266 @@
+{
+  "assembly_strategy": {
+    "base_object": "spatula",
+    "strategy_summary": "spatula\ub97c base\ub85c \ud558\uc5ec \ubb3c\uccb4\ub97c \uac78\uc5b4 \ud68c\uc218\ud558\uace0, gelatin_box\ub97c \uc548\uc815\ud654 \uc9c0\uc9c0\ub300\ub85c \uc0ac\uc6a9\ud558\uc5ec \uc548\uc815\uc131\uc744 \ub192\uc778\ub2e4.",
+    "sequence_reason": "spatula\ub294 \ubb3c\uccb4\ub97c \uac78 \uc218 \uc788\ub294 \uae30\ub2a5\ub2e8\uc744 \uc81c\uacf5\ud558\ubbc0\ub85c primary_executor\ub85c \uc0ac\uc6a9\ud558\uba70, gelatin_box\ub294 \uc548\uc815\uc801\uc778 \uc9c0\uc9c0\ub300\ub97c \uc81c\uacf5\ud558\uc5ec \uc804\uccb4 \uad6c\uc870\uc758 \uc548\uc815\uc131\uc744 \ub192\uc778\ub2e4.",
+    "filter_result_reflection": "filter_result\uc5d0\uc11c spatula\uc758 \uae38\uc774\uac00 \ucda9\ubd84\ud558\uc9c0 \uc54a\ub2e4\ub294 \uc57d\uc810\uc774 \uc9c0\uc801\ub418\uc5c8\uc73c\ubbc0\ub85c, \ucd94\uac00\uc801\uc778 \uc5f0\uc7a5 \ub3c4\uad6c\ub97c \uc0ac\uc6a9\ud558\uc5ec reach\ub97c \ud655\uc7a5\ud560 \ud544\uc694\uac00 \uc788\ub2e4."
+  },
+  "assembly_steps": [
+    {
+      "step": 1,
+      "partial_assembly_state_before": [],
+      "base_object": "spatula",
+      "attach_object": null,
+      "attach_region_base": "mid_body",
+      "attach_region_object": null,
+      "relative_offset_from_base": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "target_pose_world": {
+        "position": [
+          0.7176,
+          0.082,
+          0.6625
+        ],
+        "orientation_rpy_deg": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "joint_position_world": {
+        "position": [
+          0.7176,
+          0.082,
+          0.6625
+        ],
+        "calculation_basis": "[deterministic] step_1_standalone, joint=base.center | llm_proposed=[0.7176, 0.082, 0.6625] | llm_basis=AABB \uc218\uce58: center_world=(0.7176, 0.082, 0.6625), attach_region_base=mid_body || orientation=disabled (rpy_deg=[0,0,0])",
+        "description": "Code-computed contact point (region+role aware). PyBullet constraint here."
+      },
+      "contact_type": "surface",
+      "expected_function_after_step": "spatula\uac00 \ubb3c\uccb4\ub97c \uac78 \uc218 \uc788\ub294 \uc900\ube44 \uc0c1\ud0dc\uac00 \ub41c\ub2e4.",
+      "reason": "spatula\ub294 \ubb3c\uccb4\ub97c \uac78 \uc218 \uc788\ub294 \uae30\ub2a5\ub2e8\uc744 \uc81c\uacf5\ud558\ubbc0\ub85c primary_executor\ub85c \uc0ac\uc6a9\ud55c\ub2e4.",
+      "weak_points_applied": [
+        "P5: base \uc548\uc815\uc131 \ud655\ubcf4\ub97c \uc704\ud574 \uac00\uc7a5 \ubb34\uac70\uc6b4/\ub113\uc740 \ubb3c\uccb4\ubd80\ud130 \ubc30\uce58"
+      ],
+      "base_target_pose_world": {
+        "position": [
+          0.7176,
+          0.082,
+          0.6625
+        ],
+        "orientation_rpy_deg": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "description": "\uc591\ud314 \uc870\ub9bd \ubaa8\ub378: base \uac00 meeting point \ub85c \uc774\ub3d9 \ud6c4 attach \uc640 \ub9cc\ub0a8. step 1 standalone \uc758 \uacbd\uc6b0 base \uc2dc\uc791 \uc704\uce58 \uadf8\ub300\ub85c."
+      },
+      "functional_roles": {
+        "base_role": "alignment_aid",
+        "attach_role": null
+      }
+    },
+    {
+      "step": 2,
+      "partial_assembly_state_before": [
+        "spatula"
+      ],
+      "base_object": "spatula",
+      "attach_object": "gelatin_box",
+      "attach_region_base": "rear_end",
+      "attach_region_object": "surface",
+      "relative_offset_from_base": [
+        -0.1601,
+        0.0,
+        0.0
+      ],
+      "target_pose_world": {
+        "position": [
+          0.5088,
+          0.082,
+          0.6625
+        ],
+        "orientation_rpy_deg": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "joint_position_world": {
+        "position": [
+          0.5575,
+          0.082,
+          0.6625
+        ],
+        "calculation_basis": "[deterministic] region=rear_end; base.aabb_min=[0.5595, 0.015, 0.627]; base.aabb_max=[0.8758, 0.1489, 0.698]; region_joint=[0.5595, 0.082, 0.6625]; safety_margin\u2192x-2mm | llm_proposed=[0.5595, 0.082, 0.6625] | llm_basis=spatula rear_end AABB, gelatin_box surface contact, no shift || orientation=disabled (rpy_deg=[0,0,0])",
+        "description": "Code-computed contact point (region+role aware). PyBullet constraint here."
+      },
+      "contact_type": "surface",
+      "expected_function_after_step": "gelatin_box\uac00 \uc548\uc815\uc801\uc778 \uc9c0\uc9c0\ub300\ub97c \uc81c\uacf5\ud558\uc5ec \uc804\uccb4 \uad6c\uc870\uc758 \uc548\uc815\uc131\uc744 \ub192\uc778\ub2e4.",
+      "reason": "gelatin_box\ub294 \ub113\uc740 \uba74\uc744 \uc774\uc6a9\ud558\uc5ec \uc548\uc815\uc801\uc778 \uc9c0\uc9c0\ub300\ub97c \uc81c\uacf5\ud558\ubbc0\ub85c, spatula\uc758 \uc548\uc815\uc131\uc744 \ub192\uc774\uae30 \uc704\ud574 \uc0ac\uc6a9\ud55c\ub2e4.",
+      "weak_points_applied": [
+        "G6: spatula\uc758 \uae38\uc774\uac00 min_effective_reach\ub97c \ucda9\uc871\ud558\uc9c0 \ubabb\ud558\uc5ec \uc811\uadfc \uac70\ub9ac\uac00 \ubd80\uc871\ud568."
+      ],
+      "base_target_pose_world": {
+        "position": [
+          0.7156,
+          0.082,
+          0.6625
+        ],
+        "orientation_rpy_deg": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "description": "\uc591\ud314 \uc870\ub9bd \ubaa8\ub378: base \uac00 meeting point \ub85c \uc774\ub3d9 \ud6c4 attach \uc640 \ub9cc\ub0a8. step 1 standalone \uc758 \uacbd\uc6b0 base \uc2dc\uc791 \uc704\uce58 \uadf8\ub300\ub85c."
+      },
+      "functional_roles": {
+        "base_role": "alignment_aid",
+        "attach_role": "alignment_aid"
+      }
+    }
+  ],
+  "final_structure": {
+    "description": "gelatin_box\ub97c \uc548\uc815\ud654 \uc9c0\uc9c0\ub300\ub85c \uc0ac\uc6a9\ud558\uace0 spatula\ub97c \uac78\uc1e0\ub85c \uc0ac\uc6a9\ud558\uc5ec \ubb3c\uccb4\ub97c \uac78\uc5b4 \ud68c\uc218.",
+    "functional_end": "edge",
+    "handle_end": "spatula"
+  },
+  "verification": {
+    "is_valid": false,
+    "checks": [
+      {
+        "item": "alignment",
+        "result": "pass",
+        "reason": "spatula\uc640 gelatin_box\uac00 \uc62c\ubc14\ub974\uac8c \uc815\ub82c\ub418\uc5b4 \uc548\uc815\uc131\uc744 \uc81c\uacf5\ud568."
+      },
+      {
+        "item": "collision",
+        "result": "pass",
+        "reason": "\ucf54\ub4dc \uac80\uc99d \uacb0\uacfc \ucda9\ub3cc \uc5c6\uc74c."
+      },
+      {
+        "item": "functional_end_exposed",
+        "result": "pass",
+        "reason": "spatula\uc758 \ub05d \ubd80\ubd84\uc774 \ubb3c\uccb4\ub97c \uac78 \uc218 \uc788\ub3c4\ub85d \ucda9\ubd84\ud788 \ub178\ucd9c\ub428."
+      },
+      {
+        "item": "handle_region_free",
+        "result": "pass",
+        "reason": "spatula\uc758 \ud30c\uc9c0 \uc601\uc5ed\uc774 \ud655\ubcf4\ub428."
+      },
+      {
+        "item": "force_transfer",
+        "result": "pass",
+        "reason": "primary_executor\uc778 spatula\uac00 \ud798\uc744 \ubb3c\uccb4\uc5d0 \uc804\ub2ec\ud560 \uc218 \uc788\uc74c."
+      },
+      {
+        "item": "weak_point_mitigation",
+        "result": "pass",
+        "reason": "assembly_steps\uc5d0\uc11c G6 \uc57d\uc810\uc774 \ubc18\uc601\ub428."
+      },
+      {
+        "item": "subgoal_support",
+        "result": "fail",
+        "reason": "subgoal sg_01\uc758 required_atoms 'hookable_gap'\uc774 \ucda9\uc871\ub418\uc9c0 \uc54a\uc74c."
+      },
+      {
+        "item": "contact_feasibility",
+        "result": "pass",
+        "reason": "\ucf54\ub4dc \uac80\uc99d \uacb0\uacfc \uc811\ucd09 \uac00\ub2a5."
+      }
+    ]
+  },
+  "feedback": {
+    "need_feedback_to_module2a": true,
+    "feedback_target": "module2a",
+    "repair_type": "global_redesign",
+    "suggested_action": "spatula\uc758 \uae38\uc774\ub97c \ub298\ub9ac\uac70\ub098 \ucd94\uac00\uc801\uc778 \ub3c4\uad6c\ub97c \uc0ac\uc6a9\ud558\uc5ec \uc811\uadfc \uac70\ub9ac\ub97c \ud655\uc7a5\ud574\uc57c \ud568.",
+    "feedback_iteration": 0,
+    "task_abandoned": false
+  },
+  "reasoning_trace": {
+    "step_A": "selected_candidate \ud574\uc11d: spatula\uc640 gelatin_box\ub97c \uc0ac\uc6a9\ud558\uc5ec \ubb3c\uccb4\ub97c \ud68c\uc218.",
+    "step_B": "filter_result \ubc18\uc601: G6 \uc57d\uc810\uc774 \uc9c0\uc801\ub418\uc5c8\uc73c\ub098, assembly_steps\uc5d0\uc11c \ubc18\uc601\ub428.",
+    "step_C": "assembly strategy: spatula\ub97c primary_executor\ub85c \uc0ac\uc6a9\ud558\uace0 gelatin_box\ub85c \uc548\uc815\uc131\uc744 \ub192\uc784.",
+    "step_D": "\uac01 step \uc88c\ud45c \uacc4\uc0b0 \uc218\uce58 \uc694\uc57d: \ubaa8\ub4e0 \ub2e8\uacc4\uc5d0\uc11c \ucf54\ub4dc \uac80\uc99d \ud1b5\uacfc.",
+    "step_E": "final_structure \uacb0\uc815 \uadfc\uac70: spatula\uc758 \ub05d \ubd80\ubd84\uc744 \ud65c\uc6a9\ud558\uc5ec \ubb3c\uccb4\ub97c \uac78\uc5b4 \ud68c\uc218.",
+    "step_F": "verification \ud310\uc815 \uadfc\uac70 (\ucf54\ub4dc \uac80\uc99d \ud3ec\ud568): subgoal sg_01\uc758 required_atoms \ubbf8\ucda9\uc871\uc73c\ub85c fail.",
+    "step_G": "feedback \uacb0\uc815 \uadfc\uac70: subgoal \ubbf8\ucda9\uc871\uc73c\ub85c global_redesign \ud544\uc694."
+  },
+  "geometric_validation_results": {
+    "strategy_attempts": [
+      {
+        "attempt": 1,
+        "planned_sequence": [
+          {
+            "step": 1,
+            "base_object": "spatula",
+            "attach_object": null,
+            "attach_region_base": "mid_body",
+            "attach_region_object": null,
+            "contact_type": "surface",
+            "expected_function_after_step": "spatula\uac00 \ubb3c\uccb4\ub97c \uac78 \uc218 \uc788\ub294 \uc900\ube44 \uc0c1\ud0dc\uac00 \ub41c\ub2e4.",
+            "reason": "spatula\ub294 \ubb3c\uccb4\ub97c \uac78 \uc218 \uc788\ub294 \uae30\ub2a5\ub2e8\uc744 \uc81c\uacf5\ud558\ubbc0\ub85c primary_executor\ub85c \uc0ac\uc6a9\ud55c\ub2e4.",
+            "weak_points_applied": []
+          },
+          {
+            "step": 2,
+            "base_object": "spatula",
+            "attach_object": "gelatin_box",
+            "attach_region_base": "rear_end",
+            "attach_region_object": "surface",
+            "contact_type": "surface",
+            "expected_function_after_step": "gelatin_box\uac00 \uc548\uc815\uc801\uc778 \uc9c0\uc9c0\ub300\ub97c \uc81c\uacf5\ud558\uc5ec \uc804\uccb4 \uad6c\uc870\uc758 \uc548\uc815\uc131\uc744 \ub192\uc778\ub2e4.",
+            "reason": "gelatin_box\ub294 \ub113\uc740 \uba74\uc744 \uc774\uc6a9\ud558\uc5ec \uc548\uc815\uc801\uc778 \uc9c0\uc9c0\ub300\ub97c \uc81c\uacf5\ud558\ubbc0\ub85c, spatula\uc758 \uc548\uc815\uc131\uc744 \ub192\uc774\uae30 \uc704\ud574 \uc0ac\uc6a9\ud55c\ub2e4.",
+            "weak_points_applied": [
+              "G6: spatula\uc758 \uae38\uc774\uac00 min_effective_reach\ub97c \ucda9\uc871\ud558\uc9c0 \ubabb\ud558\uc5ec \uc811\uadfc \uac70\ub9ac\uac00 \ubd80\uc871\ud568."
+            ]
+          }
+        ],
+        "errors": [],
+        "passed": true
+      }
+    ],
+    "strategy_unresolved": false,
+    "per_step": [
+      {
+        "step": 1,
+        "attempts": [
+          {
+            "attempt": 1,
+            "joint_position_world": [
+              0.7176,
+              0.082,
+              0.6625
+            ],
+            "errors": [],
+            "passed": true
+          }
+        ],
+        "final_passed": true,
+        "final_errors": []
+      },
+      {
+        "step": 2,
+        "attempts": [
+          {
+            "attempt": 1,
+            "joint_position_world": [
+              0.5575,
+              0.082,
+              0.6625
+            ],
+            "errors": [],
+            "passed": true
+          }
+        ],
+        "final_passed": true,
+        "final_errors": []
+      }
+    ],
+    "any_unresolved_failure": false
+  }
+}
