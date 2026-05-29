@@ -793,9 +793,15 @@ class Robotiq2F140Controller:
         if r1_world_pos is not None and len(r1_world_pos) >= 3:
             requested_grasp_z = float(r1_world_pos[2])
             # Safety clamp:
-            # keep R1 z usable but never allow deep downward targets that can drive
-            # the gripper below the table/object region.
-            z_low = nominal_grasp_z - 0.015
+            # For THIN objects, anchor the lower bound to the object BOTTOM (keep the
+            # fingertip just above the table) instead of the object TOP. Top-anchoring
+            # forced the gripper above thin objects and discarded R1's body/center
+            # grasp height. Tall objects keep the original near-top behavior to avoid
+            # regressing grasps that already work.
+            if size_z <= 0.06:
+                z_low = bottom_z + GRIPPER_FINGER_TIP_OFFSET + 0.004
+            else:
+                z_low = nominal_grasp_z - 0.015
             z_high = nominal_grasp_z + 0.060
             target_grasp_z = _clamp(requested_grasp_z, z_low, z_high)
             print(
