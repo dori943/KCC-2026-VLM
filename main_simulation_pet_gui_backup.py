@@ -1,6 +1,6 @@
-"""
-main_simulation_chain.py
-Boot-only dual-arm Robotiq 2F-140 gripper simulation orchestration.
+﻿"""
+main_simulation_3.py
+Boot-only dual-arm Panda simulation orchestration.
 
 Notes:
 - R1 model assets should be obtained from Hugging Face:
@@ -17,11 +17,7 @@ import numpy as np
 import pybullet as p
 import pybullet_data
 
-from robot_controller_balloon import (
-    GRIPPER_FINGER_TIP_OFFSET,
-    Robotiq2F140Controller,
-    render_camera,
-)
+from robot_controller_3 import PandaController, render_camera
 from assembly_manager import AssemblyManager
 
 
@@ -37,27 +33,31 @@ AFFORDANCE_MODEL_ID = "hqking/affordance-r1"
 SAM2_MODEL_ID = "facebook/sam2-hiera-large"
 AFFORDANCE_CAPTURE_WIDTH = 640
 AFFORDANCE_CAPTURE_HEIGHT = 480
-MODULE1_MAP_PATH = "/workspace/KCC-2026-VLM/module1-2B/configs/module1_to_pybullet_map.yaml"
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+MODULE1_MAP_PATH = os.path.join(CURRENT_DIR, "module1-2B", "configs", "label_to_category_map.json")
 
 LEFT_BASE_POSITION = [0.0, -0.35, 0.65]
 RIGHT_BASE_POSITION = [0.0, 0.35, 0.65]
 TABLE_BASE_POSITION = [0.6, 0.0, 0.0]
-YCB_DIR = "/workspace/KCC-2026-VLM/data/object2urdf/examples/ycb"
+YCB_DIR = os.path.join(CURRENT_DIR, "data", "object2urdf", "examples", "ycb")
 
 YCB_OBJECT_SPECS = [
-    ("softball", "054_softball.urdf", [1.2, 0.3, 0.8]),
-    ("large_clamp", "051_large_clamp.urdf", [1.2, -0.3, 0.8]),
-    ("chain", "059_chain.urdf", [1.0, 0.3, 0.8]),
-    ("chips_can", "001_chips_can.urdf", [1.2, 0.1, 0.8]),
-    ("potted_meat_can", "010_potted_meat_can.urdf", [1.2, -0.1, 0.8]),
-    ("bleach_cleanser", "021_bleach_cleanser.urdf", [1.0, 0.1, 0.8]),
-    ("timer", "076_timer.urdf", [1.0, -0.1, 0.8]),
-    ("wine_glass", "023_wine_glass.urdf", [0.8, 0.3, 0.8]),
-    ("bowl", "024_bowl.urdf", [0.8, 0.1, 0.8]),
-    ("mug", "025_mug.urdf", [0.8, -0.1, 0.8]),
-    ("plate", "029_plate.urdf", [0.8, -0.3, 0.8]),
-    ("padlock", "038_padlock.urdf", [0.6, 0.1, 0.8]),
-    ("rubiks_cube", "077_rubiks_cube.urdf", [0.6, -0.1, 0.8]),
+    ("cracker_box", "003_cracker_box.urdf", [1.2, 0.3, 0.82]),
+    ("sugar_box", "004_sugar_box.urdf", [1.2, 0.10, 0.82]),
+    ("pudding_box", "008_pudding_box.urdf", [1.2, -0.10, 0.82]),
+    ("gelatin_box", "009_gelatin_box.urdf", [1.2, -0.3, 0.82]),
+    ("bowl", "024_bowl.urdf", [1.0, 0.2, 0.82]),
+    ("mug", "025_mug.urdf", [1.0, 0.0, 0.82]),
+    ("plate", "029_plate.urdf", [1.0, -0.2, 0.82]),
+    ("fork", "030_fork.urdf", [0.7, 0.3, 0.82]),
+    ("spoon", "031_spoon.urdf", [0.7, 0.10, 0.82]),
+    ("knife", "032_knife.urdf", [0.7, -0.1, 0.82]),
+    ("spatula", "033_spatula.urdf", [0.7, -0.3, 0.82]),
+    ("adjustable_wrench", "042_adjustable_wrench.urdf", [0.45, 0.2, 0.82]),
+    ("large_marker", "040_large_marker.urdf", [0.45, 0.0, 0.82]),
+    ("phillips_screwdriver", "043_phillips_screwdriver.urdf", [0.45, -0.2, 0.82]),
+    ("flat_screwdriver", "044_flat_screwdriver.urdf", [0.45, -0.35, 0.82]),
+    ("sponge", "026_sponge.urdf", [0.45, 0.35, 0.82]),
 ]
 
 def _load_module3_object_labels(json_path: str) -> list[str]:
@@ -548,11 +548,11 @@ def load_ycb_objects(ycb_dir: str = YCB_DIR, table_body_id=None) -> dict:
 
 
 def create_dual_arm_controllers() -> tuple[dict, dict]:
-    left_controller = Robotiq2F140Controller(name="left", base_position=LEFT_BASE_POSITION)
-    right_controller = Robotiq2F140Controller(name="right", base_position=RIGHT_BASE_POSITION)
+    left_controller = PandaController(name="left", base_position=LEFT_BASE_POSITION)
+    right_controller = PandaController(name="right", base_position=RIGHT_BASE_POSITION)
 
-    left_id = left_controller.load_robot()
-    right_id = right_controller.load_robot()
+    left_id = left_controller.load_panda()
+    right_id = right_controller.load_panda()
 
     controllers = {
         "left": left_controller,
@@ -1331,7 +1331,7 @@ def run_optional_affordance_probe(
                 ),
                 extra_context={
                     "target_object": label,
-                    "scene": "dual-robotiq-2f140-tabletop",
+                    "scene": "dual-panda-tabletop",
                     "grasp_direction": "top-down",
                 },
                 max_new_tokens=128,
@@ -1766,9 +1766,11 @@ def run_sequential_demo(
     # move_end_effector_to ?대??먯꽌 留??ㅽ뀦 _update_grasp_hold_feedback() +
     # _set_gripper_target()???몄텧?섎?濡?slip 媛먯? ???먮룞?쇰줈 force媛 利앷???
     # EE z compensation: when a top-down gripper holds a body, the body's
-    # AABB center sits below the EE by (gripper fingertip offset + half body z).
+    # AABB center sits below the EE by (FINGER_TIP_OFFSET + half body z).
     # If we want the BODY to be at JSON target z, the EE must be that much
     # higher. Without this, the body ends up 5-7cm below the JSON target.
+    FINGER_TIP_OFFSET = 0.058
+
     def _ee_pose_with_grip_z_comp(target_pos: list[float], body_id: int) -> list[float]:
         try:
             aabb_min, aabb_max = p.getAABB(body_id)
@@ -1778,7 +1780,7 @@ def run_sequential_demo(
         return [
             float(target_pos[0]),
             float(target_pos[1]),
-            float(target_pos[2]) + half_z + GRIPPER_FINGER_TIP_OFFSET,
+            float(target_pos[2]) + half_z + FINGER_TIP_OFFSET,
         ]
 
     if left_ok:
@@ -2004,7 +2006,7 @@ def run_sequential_demo(
                     print(f"[Demo][WARN] right.open_gripper (phaseB pre) failed: {exc}")
                 # Reset right arm to home before grasping sponge. After Phase
                 # A, right was at the edge of reach (~0.84 m from base, near
-                # the Panda arm's 0.855 m limit) with stretched/twisted joints. IK
+                # Panda's 0.855 m limit) with stretched/twisted joints. IK
                 # called from that seed diverges (EE shoots to z=1.4+ instead
                 # of descending). reset_to_home gives IK a clean starting
                 # joint configuration close to PANDA_HOME_JOINTS, which is
