@@ -1512,7 +1512,7 @@ def run_optional_affordance_probe(
                 and (float(aabb_min[2]) - 0.05) <= float(world_pos[2]) <= (float(aabb_max[2]) + 0.12)
             )
 
-            if top_part_norm not in _GENERIC_PART_TOKENS and top_part_norm != target_norm and dist_to_sim > 0.25:
+            if top_part_norm in _other_object_norms and dist_to_sim > 0.25:
                 print(
                     f"[R1][WARN] '{label}' candidate part '{top_part_raw}' mismatches target and "
                     f"is far from sim object (dist={dist_to_sim:.3f}m). Skipping."
