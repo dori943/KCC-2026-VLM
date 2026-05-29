@@ -76,7 +76,7 @@ DEFAULT_GRASP_PROFILE = {
     "approach_height": 0.16,
     "grasp_clearance": 0.004,
     "lift_height": 0.12,
-    "grasp_z_ratio": 0.85,
+    "grasp_z_ratio": 0.72,
     "slip_force_boost": 8.0,
     "hold_force_decay": 1.0,
 }
@@ -1262,6 +1262,7 @@ class Robotiq2F140Controller:
         drop_step: float = 0.004,
         max_drop: float = 0.25,
         min_ee_z: float | None = None,
+        min_tip_z: float | None = None,
         hold_companion: "PandaController | None" = None,
     ) -> None:
         checks = int(max_drop / drop_step)
@@ -1271,6 +1272,17 @@ class Robotiq2F140Controller:
                 return
             ee_pos, _ = self.get_end_effector_pose()
             next_z = float(ee_pos[2] - drop_step)
+            # Primary limiter for thin objects: stop when the live fingertip would
+            # dip below the table/object-bottom floor. This lets the gripper pads
+            # descend onto the object body instead of pinching above a thin object.
+            if min_tip_z is not None:
+                tip_z = self._gripper_tip_z()
+                if tip_z is not None and (tip_z - drop_step) <= float(min_tip_z):
+                    print(
+                        f"[{self.name}] descend stop at tip floor "
+                        f"(tip_z={tip_z:.4f} -> {tip_z - drop_step:.4f} <= min_tip_z={float(min_tip_z):.4f})"
+                    )
+                    return
             if min_ee_z is not None and next_z <= float(min_ee_z):
                 print(
                     f"[{self.name}] descend stop at safety floor "
@@ -1405,13 +1417,25 @@ class Robotiq2F140Controller:
                 f"[{self.name}] gripper tip z after grasp move: {tip_z_dbg:.4f} "
                 f"(offset={float(ee_pos_dbg[2] - tip_z_dbg):.4f})"
             )
+        # Derive a tip-based descend floor so thin objects let the finger PADS reach
+        # the body instead of pinching above the object. Use the live fingertip->EE
+        # offset (it varies with finger splay) to compute a matching EE backstop in
+        # case tip readback fails. Take the deeper (lower) of this and the static floor.
+        _obj_bottom_z = float(p.getAABB(body_id)[0][2])
+        _min_tip_z = _obj_bottom_z + 0.002
+        _ee_now0, _ = self.get_end_effector_pose()
+        _tip_now0 = self._gripper_tip_z()
+        _live_off = float(_ee_now0[2] - _tip_now0) if _tip_now0 is not None else GRIPPER_FINGER_TIP_OFFSET
+        _effective_floor_z = min(float(safe_descend_floor_z), _min_tip_z + _live_off)
+
         # grasp 위치 도달 직후 이미 contact인지 확인 — 있으면 descend 생략
         _pre_summary = self._finger_contact_summary(body_id)
         if self._finger_contact_count(_pre_summary) == 0:
             self._descend_until_precontact(
                 body_id=body_id,
                 orientation=selected_orientation,
-                min_ee_z=safe_descend_floor_z,
+                min_ee_z=_effective_floor_z,
+                min_tip_z=_min_tip_z,
                 hold_companion=hold_companion,
             )
         ee_pos_dbg2, _ = self.get_end_effector_pose()
@@ -1429,7 +1453,7 @@ class Robotiq2F140Controller:
             body_id=body_id, start_open=_finger_open, hold_companion=hold_companion)
         if not contact_found:
             extra_drop = _clamp(0.18 * size_z, 0.008, 0.025)
-            fallback_z = max(float(grasp[2] - extra_drop), safe_descend_floor_z)
+            fallback_z = max(float(grasp[2] - extra_drop), _effective_floor_z)
             fallback_grasp = [grasp[0], grasp[1], fallback_z]
             self.move_end_effector_to(fallback_grasp, orientation=selected_orientation, steps=140, hold_companion=hold_companion)
             contact_found, hold_target, summary = self._close_until_contact(
