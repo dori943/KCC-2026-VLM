@@ -37,12 +37,12 @@ AFFORDANCE_MODEL_ID = "hqking/affordance-r1"
 SAM2_MODEL_ID = "facebook/sam2-hiera-large"
 AFFORDANCE_CAPTURE_WIDTH = 640
 AFFORDANCE_CAPTURE_HEIGHT = 480
-MODULE1_MAP_PATH = "/workspace/KCC-2026-VLM/module1-2B/configs/module1_to_pybullet_map.yaml"
+MODULE1_MAP_PATH = "/Users/jungsubin/KCC2026_public/module1-2B/configs/module1_to_pybullet_map.yaml"
 
 LEFT_BASE_POSITION = [0.0, -0.35, 0.65]
 RIGHT_BASE_POSITION = [0.0, 0.35, 0.65]
 TABLE_BASE_POSITION = [0.6, 0.0, 0.0]
-YCB_DIR = "/workspace/KCC-2026-VLM/data/object2urdf/examples/ycb"
+YCB_DIR = "/Users/jungsubin/KCC2026/Module1-2B/KCC-2026-VLM/data/object2urdf/examples/ycb"
 
 YCB_OBJECT_SPECS = [
     ("softball", "054_softball.urdf", [1.2, 0.3, 0.8]),
@@ -54,7 +54,7 @@ YCB_OBJECT_SPECS = [
     ("timer", "076_timer.urdf", [1.0, -0.1, 0.8]),
     ("wine_glass", "023_wine_glass.urdf", [0.8, 0.3, 0.8]),
     ("bowl", "024_bowl.urdf", [0.8, 0.1, 0.8]),
-    ("mug", "025_mug.urdf", [0.8, -0.1, 0.8]),
+    ("mug", "025_mug.urdf", [0.7, -0.1, 0.8]),
     ("plate", "029_plate.urdf", [0.8, -0.3, 0.8]),
     ("padlock", "038_padlock.urdf", [0.6, 0.1, 0.8]),
     ("rubiks_cube", "077_rubiks_cube.urdf", [0.6, -0.1, 0.8]),
@@ -120,7 +120,7 @@ def _build_ycb_object_specs(json_path: str) -> list[tuple]:
 
 
 # Resolve JSON path once for reuse before main().
-_MODULE3_JSON_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "module3_pet_output.json")
+_MODULE3_JSON_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "module3_chain_output.json")
 
 # Dynamically resolved YCB object specs.
 YCB_OBJECT_SPECS: list[tuple] = _build_ycb_object_specs(_MODULE3_JSON_PATH)
@@ -937,10 +937,17 @@ def _grasp_with_orientation_sweep(
             [90.0, -90.0, 135.0, -135.0, 180.0],
         ]
 
+    MAX_GRASP_ATTEMPTS = 3  # team agreement: cap grasp retries
     attempt_idx = 0
     for stage_idx, stage_offsets in enumerate(yaw_offset_stages):
         for yaw_offset_deg in stage_offsets:
             attempt_idx += 1
+            if attempt_idx > MAX_GRASP_ATTEMPTS:
+                print(
+                    f"[Grasp-Retry] {object_label} reached MAX_GRASP_ATTEMPTS="
+                    f"{MAX_GRASP_ATTEMPTS}; giving up."
+                )
+                return False
             try_orientation = _offset_orientation_yaw(seed_orientation, yaw_offset_deg)
             print(
                 f"[Grasp-Retry] {object_label} attempt={attempt_idx} "

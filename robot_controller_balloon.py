@@ -1176,28 +1176,28 @@ class Robotiq2F140Controller:
         )
 
     def _finger_contact_summary(self, body_id: int) -> dict:
-        if self.gripper_id is None:
+        if self.gripper_id is None or body_id is None:
             return {"left": 0, "right": 0, "hand": 0, "total": 0}
         left = len(
             p.getContactPoints(
                 bodyA=self.gripper_id,
                 bodyB=body_id,
                 linkIndexA=ROBOTIQ_GRIPPER_CONTACT_LINK_INDICES[0],
-            )
+            ) or []
         )
         right = len(
             p.getContactPoints(
                 bodyA=self.gripper_id,
                 bodyB=body_id,
                 linkIndexA=ROBOTIQ_GRIPPER_CONTACT_LINK_INDICES[1],
-            )
+            ) or []
         )
         hand = len(
             p.getContactPoints(
                 bodyA=self.gripper_id,
                 bodyB=body_id,
                 linkIndexA=-1,
-            )
+            ) or []
         )
         return {
             "left": left,
