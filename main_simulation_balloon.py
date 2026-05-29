@@ -1404,27 +1404,19 @@ def run_optional_affordance_probe(
                 continue
 
             target_norm = label_norm
-            # Generic / stop-word / sub-part labels that should NOT be treated
-            # as a mismatched object. R1 frequently emits either demonstratives
-            # ("this is the mug" -> "this") or semantic sub-parts of the target
-            # ("handle" for a knife, "rim" for a mug). Both are valid grasp
-            # candidates, not wrong-object detections, so accept them as
-            # generic when the target label is not echoed verbatim.
-            _GENERIC_PART_TOKENS = {
-                # filler / parser noise
-                "", "object", "part", "region", "area", "item", "thing",
-                "this", "that", "these", "those", "it", "its",
-                "they", "them", "their",
-                "a", "an", "the", "some", "any",
-                "is", "are", "was", "were", "be", "been", "being",
-                "of", "for", "with", "and", "or", "to", "in", "on", "at",
-                "robot", "gripper", "grasp",
-                # generic graspable sub-parts of common YCB objects
-                "handle", "grip", "shaft", "stem", "neck", "knob",
-                "body", "side", "top", "bottom", "base", "back", "front",
-                "edge", "rim", "lip", "mouth", "opening", "head",
-                "tip", "end", "tail", "center", "middle", "surface",
-                "blade", "prong", "tine",
+            # Reject a candidate ONLY when its part label matches a *different*
+            # object that is actually present in the scene (a genuine
+            # wrong-object detection). R1 frequently labels a valid grasp region
+            # with descriptive prose rather than the target name -- demonstratives
+            # ("this is the mug" -> "this"), semantic sub-parts ("handle", "rim"),
+            # or even explanatory verbs/adjectives leaking out of the sentence
+            # ("covers", "top surface"). None of those are wrong objects, so we
+            # accept them as generic instead of discarding the candidate and
+            # falling back to AABB.
+            _other_object_norms = {
+                _normalize_label_token(other)
+                for other in (ycb_object_ids or {})
+                if _normalize_label_token(other) != target_norm
             }
             matched = []
             generic = []
@@ -1432,13 +1424,12 @@ def run_optional_affordance_probe(
             for cand in candidates:
                 part_raw = str(cand.get("part", "")).strip().lower()
                 part_norm = _normalize_label_token(part_raw)
-                if part_norm in _GENERIC_PART_TOKENS:
-                    generic.append(cand)
-                    continue
                 if part_norm == target_norm:
                     matched.append(cand)
-                else:
+                elif part_norm and part_norm in _other_object_norms:
                     mismatched_parts.append(part_raw)
+                else:
+                    generic.append(cand)
 
             if matched:
                 top = matched[0]
