@@ -1192,7 +1192,7 @@ def run_optional_affordance_probe(
         proj_matrix = p.computeProjectionMatrixFOV(
             fov=60.0,
             aspect=IMG_W / IMG_H,
-            nearVal=0.01,
+            nearVal=0.8,
             farVal=5.0,
         )
         _, _, rgba_raw, depth_raw, seg_raw = p.getCameraImage(
