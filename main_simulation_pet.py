@@ -44,7 +44,6 @@ YCB_DIR = os.path.join(CURRENT_DIR, "data", "object2urdf", "examples", "ycb")
 YCB_OBJECT_SPECS = [
     ("cracker_box", "003_cracker_box.urdf", [1.2, 0.3, 0.82]),
     ("sugar_box", "004_sugar_box.urdf", [1.2, 0.10, 0.82]),
-    ("pudding_box", "008_pudding_box.urdf", [1.2, -0.10, 0.82]),
     ("gelatin_box", "009_gelatin_box.urdf", [1.2, -0.3, 0.82]),
     ("bowl", "024_bowl.urdf", [1.0, 0.2, 0.82]),
     ("mug", "025_mug.urdf", [1.0, 0.0, 0.82]),
@@ -94,7 +93,6 @@ def _build_ycb_object_specs(json_path: str) -> list[tuple]:
         return [
             ("cracker_box", "003_cracker_box.urdf", [1.2, 0.3, 0.82]),
             ("sugar_box", "004_sugar_box.urdf", [1.2, 0.10, 0.82]),
-            ("pudding_box", "008_pudding_box.urdf", [1.2, -0.10, 0.82]),
             ("gelatin_box", "009_gelatin_box.urdf", [1.2, -0.3, 0.82]),
             ("bowl", "024_bowl.urdf", [1.0, 0.2, 0.82]),
             ("mug", "025_mug.urdf", [1.0, 0.0, 0.82]),
@@ -171,7 +169,6 @@ MODULE1_PROFILE_DEFAULT = {
 YCB_MODULE1_PROFILE_BY_LABEL = {
     "cracker_box": {"surface_friction": "medium", "slip_tendency": "medium", "mass_category": "light", "size_relative": "medium"},
     "sugar_box": {"surface_friction": "medium", "slip_tendency": "medium", "mass_category": "light", "size_relative": "small"},
-    "pudding_box": {"surface_friction": "medium", "slip_tendency": "low", "mass_category": "light", "size_relative": "small"},
     "gelatin_box": {"surface_friction": "medium", "slip_tendency": "low", "mass_category": "light", "size_relative": "small"},
     "bowl": {"surface_friction": "low", "slip_tendency": "medium", "mass_category": "medium", "size_relative": "medium"},
     "mug": {"surface_friction": "medium", "slip_tendency": "low", "mass_category": "medium", "size_relative": "small"},
