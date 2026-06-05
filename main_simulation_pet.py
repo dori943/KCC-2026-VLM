@@ -1,4 +1,4 @@
-﻿"""
+"""
 main_simulation_3.py
 Boot-only dual-arm Panda simulation orchestration.
 
@@ -471,7 +471,7 @@ def summarize_applied_dynamics(applied: dict) -> dict:
 
 
 def configure_simulation() -> None:
-    p.connect(p.DIRECT)
+    p.connect(p.GUI)
     p.resetDebugVisualizerCamera(
         cameraDistance=1.0,
         cameraYaw=45,

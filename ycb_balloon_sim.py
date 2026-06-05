@@ -58,7 +58,7 @@ class SceneConfig:
 
     # 평가
     max_steps:         int  = 1800    # 7.5초 @ 240Hz
-    burst_force_limit: float = 2.0    # 이 힘(N) 이상 충돌 → 풍선 터짐 판정
+    burst_force_limit: float = 20.0   # 이 힘(N) 이상 충돌 → 풍선 터짐 판정
     success_z_max:     float = 0.6    # 성공시 풍선 최종 높이 상한 (너무 위로 날면 실패)
 
 
@@ -126,7 +126,7 @@ def balloon_urdf(cfg: SceneConfig) -> str:
       <material name="red"><color rgba="1.0 0.15 0.15 0.9"/></material></visual>
     <collision>
       <geometry><sphere radius="{r}"/></geometry>
-      <contact_coefficients mu="0.5" kp="1e4" kd="1"/>
+      <contact_coefficients mu="0.5" kp="2000" kd="5"/>
     </collision>
   </link>
 </robot>"""
@@ -215,7 +215,9 @@ class ScriptController:
         frac  = step / total
 
         tip   = self.branch_tip
-        speed = 0.006  # m/step
+        # PyBullet expects linear velocity in m/s.
+        # We want a gentle but effective tool motion around 240Hz.
+        speed = 0.002 * 240.0  # m/s
 
         if frac < 0.25:
             # Phase 1: 가지 바로 밑, 줄 아래로 접근
@@ -317,36 +319,38 @@ class YCBBalloonSimulator:
                                      physicsClientId=self.client)
 
         # 줄 constraint (point2point)
+        # 가지 끝 위치 (tree base link의 로컬 좌표)
+        branch_tip_local = [
+            cfg.branch_length * math.cos(br),
+            0,
+            cfg.branch_height + cfg.branch_length * math.sin(br)
+        ]
         self.string_constraint = p.createConstraint(
             parentBodyUniqueId=self.tree_id,
-            parentLinkIndex=1,           # branch link
+            parentLinkIndex=-1,           # tree base link
             childBodyUniqueId=self.balloon_id,
-            childLinkIndex=-1,
+            childLinkIndex=-1,            # balloon base link
             jointType=p.JOINT_POINT2POINT,
             jointAxis=[0, 0, 0],
-            parentFramePosition=[
-                cfg.branch_length * math.cos(br),
-                0,
-                cfg.branch_length * math.sin(br)
-            ],
-            childFramePosition=[0, 0, -cfg.string_length],
+            parentFramePosition=branch_tip_local,
+            childFramePosition=[0, 0, -cfg.string_length],  # balloon center offset for string
             physicsClientId=self.client
         )
+        # Use a strong constraint and break it manually when the balloon is pulled hard enough.
         p.changeConstraint(self.string_constraint,
-                           maxForce=cfg.string_max_force,
+                           maxForce=1000.0,
                            physicsClientId=self.client)
 
-        # 도구 로드
-        tool_path = os.path.join(ASSETS_DIR, "spatula_pudding_tool.urdf")
-        if not os.path.exists(tool_path):
-            tool_path = combined_tool_urdf()
-
-        start_orn = p.getQuaternionFromEuler(cfg.tool_start_rpy)
-        self.tool_id = p.loadURDF(tool_path,
-                                  basePosition=cfg.tool_start_pos,
-                                  baseOrientation=start_orn,
-                                  useFixedBase=False,
-                                  physicsClientId=self.client)
+        # 도구 로드: spatula + pudding box 조합
+        tool_urdf_path = combined_tool_urdf()
+        self.tool_id = p.loadURDF(
+            tool_urdf_path,
+            basePosition=cfg.tool_start_pos,
+            baseOrientation=p.getQuaternionFromEuler(cfg.tool_start_rpy),
+            useFixedBase=False,
+            physicsClientId=self.client
+        )
+        self.gelatin_id = None
 
         # GUI 보조선
         if self.gui:
@@ -433,7 +437,18 @@ class YCBBalloonSimulator:
 
             # 분리 확인
             if not detached:
-                detached = self._check_detach(bpos)
+                if cf > self.cfg.string_max_force * 5:
+                    detached = True
+                    if verbose:
+                        print(f"  ✅ Step {step}: 줄이 끊어짐! 접촉력 {cf:.3f}N")
+                    try:
+                        if self.string_constraint is not None:
+                            p.removeConstraint(self.string_constraint, physicsClientId=self.client)
+                    except Exception:
+                        pass
+                    self.string_constraint = None
+                else:
+                    detached = self._check_detach(bpos)
                 if detached and verbose:
                     print(f"  ✅ Step {step}: 가지에서 분리! 풍선 위치 {[f'{v:.3f}' for v in bpos]}")
 
