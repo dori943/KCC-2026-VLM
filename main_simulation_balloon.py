@@ -12,6 +12,8 @@ import os
 import re
 import time
 import math
+import tempfile
+from xml.etree import ElementTree as ET
 
 import numpy as np
 import pybullet as p
@@ -1991,6 +1993,43 @@ def run_sequential_demo(
             if attach_results and not failed_attach_steps:
                 print(f"[Demo] Phase A assembly successful "
                       f"({len(attach_results)} constraint(s) created).")
+                
+                # ========== URDF 저장 ==========
+                # Phase A에서 spatula + gelatin_box 조합이 만들어짐
+                spatula_id = ycb_object_ids.get("spatula")
+                gelatin_id = ycb_object_ids.get("gelatin_box")
+                if spatula_id is not None and gelatin_id is not None:
+                    # JSON에서 정의한 relative_offset_from_base 사용 (설계 값)
+                    contact_offset = None
+                    _plan_obj = getattr(assembly_manager, "_plan", None)
+                    if _plan_obj is not None and getattr(_plan_obj, "steps", None):
+                        for _step in _plan_obj.steps:
+                            # Step 2: spatula + gelatin_box assembly
+                            if (_step.base_object == "spatula" and 
+                                _step.attach_object == "gelatin_box"):
+                                contact_offset = list(_step.attachment_position)
+                                print(f"[Demo] Using JSON relative_offset: {contact_offset}")
+                                break
+                    
+                    # JSON에서 찾지 못하면 runtime 위치 차이 사용 (fallback)
+                    if contact_offset is None:
+                        main_pos, _ = p.getBasePositionAndOrientation(left_body_id)
+                        aux_pos, _ = p.getBasePositionAndOrientation(right_body_id)
+                        contact_offset = (np.array(aux_pos) - np.array(main_pos)).tolist()
+                        print(f"[Demo] Using runtime offset (fallback): {contact_offset}")
+                    
+                    success, result = save_combined_tool_to_urdf(
+                        base_body_id=spatula_id,
+                        attach_body_id=gelatin_id,
+                        base_label="spatula",
+                        attach_label="gelatin_box",
+                        contact_offset=contact_offset,
+                    )
+                    if success:
+                        print(f"[Demo] Combined tool URDF saved to: {result}")
+                    else:
+                        print(f"[Demo][WARN] URDF save failed: {result}")
+                # ================================
             else:
                 if failed_attach_steps:
                     print(f"[Demo][WARN] Phase A attach validation failed: {failed_attach_steps}")
@@ -2153,6 +2192,20 @@ def run_sequential_demo(
                 print(f"[Demo] fallback assembly successful (constraint={cid}, "
                       f"offset=[{contact_offset[0]:.3f}, {contact_offset[1]:.3f}, {contact_offset[2]:.3f}], "
                       f"dist={body_dist:.3f} m)")
+                
+                # ========== URDF 저장 (Fallback) ==========
+                success, result = save_combined_tool_to_urdf(
+                    base_body_id=left_body_id,
+                    attach_body_id=right_body_id,
+                    base_label=left_target_label,
+                    attach_label=right_target_label,
+                    contact_offset=list(contact_offset),
+                )
+                if success:
+                    print(f"[Demo] Combined tool URDF saved to: {result}")
+                else:
+                    print(f"[Demo][WARN] URDF save failed: {result}")
+                # =========================================
             else:
                 print("[Demo][WARN] fallback assembly also failed.")
  
@@ -2194,6 +2247,231 @@ def run_sequential_demo(
         p.stepSimulation()
         time.sleep(SIM_TIMESTEP)
  
+def save_combined_tool_to_urdf(
+    base_body_id: int,
+    attach_body_id: int,
+    base_label: str,
+    attach_label: str,
+    contact_offset: list[float],
+    output_path: str = None,
+    ycb_dir: str = YCB_DIR,
+) -> tuple[bool, str]:
+    """
+    PyBullet에서 constraint로 연결된 두 물체를 URDF 파일로 저장합니다.
+    원본 YCB URDF 파일의 메시 정보를 유지합니다.
+    
+    Args:
+        base_body_id: base 물체의 PyBullet body ID
+        attach_body_id: attach 물체의 PyBullet body ID
+        base_label: base 물체 이름 (예: "spatula")
+        attach_label: attach 물체 이름 (예: "gelatin_box")
+        contact_offset: base 기준 attach 물체의 상대 위치 [x, y, z]
+        output_path: URDF 저장 경로. None이면 기본 경로 사용
+        ycb_dir: YCB 디렉토리 경로
+    
+    Returns:
+        (성공 여부, 저장 경로 또는 에러 메시지)
+    """
+    try:
+        if output_path is None:
+            output_dir = os.path.join(os.path.dirname(__file__), "outputs")
+            os.makedirs(output_dir, exist_ok=True)
+            output_path = os.path.join(output_dir, f"combined_{base_label}_{attach_label}.urdf")
+        
+        # PyBullet body 정보 추출
+        base_info = p.getDynamicsInfo(base_body_id, -1)
+        attach_info = p.getDynamicsInfo(attach_body_id, -1)
+        
+        base_mass = float(base_info[0]) if base_info else 1.0
+        attach_mass = float(attach_info[0]) if attach_info else 1.0
+        
+        # 원본 YCB URDF 파일 찾기
+        base_urdf_path = None
+        attach_urdf_path = None
+        
+        for label, urdf_name, _ in YCB_OBJECT_SPECS:
+            if label == base_label:
+                base_urdf_path = os.path.join(ycb_dir, urdf_name)
+            if label == attach_label:
+                attach_urdf_path = os.path.join(ycb_dir, urdf_name)
+        
+        # 원본 URDF에서 링크 정보 추출하는 헬퍼 함수
+        def extract_link_from_urdf(urdf_path):
+            """원본 URDF에서 첫 번째 link 요소 추출"""
+            try:
+                tree = ET.parse(urdf_path)
+                root = tree.getroot()
+                link = root.find("link")
+                if link is not None:
+                    # 메시 경로를 절대 경로로 변환
+                    urdf_dir = os.path.dirname(urdf_path)
+                    for mesh_elem in link.iter("mesh"):
+                        filename = mesh_elem.get("filename")
+                        if filename:
+                            # 상대 경로를 절대 경로로 변환
+                            abs_filename = os.path.join(urdf_dir, filename)
+                            mesh_elem.set("filename", abs_filename)
+                    return link
+            except:
+                pass
+            return None
+        
+        # 기본 URDF 구조 생성
+        robot_elem = ET.Element("robot")
+        robot_elem.set("name", f"{base_label}_{attach_label}_combined")
+        
+        # Base link 생성
+        base_link = ET.SubElement(robot_elem, "link")
+        base_link.set("name", "base_link")
+        
+        # 원본 URDF에서 base link 정보 복사
+        if base_urdf_path and os.path.isfile(base_urdf_path):
+            original_link = extract_link_from_urdf(base_urdf_path)
+            if original_link is not None:
+                # visual 복사
+                visual = original_link.find("visual")
+                if visual is not None:
+                    base_link.append(ET.fromstring(ET.tostring(visual)))
+                
+                # collision 복사
+                collision = original_link.find("collision")
+                if collision is not None:
+                    base_link.append(ET.fromstring(ET.tostring(collision)))
+                
+                # inertial 복사
+                inertial = original_link.find("inertial")
+                if inertial is not None:
+                    base_link.append(ET.fromstring(ET.tostring(inertial)))
+                else:
+                    # inertial이 없으면 생성
+                    inertial = ET.SubElement(base_link, "inertial")
+                    mass_elem = ET.SubElement(inertial, "mass")
+                    mass_elem.set("value", str(base_mass))
+                    inertia = ET.SubElement(inertial, "inertia")
+                    inertia.set("ixx", "0.01")
+                    inertia.set("iyy", "0.01")
+                    inertia.set("izz", "0.01")
+                    inertia.set("ixy", "0.0")
+                    inertia.set("ixz", "0.0")
+                    inertia.set("iyz", "0.0")
+            else:
+                # 기본값 사용
+                _add_default_link(base_link, base_mass, "base")
+        else:
+            # URDF 파일이 없으면 기본값 사용
+            _add_default_link(base_link, base_mass, "base")
+        
+        # Attach link 생성
+        attach_link = ET.SubElement(robot_elem, "link")
+        attach_link.set("name", "attach_link")
+        
+        # 원본 URDF에서 attach link 정보 복사
+        if attach_urdf_path and os.path.isfile(attach_urdf_path):
+            original_link = extract_link_from_urdf(attach_urdf_path)
+            if original_link is not None:
+                # visual 복사
+                visual = original_link.find("visual")
+                if visual is not None:
+                    attach_link.append(ET.fromstring(ET.tostring(visual)))
+                
+                # collision 복사
+                collision = original_link.find("collision")
+                if collision is not None:
+                    attach_link.append(ET.fromstring(ET.tostring(collision)))
+                
+                # inertial 복사
+                inertial = original_link.find("inertial")
+                if inertial is not None:
+                    attach_link.append(ET.fromstring(ET.tostring(inertial)))
+                else:
+                    # inertial이 없으면 생성
+                    inertial = ET.SubElement(attach_link, "inertial")
+                    mass_elem = ET.SubElement(inertial, "mass")
+                    mass_elem.set("value", str(attach_mass))
+                    inertia = ET.SubElement(inertial, "inertia")
+                    inertia.set("ixx", "0.01")
+                    inertia.set("iyy", "0.01")
+                    inertia.set("izz", "0.01")
+                    inertia.set("ixy", "0.0")
+                    inertia.set("ixz", "0.0")
+                    inertia.set("iyz", "0.0")
+            else:
+                # 기본값 사용
+                _add_default_link(attach_link, attach_mass, "attach")
+        else:
+            # URDF 파일이 없으면 기본값 사용
+            _add_default_link(attach_link, attach_mass, "attach")
+        
+        # Fixed joint connecting base and attach
+        fixed_joint = ET.SubElement(robot_elem, "joint")
+        fixed_joint.set("name", f"{base_label}_to_{attach_label}")
+        fixed_joint.set("type", "fixed")
+        joint_parent = ET.SubElement(fixed_joint, "parent")
+        joint_parent.set("link", "base_link")
+        joint_child = ET.SubElement(fixed_joint, "child")
+        joint_child.set("link", "attach_link")
+        joint_origin = ET.SubElement(fixed_joint, "origin")
+        joint_origin.set("xyz", f"{contact_offset[0]:.6f} {contact_offset[1]:.6f} {contact_offset[2]:.6f}")
+        joint_origin.set("rpy", "0 0 0")
+        joint_axis = ET.SubElement(fixed_joint, "axis")
+        joint_axis.set("xyz", "0 0 1")
+        
+        # URDF 저장
+        tree = ET.ElementTree(robot_elem)
+        # Python 3.9+ 호환성: ET.indent는 Python 3.9+에서만 지원
+        try:
+            ET.indent(tree, space="  ")
+        except AttributeError:
+            pass  # 구형 Python에서는 자동 들여쓰기 미지원
+        tree.write(output_path, encoding="utf-8", xml_declaration=True)
+        
+        print(f"[URDF] Combined tool saved: {output_path}")
+        print(f"[URDF] - Base: {base_label} (mass={base_mass:.3f} kg)")
+        print(f"[URDF] - Attach: {attach_label} (mass={attach_mass:.3f} kg)")
+        print(f"[URDF] - Contact offset: {contact_offset}")
+        
+        return True, output_path
+        
+    except Exception as exc:
+        error_msg = f"Failed to save combined tool URDF: {exc}"
+        print(f"[URDF][ERROR] {error_msg}")
+        import traceback
+        traceback.print_exc()
+        return False, error_msg
+
+
+def _add_default_link(link_elem, mass, link_type):
+    """기본 박스 링크 추가"""
+    # Inertial
+    inertial = ET.SubElement(link_elem, "inertial")
+    mass_elem = ET.SubElement(inertial, "mass")
+    mass_elem.set("value", str(mass))
+    inertia = ET.SubElement(inertial, "inertia")
+    inertia.set("ixx", "0.01")
+    inertia.set("iyy", "0.01")
+    inertia.set("izz", "0.01")
+    inertia.set("ixy", "0.0")
+    inertia.set("ixz", "0.0")
+    inertia.set("iyz", "0.0")
+    
+    # Visual
+    visual = ET.SubElement(link_elem, "visual")
+    visual_geom = ET.SubElement(visual, "geometry")
+    box = ET.SubElement(visual_geom, "box")
+    box.set("size", "0.1 0.1 0.1")
+    material = ET.SubElement(visual, "material")
+    material.set("name", "gray")
+    color = ET.SubElement(material, "color")
+    color.set("rgba", "0.5 0.5 0.5 0.9")
+    
+    # Collision
+    collision = ET.SubElement(link_elem, "collision")
+    coll_geom = ET.SubElement(collision, "geometry")
+    coll_box = ET.SubElement(coll_geom, "box")
+    coll_box.set("size", "0.1 0.1 0.1")
+
+
+
 def keep_gui_alive() -> None:
     print("[Boot] simulation running. Press Ctrl+C to exit.")
     while True:
