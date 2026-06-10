@@ -138,18 +138,57 @@ def balloon_urdf(cfg: SceneConfig) -> str:
 </robot>"""
 
 
+# main_simulation_balloon.py 의 save_combined_tool_to_urdf() 가 저장하는 파일 이름.
+#   output_path = outputs/combined_{base_label}_{attach_label}.urdf
+# 즉 spatula + gelatin_box 조합은 아래 이름으로 저장된다.
+COMBINED_TOOL_BASENAME = "combined_spatula_gelatin_box.urdf"
+
+
+def find_combined_tool_urdf() -> Optional[str]:
+    """
+    main_simulation_balloon.py 에서 조합/저장한 실제 도구(spatula + gelatin_box)
+    URDF 파일 경로를 찾는다. 찾지 못하면 None 을 반환한다.
+
+    탐색 순서:
+      1) 환경변수 COMBINED_TOOL_URDF (명시 경로)
+      2) <repo>/outputs/combined_spatula_gelatin_box.urdf  ← 기본 저장 위치
+      3) <repo>/assets/combined_spatula_gelatin_box.urdf   ← assets 에 복사한 경우
+      4) 과거 이름들 (호환용)
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    candidates: List[str] = []
+
+    env_path = os.environ.get("COMBINED_TOOL_URDF")
+    if env_path:
+        candidates.append(env_path)
+
+    # main_simulation_balloon.py 의 실제 저장 위치
+    candidates.append(os.path.join(here, "outputs", COMBINED_TOOL_BASENAME))
+    # assets 폴더에 복사해 둔 경우
+    candidates.append(os.path.join(ASSETS_DIR, COMBINED_TOOL_BASENAME))
+    # 과거/대체 이름 호환
+    candidates.append(os.path.join(ASSETS_DIR, "spatula_gelatin_box_combined.urdf"))
+    candidates.append(os.path.join(ASSETS_DIR, "spatula_pudding_tool.urdf"))
+
+    for path in candidates:
+        if path and os.path.isfile(path):
+            return path
+    return None
+
+
 def combined_tool_urdf() -> str:
-    """뒤집개 + 푸딩박스 조합 도구 (assets 폴더 없을 때 fallback)"""
-    asset = os.path.join(ASSETS_DIR, "spatula_pudding_tool.urdf")
-    if os.path.exists(asset):
-        return asset
-    # 인라인 fallback
-    content = open(asset).read() if os.path.exists(asset) else None
-    if content:
-        return asset
+    """뒤집개 + 젤라틴박스 조합 도구. 실제 조합 URDF 가 없을 때 쓰는 인라인 fallback."""
+    real = find_combined_tool_urdf()
+    if real is not None:
+        return real
+    return inline_fallback_tool_urdf()
+
+
+def inline_fallback_tool_urdf() -> str:
+    """조합 도구 파일이 전혀 없을 때 쓰는 임시 인라인 도구 (스패출러 + 박스)."""
     # assets 없으면 간단 버전으로
     return _tmp_urdf("""<?xml version="1.0"?>
-<robot name="spatula_pudding_tool">
+<robot name="spatula_gelatin_tool">
   <link name="base">
     <inertial><mass value="0.15"/><origin xyz="0 0 0.085"/>
       <inertia ixx="3.6e-4" iyy="3.6e-4" izz="2.8e-5" ixy="0" ixz="0" iyz="0"/></inertial>
@@ -195,8 +234,11 @@ class ScriptController:
     Phase 4 (75~100%): 도구를 천천히 아래로 → 풍선이 따라 내려옴
     """
 
-    def __init__(self, cfg: SceneConfig):
+    def __init__(self, cfg: SceneConfig, head_offset: float = 0.23):
         self.cfg = cfg
+        # 도구 base 원점 대비 스패출러 헤드(위쪽 끝) 높이. 시뮬레이터가 로드된
+        # 실제 도구 AABB 로 갱신해 주면 임의/실제 도구 모두에 대응한다.
+        self.head_offset = head_offset
         self._compute_waypoints()
 
     def _compute_waypoints(self):
@@ -243,8 +285,9 @@ class ScriptController:
 
         else:
             # Phase 4: 뜨려는 풍선을 위에서 계속 따라가며 눌러 내림
-            # fallback URDF 기준 spatula head 중심은 base보다 약 0.24m 위에 있다.
-            target = [balloon_pos[0], balloon_pos[1], max(0.20, balloon_pos[2] - 0.23)]
+            # 도구 헤드가 base 보다 self.head_offset 만큼 위에 있으므로,
+            # base 를 balloon_z - head_offset 으로 보내면 헤드가 풍선을 누른다.
+            target = [balloon_pos[0], balloon_pos[1], max(0.20, balloon_pos[2] - self.head_offset)]
             return self._vel_toward(tool_pos, target, speed * 1.15)
 
     @staticmethod
@@ -358,16 +401,57 @@ class YCBBalloonSimulator:
                            maxForce=1000.0,
                            physicsClientId=self.client)
 
-        # 도구 로드: spatula + pudding box 조합
-        tool_urdf_path = combined_tool_urdf()
-        self.tool_id = p.loadURDF(
-            tool_urdf_path,
-            basePosition=cfg.tool_start_pos,
-            baseOrientation=p.getQuaternionFromEuler(cfg.tool_start_rpy),
-            useFixedBase=False,
-            physicsClientId=self.client
-        )
+        # 도구 로드: spatula + gelatin_box 조합 (main_simulation_balloon.py 저장본 우선)
+        real_tool_path = find_combined_tool_urdf()
+        start_orn = p.getQuaternionFromEuler(cfg.tool_start_rpy)
+        self.tool_id = None
+        self._tool_is_fallback = True
+
+        if real_tool_path is not None:
+            try:
+                self.tool_id = p.loadURDF(
+                    real_tool_path,
+                    basePosition=cfg.tool_start_pos,
+                    baseOrientation=start_orn,
+                    useFixedBase=False,
+                    physicsClientId=self.client,
+                )
+                self._tool_is_fallback = False
+                if not getattr(self, "_tool_load_logged", False):
+                    print(f"[TOOL] 조합 도구 로드 성공: {real_tool_path}")
+                    self._tool_load_logged = True
+            except Exception as exc:
+                print(f"[TOOL][WARN] 조합 URDF 로드 실패 → 인라인 도구로 대체: {exc}")
+                print(f"[TOOL][WARN]   경로: {real_tool_path}")
+                self.tool_id = None
+
+        if self.tool_id is None:
+            if real_tool_path is None and not getattr(self, "_tool_load_logged", False):
+                print("[TOOL][WARN] 조합 도구 URDF 를 찾지 못함 → 인라인 임시 도구 사용.")
+                print("[TOOL][WARN]   main_simulation_balloon.py 를 먼저 실행해 "
+                      "outputs/combined_spatula_gelatin_box.urdf 를 생성하세요.")
+                self._tool_load_logged = True
+            fallback_path = inline_fallback_tool_urdf()
+            self.tool_id = p.loadURDF(
+                fallback_path,
+                basePosition=cfg.tool_start_pos,
+                baseOrientation=start_orn,
+                useFixedBase=False,
+                physicsClientId=self.client,
+            )
+            self._tool_is_fallback = True
+
+        self._tool_path = real_tool_path if not self._tool_is_fallback else "(inline fallback)"
         self.gelatin_id = None
+
+        # Phase 4 하강 제어용: 도구 base 원점 대비 위쪽 끝(스패출러 헤드) 높이.
+        # 인라인 도구는 ~0.24m, 실제 조합 메시는 AABB 로 추정하여 자동 대응한다.
+        try:
+            aabb_min, aabb_max = p.getAABB(self.tool_id, physicsClientId=self.client)
+            base_pos, _ = p.getBasePositionAndOrientation(self.tool_id, physicsClientId=self.client)
+            self._tool_head_offset = max(0.05, float(aabb_max[2] - base_pos[2]))
+        except Exception:
+            self._tool_head_offset = 0.23
 
         # GUI 보조선
         if self.gui:
@@ -375,7 +459,8 @@ class YCBBalloonSimulator:
                                [0.9, 0.9, 0.9], 2, physicsClientId=self.client)
             p.addUserDebugText("🎈 BALLOON", [balloon_pos[0], balloon_pos[1], balloon_pos[2]+0.12],
                                [1,0.8,0], 1.2, physicsClientId=self.client)
-            p.addUserDebugText("TOOL: spatula + pudding_box",
+            tool_label = "spatula + gelatin_box" if not self._tool_is_fallback else "inline fallback tool"
+            p.addUserDebugText(f"TOOL: {tool_label}",
                                [cfg.tool_start_pos[0], cfg.tool_start_pos[1], cfg.tool_start_pos[2]+0.3],
                                [0.5,0.8,1], 1.0, physicsClientId=self.client)
 
@@ -435,7 +520,7 @@ class YCBBalloonSimulator:
     # ── 단일 에피소드 실행 ──
     def run_episode(self, seed: Optional[int] = None, verbose: bool = False) -> EpisodeResult:
         self.reset(seed=seed)
-        ctrl = ScriptController(self.cfg)
+        ctrl = ScriptController(self.cfg, head_offset=getattr(self, "_tool_head_offset", 0.23))
 
         min_dist      = float("inf")
         max_force     = 0.0
@@ -613,7 +698,7 @@ if __name__ == "__main__":
     sim.connect()
 
     print(f"\n🎈 YCB 도구 시뮬레이션 시작")
-    print(f"   도구: 뒤집개(spatula) + 푸딩박스(pudding_box)")
+    print(f"   도구: 뒤집개(spatula) + 젤라틴박스(gelatin_box)")
     print(f"   에피소드: {args.trials}회")
     print(f"   도구 전체 길이: ~28cm (YCB spatula 기준)")
 
