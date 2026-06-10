@@ -54,7 +54,9 @@ class SceneConfig:
     balloon_linear_damping:  float = 0.55
     balloon_angular_damping: float = 0.80
     string_length:     float = 0.25
-    string_max_force:  float = 0.08   # 줄이 버티는 최대 장력 (N) → 초과시 분리
+    string_max_force:  float = 0.08   # snag(줄)이 버티는 최대 힘 (N). 도구가 이보다 세게 누르면 풀림
+    detach_disp:       float = 0.07   # 매달린 정지 위치에서 이만큼(m) 밀려나면 분리로 판정
+    capture_radius:    float = 0.11   # 스패출러 헤드가 풍선 중심에 이만큼(m) 접근하면 "걸려서 포획"
 
     # 도구 시작 위치 (로봇 손 위치 가정)
     tool_start_pos:    List[float] = field(default_factory=lambda: [0.55, 0.0, 0.85])
@@ -228,10 +230,10 @@ def inline_fallback_tool_urdf() -> str:
 # ─────────────────────────────────────────────
 class ScriptController:
     """
-    Phase 1 (0~25%):  도구를 가지 바로 아래로 이동 (풍선 줄 아래 진입 준비)
-    Phase 2 (25~50%): 도구를 앞으로 밀어 헤드를 풍선 줄에 접촉
-    Phase 3 (50~75%): 헤드를 위+앞으로 → 줄을 가지 끝 너머로 밀어냄
-    Phase 4 (75~100%): 도구를 천천히 아래로 → 풍선이 따라 내려옴
+    Phase 1 (0~25%):  스패출러 헤드를 풍선(가지 아래에 매달림)까지 아래에서 접근
+    Phase 2 (25~50%): 헤드를 풍선에 밀착 → 줄에서 떼어내며 도구에 "걸려" 포획
+    Phase 3 (50~75%): 포획한 풍선을 아래로 끌어내리기 시작 (젤라틴 무게가 도와줌)
+    Phase 4 (75~100%): 계속 하강시켜 손 높이까지 내림
     """
 
     def __init__(self, cfg: SceneConfig, head_offset: float = 0.23):
@@ -250,45 +252,46 @@ class ScriptController:
             cfg.tree_pos[1],
             cfg.branch_height + cfg.branch_length * math.sin(br)
         ]
-        # 풍선 걸린 위치 (줄 위 가지 끝)
+        # 풍선이 매달린 위치 (가지 끝 *아래* string_length 만큼)
         self.balloon_hang_pos = [
             self.branch_tip[0],
             self.branch_tip[1],
-            self.branch_tip[2] + cfg.string_length
+            self.branch_tip[2] - cfg.string_length
         ]
 
     def get_velocity(self, step: int, tool_pos: list, balloon_pos: list) -> list:
-        cfg   = self.cfg
-        total = cfg.control_steps
-        frac  = min(step / total, 0.999)
+        """
+        풍선은 가지 *아래* 에 매달려 있다(부력으로 떠올랐다가 줄이 가지에 걸린
+        상태, 손이 닿지 않음). 로봇 손(=도구)은 풍선보다 낮은 곳에서 시작하므로,
+        스패출러 헤드를 *아래에서* 풍선까지 올려 걸어 포획한 뒤, 젤라틴 무게로
+        도구 전체를 아래로 내려 풍선을 손 높이까지 가져온다.
 
-        tip   = self.branch_tip
-        # PyBullet expects linear velocity in m/s.
-        # We want a gentle but effective tool motion around 240Hz.
-        speed = 0.002 * 240.0  # m/s
+        헤드는 base 보다 self.head_offset 만큼 위에 있으므로, '헤드를 z 에
+        두려면' base 목표 z = z - head_offset 으로 명령한다.
+        """
+        cfg   = self.cfg
+        frac  = min(step / cfg.control_steps, 0.999)
+        ho    = self.head_offset
+        speed = 0.40  # m/s
+        bx, by, bz = balloon_pos
 
         if frac < 0.25:
-            # Phase 1: 가지 바로 밑, 줄 아래로 접근
-            # 목표: 가지 끝 바로 아래, 헤드가 줄 높이보다 낮게
-            target = [tip[0] - 0.05, tip[1], tip[2] + cfg.string_length * 0.3]
+            # Phase 1: 헤드를 풍선 중심까지 아래에서 접근
+            target = [bx, by, bz - ho]
             return self._vel_toward(tool_pos, target, speed)
 
         elif frac < 0.50:
-            # Phase 2: 가지 방향(x+)으로 전진, 헤드가 줄에 접촉
-            target = [tip[0] + 0.02, tip[1], tip[2] + cfg.string_length * 0.5]
-            return self._vel_toward(tool_pos, target, speed * 0.7)
-
-        elif frac < 0.75:
-            # Phase 3: 위+앞으로 → 줄을 가지 끝 너머로 밀어냄
-            target = [tip[0] + 0.12, tip[1], tip[2] + cfg.string_length + 0.08]
-            return self._vel_toward(tool_pos, target, speed * 0.8)
+            # Phase 2: 풍선에 밀착해 확실히 걸기(포획) — 살짝 더 밀어 올림
+            target = [bx, by, bz - ho + 0.01]
+            return self._vel_toward(tool_pos, target, speed * 0.5)
 
         else:
-            # Phase 4: 뜨려는 풍선을 위에서 계속 따라가며 눌러 내림
-            # 도구 헤드가 base 보다 self.head_offset 만큼 위에 있으므로,
-            # base 를 balloon_z - head_offset 으로 보내면 헤드가 풍선을 누른다.
-            target = [balloon_pos[0], balloon_pos[1], max(0.20, balloon_pos[2] - self.head_offset)]
-            return self._vel_toward(tool_pos, target, speed * 1.15)
+            # Phase 3~4: 포획한 풍선을 아래로 끌어내림.
+            # xy 는 풍선(=헤드 근처)에 맞춰 흔들림을 줄이고, z 는 바닥 근처까지 하강.
+            v = self._vel_toward([tool_pos[0], tool_pos[1], 0.0],
+                                 [bx, by, 0.0], speed * 0.3)
+            v[2] = -speed * 0.6 if tool_pos[2] > 0.30 else 0.0
+            return v
 
     @staticmethod
     def _vel_toward(current: list, target: list, speed: float) -> list:
@@ -317,6 +320,7 @@ class YCBBalloonSimulator:
         self.client = None
         self.tree_id = self.balloon_id = self.tool_id = None
         self.string_constraint = None
+        self.capture_constraint = None
         self._tmp_files: List[str] = []
         self._balloon_detached = False
 
@@ -334,6 +338,7 @@ class YCBBalloonSimulator:
         p.resetSimulation(physicsClientId=self.client)
         p.setGravity(0, 0, -9.81, physicsClientId=self.client)
         self._balloon_detached = False
+        self.capture_constraint = None
 
         cfg = self.cfg
         if seed is not None:
@@ -357,10 +362,12 @@ class YCBBalloonSimulator:
             cfg.tree_pos[1],
             cfg.branch_height + cfg.branch_length * math.sin(br)
         ]
+        # 풍선은 가지 끝에 줄이 걸려, 부력으로 떠오르다 가지 *아래*에 매달려 있다.
+        # (위로 올라가던 풍선이 가지에 걸려 손이 닿지 않는 상태)
         balloon_pos = [
             self._branch_tip[0],
             self._branch_tip[1],
-            self._branch_tip[2] + cfg.string_length
+            self._branch_tip[2] - cfg.string_length
         ]
 
         # 풍선
@@ -379,11 +386,14 @@ class YCBBalloonSimulator:
         )
 
         # 줄 constraint (point2point)
-        # 가지 끝 위치 (tree base link의 로컬 좌표)
-        branch_tip_local = [
+        # 풍선이 가지 아래 string_length 만큼 떨어진 "매달린 점"에 걸려 있다.
+        # 풍선 중심을 그 점에 직접 고정한다(레버 없음) → 가벼운 구체가
+        # 긴 지렛대로 인해 수치적으로 튕겨 나가는 불안정을 방지한다.
+        # 시각적 줄은 가지 끝 ~ 풍선 사이 디버그 라인으로 표현한다.
+        hang_point_local = [
             cfg.branch_length * math.cos(br),
             0,
-            cfg.branch_height + cfg.branch_length * math.sin(br)
+            cfg.branch_height + cfg.branch_length * math.sin(br) - cfg.string_length
         ]
         self.string_constraint = p.createConstraint(
             parentBodyUniqueId=self.tree_id,
@@ -392,13 +402,15 @@ class YCBBalloonSimulator:
             childLinkIndex=-1,            # balloon base link
             jointType=p.JOINT_POINT2POINT,
             jointAxis=[0, 0, 0],
-            parentFramePosition=branch_tip_local,
-            childFramePosition=[0, 0, -cfg.string_length],  # balloon center offset for string
+            parentFramePosition=hang_point_local,
+            childFramePosition=[0, 0, 0],  # 풍선 중심을 매달린 점에 고정
             physicsClientId=self.client
         )
-        # Use a strong constraint and break it manually when the balloon is pulled hard enough.
+        # 약한 snag: 중력(≈0.016N)은 충분히 버티지만, 도구가 누르면(>maxForce)
+        # 줄이 풀려 풍선이 밀려난다. 강체 핀처럼 큰 반력을 만들지 않아
+        # 접촉력 폭주(→풍선 터짐)를 막는다. 분리는 변위로 감지한다.
         p.changeConstraint(self.string_constraint,
-                           maxForce=1000.0,
+                           maxForce=self.cfg.string_max_force,
                            physicsClientId=self.client)
 
         # 도구 로드: spatula + gelatin_box 조합 (main_simulation_balloon.py 저장본 우선)
@@ -444,12 +456,17 @@ class YCBBalloonSimulator:
         self._tool_path = real_tool_path if not self._tool_is_fallback else "(inline fallback)"
         self.gelatin_id = None
 
-        # Phase 4 하강 제어용: 도구 base 원점 대비 위쪽 끝(스패출러 헤드) 높이.
-        # 인라인 도구는 ~0.24m, 실제 조합 메시는 AABB 로 추정하여 자동 대응한다.
+        # Phase 4 하강 제어용: 도구 base 원점 대비 *전체* 위쪽 끝(스패출러 헤드)
+        # 높이. getAABB(body)는 base 링크만 보므로, 모든 링크의 AABB 를 합쳐
+        # 최상단을 구한다. (인라인 도구 ~0.24m, 실제 조합 메시는 자동 대응)
         try:
-            aabb_min, aabb_max = p.getAABB(self.tool_id, physicsClientId=self.client)
             base_pos, _ = p.getBasePositionAndOrientation(self.tool_id, physicsClientId=self.client)
-            self._tool_head_offset = max(0.05, float(aabb_max[2] - base_pos[2]))
+            top_z = -1e9
+            n_links = p.getNumJoints(self.tool_id, physicsClientId=self.client)
+            for li in range(-1, n_links):
+                amin, amax = p.getAABB(self.tool_id, li, physicsClientId=self.client)
+                top_z = max(top_z, amax[2])
+            self._tool_head_offset = max(0.05, float(top_z - base_pos[2]))
         except Exception:
             self._tool_head_offset = 0.23
 
@@ -464,15 +481,25 @@ class YCBBalloonSimulator:
                                [cfg.tool_start_pos[0], cfg.tool_start_pos[1], cfg.tool_start_pos[2]+0.3],
                                [0.5,0.8,1], 1.0, physicsClientId=self.client)
 
-        # 안정화 (20스텝): 이때도 부력을 적용해서 매달린 풍선 장력이 현실적으로 잡히게 한다.
+        # 안정화 (20스텝): 부력 없이 중력만 → 풍선이 가지 아래에 안정적으로 매달림.
         for _ in range(20):
             self._apply_balloon_buoyancy()
             p.stepSimulation(physicsClientId=self.client)
+
+        # 분리 판정 기준이 되는 "매달린 정지 위치"를 저장한다.
+        bp0, _ = p.getBasePositionAndOrientation(self.balloon_id, physicsClientId=self.client)
+        self._balloon_rest_pos = list(bp0)
 
         return self._obs()
 
     # ── 풍선 부력 ──
     def _apply_balloon_buoyancy(self):
+        # 가지에 걸려 있는 동안은 줄(snag)에 고정돼 있으므로 부력을 적용하지
+        # 않는다 (중력만 받아 가지 아래에 안정적으로 매달림). 도구가 줄을
+        # 떼어낸 *뒤* 부터 부력이 작용해 풍선이 떠오르려 하고, 이를 도구가
+        # Phase 4 에서 눌러 내려야 한다. → 도구의 역할이 물리적으로 필수가 된다.
+        if not self._balloon_detached:
+            return
         volume = 4.0 / 3.0 * math.pi * self.cfg.balloon_radius ** 3
         buoyant_force = self.cfg.air_density * volume * 9.81 * self.cfg.buoyancy_scale
         p.applyExternalForce(
@@ -502,20 +529,79 @@ class YCBBalloonSimulator:
 
     # ── 줄 분리 여부 ──
     def _check_detach(self, balloon_pos: list) -> bool:
-        """가지 끝 xy 거리로 분리 판단 (constraint가 끊기거나 밀려났을 때)"""
+        """도구가 풍선을 매달린 정지 위치에서 충분히 밀어냈으면 분리로 판단.
+
+        3D 변위 기준이라 가지 아래 매달린 미세 진동에는 반응하지 않고,
+        도구가 실제로 풍선을 움직였을 때만 분리된다(=도구가 분리를 일으킴).
+        """
         if self._balloon_detached:
             return True
-        tip = self._branch_tip
-        xy_dist = math.sqrt((balloon_pos[0]-tip[0])**2 + (balloon_pos[1]-tip[1])**2)
-        if xy_dist > self.cfg.balloon_radius * 2.5:
+        rest = getattr(self, "_balloon_rest_pos", None)
+        if rest is None:
+            return False
+        disp = math.sqrt(sum((balloon_pos[i] - rest[i]) ** 2 for i in range(3)))
+        if disp > self.cfg.detach_disp:
             self._balloon_detached = True
-            # constraint 제거 (분리됐으니 해제)
+            # snag 완전 해제
             try:
-                p.removeConstraint(self.string_constraint, physicsClientId=self.client)
+                if self.string_constraint is not None:
+                    p.removeConstraint(self.string_constraint, physicsClientId=self.client)
             except Exception:
                 pass
+            self.string_constraint = None
             return True
         return False
+
+    # ── 풍선 포획 (도구 헤드에 걸기) ──
+    def _try_capture(self, tool_pos: list, balloon_pos: list, verbose: bool) -> bool:
+        """스패출러 헤드가 풍선에 충분히 접근하면, 가지 snag 을 풀고 풍선을
+        도구 헤드에 고정(포획)한다. 이후 도구를 내리면 풍선이 따라 내려온다."""
+        if self.capture_constraint is not None:
+            return True
+        ho = getattr(self, "_tool_head_offset", 0.23)
+        head_world = [tool_pos[0], tool_pos[1], tool_pos[2] + ho]
+        d = math.dist(head_world, balloon_pos)
+        if d > self.cfg.capture_radius:
+            return False
+
+        # 1) 가지 snag 해제
+        try:
+            if self.string_constraint is not None:
+                p.removeConstraint(self.string_constraint, physicsClientId=self.client)
+        except Exception:
+            pass
+        self.string_constraint = None
+
+        # 2) 풍선을 헤드 *바로 위* 에 고정 (헤드에 얹혀 걸린 상태).
+        #    풍선 중심을 헤드보다 (balloon_radius+여유) 위에 두어 메시 관통(→터짐)을 막는다.
+        self.capture_constraint = p.createConstraint(
+            parentBodyUniqueId=self.tool_id,
+            parentLinkIndex=-1,
+            childBodyUniqueId=self.balloon_id,
+            childLinkIndex=-1,
+            jointType=p.JOINT_POINT2POINT,
+            jointAxis=[0, 0, 0],
+            parentFramePosition=[0, 0, ho + self.cfg.balloon_radius + 0.02],
+            childFramePosition=[0, 0, 0],          # 풍선 중심
+            physicsClientId=self.client,
+        )
+        p.changeConstraint(self.capture_constraint, maxForce=50.0,
+                           physicsClientId=self.client)
+
+        # 3) 포획 후에는 도구-풍선 충돌을 끈다 (이미 도구에 걸려 있으므로 접촉력
+        #    스파이크로 풍선이 "터지는" 비현실적 현상을 방지).
+        try:
+            n_links = p.getNumJoints(self.tool_id, physicsClientId=self.client)
+            for li in range(-1, n_links):
+                p.setCollisionFilterPair(self.tool_id, self.balloon_id, li, -1, 0,
+                                         physicsClientId=self.client)
+        except Exception:
+            pass
+
+        self._balloon_detached = True   # 이후 부력 작용(떠오르려 함) → 무게로 눌러 내림
+        if verbose:
+            print(f"  ✅ 풍선 포획! 헤드-풍선 거리 {d:.3f}m → 도구에 걸림 (가지에서 분리)")
+        return True
 
     # ── 단일 에피소드 실행 ──
     def run_episode(self, seed: Optional[int] = None, verbose: bool = False) -> EpisodeResult:
@@ -551,22 +637,9 @@ class YCBBalloonSimulator:
                     print(f"  💥 Step {step}: 풍선 터짐! 충격력 {cf:.3f}N")
                 break
 
-            # 분리 확인
+            # 포획 시도 (헤드가 풍선에 닿으면 가지에서 떼어 도구에 건다)
             if not detached:
-                if cf > self.cfg.string_max_force * 5:
-                    detached = True
-                    if verbose:
-                        print(f"  ✅ Step {step}: 줄이 끊어짐! 접촉력 {cf:.3f}N")
-                    try:
-                        if self.string_constraint is not None:
-                            p.removeConstraint(self.string_constraint, physicsClientId=self.client)
-                    except Exception:
-                        pass
-                    self.string_constraint = None
-                else:
-                    detached = self._check_detach(bpos)
-                if detached and verbose:
-                    print(f"  ✅ Step {step}: 가지에서 분리! 풍선 위치 {[f'{v:.3f}' for v in bpos]}")
+                detached = self._try_capture(tpos, bpos, verbose)
 
             # 속도 명령 적용
             vel = ctrl.get_velocity(step, tpos, bpos)
