@@ -46,6 +46,11 @@ RIGHT_BASE_POSITION = [0.0, 0.35, 0.65]
 TABLE_BASE_POSITION = [0.6, 0.0, 0.0]
 YCB_DIR = "/workspace/KCC-2026-VLM/data/object2urdf/examples/ycb"
 
+# load_ycb_objects() 가 YCB URDF 를 로드할 때 적용하는 globalScaling.
+# 조합 도구를 URDF 로 저장할 때도 이 값으로 메시/원점을 보정해야
+# 저장본이 시뮬레이션과 동일한 크기로 재현된다. 두 곳이 항상 일치해야 한다.
+YCB_GLOBAL_SCALING = 0.1
+
 YCB_OBJECT_SPECS = [
     ("large_marker", "040_large_marker.urdf", [1.2, 0.3, 0.82]),
     ("cracker_box", "003_cracker_box.urdf", [1.2, 0.10, 0.82]),
@@ -542,7 +547,7 @@ def load_ycb_objects(ycb_dir: str = YCB_DIR, table_body_id=None) -> dict:
             urdf_path,
             basePosition=spawn_pos,
             baseOrientation=p.getQuaternionFromEuler(_rpy_rad),
-            globalScaling=0.1,
+            globalScaling=YCB_GLOBAL_SCALING,
             flags=flags,
         )
         loaded[label] = body_id
@@ -2012,11 +2017,18 @@ def run_sequential_demo(
                                 break
                     
                     # JSON에서 찾지 못하면 runtime 위치 차이 사용 (fallback)
+                    # 조합 도구 base(spatula) 로컬 좌표계 기준 오프셋으로 변환한다.
+                    # (URDF fixed joint origin 은 parent=base_link 프레임에서 해석되므로)
                     if contact_offset is None:
-                        main_pos, _ = p.getBasePositionAndOrientation(left_body_id)
-                        aux_pos, _ = p.getBasePositionAndOrientation(right_body_id)
-                        contact_offset = (np.array(aux_pos) - np.array(main_pos)).tolist()
-                        print(f"[Demo] Using runtime offset (fallback): {contact_offset}")
+                        base_pos, base_orn = p.getBasePositionAndOrientation(spatula_id)
+                        attach_pos, _ = p.getBasePositionAndOrientation(gelatin_id)
+                        base_orn_inv = p.invertTransform([0, 0, 0], list(base_orn))[1]
+                        contact_offset, _ = p.multiplyTransforms(
+                            [0, 0, 0], base_orn_inv,
+                            (np.array(attach_pos) - np.array(base_pos)).tolist(), [0, 0, 0, 1],
+                        )
+                        contact_offset = list(contact_offset)
+                        print(f"[Demo] Using runtime offset (base-local, fallback): {contact_offset}")
                     
                     success, result = save_combined_tool_to_urdf(
                         base_body_id=spatula_id,
@@ -2297,110 +2309,45 @@ def save_combined_tool_to_urdf(
         
         # 원본 URDF에서 링크 정보 추출하는 헬퍼 함수
         def extract_link_from_urdf(urdf_path):
-            """원본 URDF에서 첫 번째 link 요소 추출"""
+            """원본 URDF에서 메시(visual)를 가진 link 요소를 추출.
+
+            object2urdf 처럼 빈 base_link + 메시 링크 구조일 수 있으므로,
+            단순 첫 링크가 아니라 visual 이 있는 링크를 우선 선택한다.
+            메시 경로는 절대 경로로 변환한다.
+            """
             try:
                 tree = ET.parse(urdf_path)
                 root = tree.getroot()
-                link = root.find("link")
-                if link is not None:
-                    # 메시 경로를 절대 경로로 변환
-                    urdf_dir = os.path.dirname(urdf_path)
-                    for mesh_elem in link.iter("mesh"):
-                        filename = mesh_elem.get("filename")
-                        if filename:
-                            # 상대 경로를 절대 경로로 변환
-                            abs_filename = os.path.join(urdf_dir, filename)
-                            mesh_elem.set("filename", abs_filename)
-                    return link
-            except:
-                pass
-            return None
-        
+                links = root.findall("link")
+                if not links:
+                    return None
+                chosen = next((lk for lk in links if lk.find("visual") is not None), links[0])
+                urdf_dir = os.path.dirname(urdf_path)
+                for mesh_elem in chosen.iter("mesh"):
+                    filename = mesh_elem.get("filename")
+                    if filename and not os.path.isabs(filename):
+                        mesh_elem.set("filename", os.path.join(urdf_dir, filename))
+                return chosen
+            except Exception:
+                return None
+
         # 기본 URDF 구조 생성
         robot_elem = ET.Element("robot")
         robot_elem.set("name", f"{base_label}_{attach_label}_combined")
-        
-        # Base link 생성
+
+        # Base link 생성 (스케일 보정 + 라이브 동역학 inertial)
         base_link = ET.SubElement(robot_elem, "link")
         base_link.set("name", "base_link")
-        
-        # 원본 URDF에서 base link 정보 복사
-        if base_urdf_path and os.path.isfile(base_urdf_path):
-            original_link = extract_link_from_urdf(base_urdf_path)
-            if original_link is not None:
-                # visual 복사
-                visual = original_link.find("visual")
-                if visual is not None:
-                    base_link.append(ET.fromstring(ET.tostring(visual)))
-                
-                # collision 복사
-                collision = original_link.find("collision")
-                if collision is not None:
-                    base_link.append(ET.fromstring(ET.tostring(collision)))
-                
-                # inertial 복사
-                inertial = original_link.find("inertial")
-                if inertial is not None:
-                    base_link.append(ET.fromstring(ET.tostring(inertial)))
-                else:
-                    # inertial이 없으면 생성
-                    inertial = ET.SubElement(base_link, "inertial")
-                    mass_elem = ET.SubElement(inertial, "mass")
-                    mass_elem.set("value", str(base_mass))
-                    inertia = ET.SubElement(inertial, "inertia")
-                    inertia.set("ixx", "0.01")
-                    inertia.set("iyy", "0.01")
-                    inertia.set("izz", "0.01")
-                    inertia.set("ixy", "0.0")
-                    inertia.set("ixz", "0.0")
-                    inertia.set("iyz", "0.0")
-            else:
-                # 기본값 사용
-                _add_default_link(base_link, base_mass, "base")
-        else:
-            # URDF 파일이 없으면 기본값 사용
-            _add_default_link(base_link, base_mass, "base")
-        
-        # Attach link 생성
+        base_src = (extract_link_from_urdf(base_urdf_path)
+                    if base_urdf_path and os.path.isfile(base_urdf_path) else None)
+        _build_combined_link(base_link, base_src, base_body_id, base_mass, YCB_GLOBAL_SCALING)
+
+        # Attach link 생성 (스케일 보정 + 라이브 동역학 inertial)
         attach_link = ET.SubElement(robot_elem, "link")
         attach_link.set("name", "attach_link")
-        
-        # 원본 URDF에서 attach link 정보 복사
-        if attach_urdf_path and os.path.isfile(attach_urdf_path):
-            original_link = extract_link_from_urdf(attach_urdf_path)
-            if original_link is not None:
-                # visual 복사
-                visual = original_link.find("visual")
-                if visual is not None:
-                    attach_link.append(ET.fromstring(ET.tostring(visual)))
-                
-                # collision 복사
-                collision = original_link.find("collision")
-                if collision is not None:
-                    attach_link.append(ET.fromstring(ET.tostring(collision)))
-                
-                # inertial 복사
-                inertial = original_link.find("inertial")
-                if inertial is not None:
-                    attach_link.append(ET.fromstring(ET.tostring(inertial)))
-                else:
-                    # inertial이 없으면 생성
-                    inertial = ET.SubElement(attach_link, "inertial")
-                    mass_elem = ET.SubElement(inertial, "mass")
-                    mass_elem.set("value", str(attach_mass))
-                    inertia = ET.SubElement(inertial, "inertia")
-                    inertia.set("ixx", "0.01")
-                    inertia.set("iyy", "0.01")
-                    inertia.set("izz", "0.01")
-                    inertia.set("ixy", "0.0")
-                    inertia.set("ixz", "0.0")
-                    inertia.set("iyz", "0.0")
-            else:
-                # 기본값 사용
-                _add_default_link(attach_link, attach_mass, "attach")
-        else:
-            # URDF 파일이 없으면 기본값 사용
-            _add_default_link(attach_link, attach_mass, "attach")
+        attach_src = (extract_link_from_urdf(attach_urdf_path)
+                      if attach_urdf_path and os.path.isfile(attach_urdf_path) else None)
+        _build_combined_link(attach_link, attach_src, attach_body_id, attach_mass, YCB_GLOBAL_SCALING)
         
         # Fixed joint connecting base and attach
         fixed_joint = ET.SubElement(robot_elem, "joint")
@@ -2469,6 +2416,99 @@ def _add_default_link(link_elem, mass, link_type):
     coll_geom = ET.SubElement(collision, "geometry")
     coll_box = ET.SubElement(coll_geom, "box")
     coll_box.set("size", "0.1 0.1 0.1")
+
+
+def _scale_visual_or_collision(elem, scale: float):
+    """visual/collision 요소의 <origin> 과 geometry(메시/프리미티브) 크기를 scale 배.
+
+    load_ycb_objects() 의 globalScaling 을 URDF 에 직접 구워넣어, 저장본을
+    globalScaling=1.0 으로 로드해도 시뮬레이션과 동일한 크기가 되게 한다.
+    """
+    origin = elem.find("origin")
+    if origin is not None and origin.get("xyz"):
+        vals = [float(x) * scale for x in origin.get("xyz").split()]
+        origin.set("xyz", " ".join(f"{v:.6f}" for v in vals))
+
+    for mesh in elem.iter("mesh"):
+        s = mesh.get("scale")
+        sv = [float(x) for x in s.split()] if s else [1.0, 1.0, 1.0]
+        sv = [v * scale for v in sv]
+        mesh.set("scale", " ".join(f"{v:.6f}" for v in sv))
+
+    for box in elem.iter("box"):
+        if box.get("size"):
+            box.set("size", " ".join(f"{float(x) * scale:.6f}" for x in box.get("size").split()))
+    for cyl in elem.iter("cylinder"):
+        if cyl.get("radius"):
+            cyl.set("radius", f"{float(cyl.get('radius')) * scale:.6f}")
+        if cyl.get("length"):
+            cyl.set("length", f"{float(cyl.get('length')) * scale:.6f}")
+    for sph in elem.iter("sphere"):
+        if sph.get("radius"):
+            sph.set("radius", f"{float(sph.get('radius')) * scale:.6f}")
+    return elem
+
+
+def _inertial_from_dynamics(link_elem, body_id, fallback_mass):
+    """PyBullet getDynamicsInfo 의 (이미 globalScaling 이 반영된) 질량/관성으로
+    inertial 블록을 만든다. 시뮬레이션에서 실제로 쓰던 동역학 값과 일치한다."""
+    mass = float(fallback_mass)
+    diag = (1e-4, 1e-4, 1e-4)
+    ipos = (0.0, 0.0, 0.0)
+    iorn = (0.0, 0.0, 0.0, 1.0)
+    try:
+        info = p.getDynamicsInfo(body_id, -1)
+        if info:
+            if info[0] and info[0] > 0:
+                mass = float(info[0])
+            diag = info[2]
+            ipos = info[3]
+            iorn = info[4]
+    except Exception:
+        pass
+
+    ixx, iyy, izz = (max(float(v), 1e-6) for v in diag)
+    try:
+        irpy = p.getEulerFromQuaternion(iorn)
+    except Exception:
+        irpy = (0.0, 0.0, 0.0)
+
+    inertial = ET.SubElement(link_elem, "inertial")
+    origin = ET.SubElement(inertial, "origin")
+    origin.set("xyz", f"{ipos[0]:.6f} {ipos[1]:.6f} {ipos[2]:.6f}")
+    origin.set("rpy", f"{irpy[0]:.6f} {irpy[1]:.6f} {irpy[2]:.6f}")
+    mass_elem = ET.SubElement(inertial, "mass")
+    mass_elem.set("value", f"{mass:.6f}")
+    inertia = ET.SubElement(inertial, "inertia")
+    inertia.set("ixx", f"{ixx:.8f}")
+    inertia.set("iyy", f"{iyy:.8f}")
+    inertia.set("izz", f"{izz:.8f}")
+    inertia.set("ixy", "0")
+    inertia.set("ixz", "0")
+    inertia.set("iyz", "0")
+
+
+def _build_combined_link(dst_link, src_link, body_id, fallback_mass, scale: float):
+    """원본 YCB 링크의 visual/collision 을 scale 보정하여 dst_link 에 복사하고,
+    inertial 은 라이브 동역학 값으로 생성한다. 메시가 없으면 기본 박스로 대체."""
+    visual = src_link.find("visual") if src_link is not None else None
+    collision = src_link.find("collision") if src_link is not None else None
+
+    if visual is None and collision is None:
+        # 메시 정보를 못 찾음 → 기본 박스(이미 inertial 포함)로 대체
+        _add_default_link(dst_link, fallback_mass, "")
+        return
+
+    if visual is not None:
+        v = ET.fromstring(ET.tostring(visual))
+        _scale_visual_or_collision(v, scale)
+        dst_link.append(v)
+    if collision is not None:
+        c = ET.fromstring(ET.tostring(collision))
+        _scale_visual_or_collision(c, scale)
+        dst_link.append(c)
+
+    _inertial_from_dynamics(dst_link, body_id, fallback_mass)
 
 
 
