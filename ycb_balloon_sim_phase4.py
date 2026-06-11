@@ -106,11 +106,11 @@ def tree_urdf(cfg: SceneConfig) -> str:
 <robot name="tree">
   <link name="trunk">
     <inertial><mass value="100"/><inertia ixx="1" iyy="1" izz="1" ixy="0" ixz="0" iyz="0"/></inertial>
-    <visual><origin xyz="0 0 {cfg.trunk_height/2}"/>
-      <geometry><cylinder radius="0.055" length="{cfg.trunk_height}"/></geometry>
+    <visual><origin xyz="-0.2 0 {cfg.trunk_height/2}"/>
+      <geometry><cylinder radius="0.22" length="{cfg.trunk_height}"/></geometry>
       <material name="wood"><color rgba="0.50 0.25 0.05 1"/></material></visual>
-    <collision><origin xyz="0 0 {cfg.trunk_height/2}"/>
-      <geometry><cylinder radius="0.055" length="{cfg.trunk_height}"/></geometry></collision>
+    <collision><origin xyz="-0.2 0 {cfg.trunk_height/2}"/>
+      <geometry><cylinder radius="0.22" length="{cfg.trunk_height}"/></geometry></collision>
   </link>
   <link name="branch">
     <inertial><mass value="5"/><inertia ixx="0.05" iyy="0.05" izz="0.05" ixy="0" ixz="0" iyz="0"/></inertial>
