@@ -63,6 +63,9 @@ class SceneConfig:
     tool_start_pos:    List[float] = field(default_factory=lambda: [0.55, 0.0, 0.85])
     tool_start_rpy:    List[float] = field(default_factory=lambda: [0.0, 0.0, 0.0])
 
+    # 시작 시 안정화 (GUI 에서 물체를 다 로드한 뒤 천천히 안정화 과정을 보여줌)
+    stabilize_seconds: float = 30.0   # GUI 에서 안정화 단계 지속 시간(초)
+
     # 평가
     max_steps:         int  = 2400    # 10초 @ 240Hz
     control_steps:     int  = 1800    # 4 phase 스크립트는 7.5초 안에 완료
@@ -330,9 +333,11 @@ class ScriptController:
 # ─────────────────────────────────────────────
 class YCBBalloonSimulator:
 
-    def __init__(self, cfg: SceneConfig, gui: bool = False):
+    def __init__(self, cfg: SceneConfig, gui: bool = False, slowmo: float = 1.0):
         self.cfg = cfg
         self.gui = gui
+        # GUI 재생 속도 배수. 1.0=실시간, 3.0=3배 느리게(사람이 보기 쉽게).
+        self.slowmo = max(1.0, float(slowmo))
         self.client = None
         self.tree_id = self.balloon_id = self.tool_id = None
         self.string_constraint = None
@@ -506,10 +511,33 @@ class YCBBalloonSimulator:
                                [cfg.tool_start_pos[0], cfg.tool_start_pos[1], cfg.tool_start_pos[2]+0.3],
                                [0.5,0.8,1], 1.0, physicsClientId=self.client)
 
-        # 안정화 (20스텝): 부력 없이 중력만 → 풍선이 가지 아래에 안정적으로 매달림.
-        for _ in range(20):
+        # ── 안정화 ──
+        # GUI: stabilize_seconds 동안(기본 30초) 실시간으로 안정화 과정을 보여준다.
+        # headless(평가): 짧게(30스텝)만 안정화하여 평가 속도를 유지한다.
+        # 도구는 자유 낙하하지 않도록 시작 자세에 고정한 채 물리만 진행한다.
+        stab_steps = int(self.cfg.stabilize_seconds * 240) if self.gui else 30
+        stab_text_id = None
+        if self.gui:
+            print(f"[Sim] 안정화 {self.cfg.stabilize_seconds:.0f}초 진행 중...")
+            stab_text_id = p.addUserDebugText(
+                "STABILIZING...",
+                [cfg.tool_start_pos[0], cfg.tool_start_pos[1], cfg.tool_start_pos[2] + 0.45],
+                [1.0, 0.6, 0.2], 1.4, physicsClientId=self.client)
+        for _ in range(stab_steps):
+            # 도구를 시작 자세로 고정 (자유 낙하 방지)
+            p.resetBasePositionAndOrientation(self.tool_id, cfg.tool_start_pos, start_orn,
+                                              physicsClientId=self.client)
+            p.resetBaseVelocity(self.tool_id, [0, 0, 0], [0, 0, 0],
+                                physicsClientId=self.client)
             self._apply_balloon_buoyancy()
             p.stepSimulation(physicsClientId=self.client)
+            if self.gui:
+                time.sleep(1.0 / 240.0)   # 안정화는 실시간(=정확히 stabilize_seconds 초)
+        if stab_text_id is not None:
+            try:
+                p.removeUserDebugItem(stab_text_id, physicsClientId=self.client)
+            except Exception:
+                pass
 
         return self._obs()
 
@@ -665,7 +693,7 @@ class YCBBalloonSimulator:
             self._apply_balloon_buoyancy()
             p.stepSimulation(physicsClientId=self.client)
             if self.gui:
-                time.sleep(1.0 / 240.0)
+                time.sleep(self.slowmo / 240.0)   # slowmo 배수만큼 천천히 재생
 
             phase4_completed = step >= phase4_start_step + self.cfg.min_phase4_steps
 
@@ -779,10 +807,16 @@ if __name__ == "__main__":
     ap.add_argument("--trials",  type=int, default=1, help="에피소드 수 (기본 1)")
     ap.add_argument("--seed",    type=int, default=None, help="랜덤 시드")
     ap.add_argument("--verbose", action="store_true", help="스텝별 출력")
+    ap.add_argument("--slowmo",  type=float, default=3.0,
+                    help="GUI 재생 속도 배수 (1=실시간, 3=3배 느리게, 기본 3)")
+    ap.add_argument("--stabilize", type=float, default=None,
+                    help="GUI 시작 안정화 시간(초). 기본 30")
     args = ap.parse_args()
 
     cfg = SceneConfig()
-    sim = YCBBalloonSimulator(cfg, gui=args.gui)
+    if args.stabilize is not None:
+        cfg.stabilize_seconds = args.stabilize
+    sim = YCBBalloonSimulator(cfg, gui=args.gui, slowmo=args.slowmo)
     sim.connect()
 
     print(f"\n🎈 YCB 도구 시뮬레이션 시작")
