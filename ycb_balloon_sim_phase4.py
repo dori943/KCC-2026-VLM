@@ -125,6 +125,9 @@ def tree_urdf(cfg: SceneConfig) -> str:
 
 def balloon_urdf(cfg: SceneConfig) -> str:
     r = cfg.balloon_radius
+    L = cfg.string_length
+    # 풍선 + 줄을 하나의 강체 link 로 만든다 → 절대 분리되지 않는 단일 물체.
+    # 줄(가는 원기둥)은 구 위(z=r ~ z=r+L)로 뻗어 가지 끝에 걸린다.
     return f"""<?xml version="1.0"?>
 <robot name="balloon">
   <link name="balloon_body">
@@ -132,6 +135,11 @@ def balloon_urdf(cfg: SceneConfig) -> str:
       <inertia ixx="1e-5" iyy="1e-5" izz="1e-5" ixy="0" ixz="0" iyz="0"/></inertial>
     <visual><geometry><sphere radius="{r}"/></geometry>
       <material name="red"><color rgba="1.0 0.15 0.15 0.9"/></material></visual>
+    <visual>
+      <origin xyz="0 0 {r + L / 2.0}"/>
+      <geometry><cylinder radius="0.0035" length="{L}"/></geometry>
+      <material name="string"><color rgba="0.95 0.95 0.95 1"/></material>
+    </visual>
     <collision>
       <geometry><sphere radius="{r}"/></geometry>
       <contact_coefficients mu="0.5" kp="2000" kd="5"/>
@@ -368,11 +376,12 @@ class YCBBalloonSimulator:
             cfg.branch_height + cfg.branch_length * math.sin(br)
         ]
         # 풍선은 가지 끝에 줄이 걸려, 부력으로 떠오르다 가지 *아래*에 매달려 있다.
-        # (위로 올라가던 풍선이 가지에 걸려 손이 닿지 않는 상태)
+        # 줄(길이 L) 윗끝이 가지 끝에 닿도록, 풍선 중심을 (반지름 r + L) 만큼 아래에 둔다.
+        hang_offset = cfg.balloon_radius + cfg.string_length
         balloon_pos = [
             self._branch_tip[0],
             self._branch_tip[1],
-            self._branch_tip[2] - cfg.string_length
+            self._branch_tip[2] - hang_offset
         ]
 
         # 풍선
@@ -391,14 +400,13 @@ class YCBBalloonSimulator:
         )
 
         # 줄 constraint (point2point)
-        # 풍선이 가지 아래 string_length 만큼 떨어진 "매달린 점"에 걸려 있다.
-        # 풍선 중심을 그 점에 직접 고정한다(레버 없음) → 가벼운 구체가
-        # 긴 지렛대로 인해 수치적으로 튕겨 나가는 불안정을 방지한다.
-        # 시각적 줄은 가지 끝 ~ 풍선 사이 디버그 라인으로 표현한다.
+        # 풍선 중심을 "매달린 점"(가지 끝 아래 r+L)에 직접 고정한다(레버 없음)
+        # → 줄(풍선 link 의 일부)이 가지 끝까지 자연스럽게 닿고, 가벼운 구체가
+        # 긴 지렛대로 튕겨 나가는 불안정도 막는다.
         hang_point_local = [
             cfg.branch_length * math.cos(br),
             0,
-            cfg.branch_height + cfg.branch_length * math.sin(br) - cfg.string_length
+            cfg.branch_height + cfg.branch_length * math.sin(br) - hang_offset
         ]
         self.string_constraint = p.createConstraint(
             parentBodyUniqueId=self.tree_id,
@@ -485,10 +493,8 @@ class YCBBalloonSimulator:
         except Exception:
             pass
 
-        # GUI 보조선
+        # GUI 라벨 (줄은 풍선 link 의 실제 visual 이므로 보조선은 그리지 않는다)
         if self.gui:
-            p.addUserDebugLine(self._branch_tip, balloon_pos,
-                               [0.9, 0.9, 0.9], 2, physicsClientId=self.client)
             p.addUserDebugText("🎈 BALLOON", [balloon_pos[0], balloon_pos[1], balloon_pos[2]+0.12],
                                [1,0.8,0], 1.2, physicsClientId=self.client)
             tool_label = "spatula + gelatin_box" if not self._tool_is_fallback else "inline fallback tool"
