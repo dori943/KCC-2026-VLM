@@ -53,10 +53,11 @@ class SceneConfig:
     buoyancy_scale:    float = 1.0     # 1.0이면 아르키메데스 부력 그대로 적용
     balloon_linear_damping:  float = 0.55
     balloon_angular_damping: float = 0.80
-    string_length:     float = 0.25   # 가지 끝 ~ 풍선 사이 줄 길이
+    string_length:     float = 0.25   # 풍선 아래로 늘어진 줄 길이
+    branch_gap:        float = 0.04    # 가지 끝과 풍선 윗면 사이 간격 (풍선이 가지 아래에 걸림)
     string_catch_radius: float = 0.10  # 헤드가 줄(선분)에 이만큼(m) 가까우면 줄을 걸 수 있음
-    hook_spin_rate:    float = 6.0     # 줄을 감기 위한 헤드 회전 각속도 (rad/s, yaw)
-    hook_angle:        float = 2.2     # 줄이 헤드에 걸리는 데 필요한 누적 회전각 (rad)
+    hook_spin_rate:    float = 4.0     # 줄을 감기 위한 헤드 회전 각속도 (rad/s, yaw)
+    hook_angle:        float = 5.0     # 줄이 헤드에 걸리는 데 필요한 누적 회전각 (rad) ≈ 286°
 
     # 도구 시작 위치 (로봇 손 위치 가정)
     tool_start_pos:    List[float] = field(default_factory=lambda: [0.55, 0.0, 0.85])
@@ -127,7 +128,8 @@ def balloon_urdf(cfg: SceneConfig) -> str:
     r = cfg.balloon_radius
     L = cfg.string_length
     # 풍선 + 줄을 하나의 강체 link 로 만든다 → 절대 분리되지 않는 단일 물체.
-    # 줄(가는 원기둥)은 구 위(z=r ~ z=r+L)로 뻗어 가지 끝에 걸린다.
+    # 풍선은 부력으로 떠올라 가지 아래에 걸리고, 줄(가는 원기둥)은 구 *아래*
+    # (z=-r ~ z=-(r+L)) 로 늘어진다. 도구는 이 늘어진 줄을 아래에서 걸어 내린다.
     return f"""<?xml version="1.0"?>
 <robot name="balloon">
   <link name="balloon_body">
@@ -136,7 +138,7 @@ def balloon_urdf(cfg: SceneConfig) -> str:
     <visual><geometry><sphere radius="{r}"/></geometry>
       <material name="red"><color rgba="1.0 0.15 0.15 0.9"/></material></visual>
     <visual>
-      <origin xyz="0 0 {r + L / 2.0}"/>
+      <origin xyz="0 0 {-(r + L / 2.0)}"/>
       <geometry><cylinder radius="0.0035" length="{L}"/></geometry>
       <material name="string"><color rgba="0.95 0.95 0.95 1"/></material>
     </visual>
@@ -285,8 +287,10 @@ class ScriptController:
         speed = 0.40  # m/s
         zero  = [0.0, 0.0, 0.0]
 
-        # 줄 선분 위의 목표점: 풍선과 가지 끝 사이(아래쪽 55% 지점) → 헤드가 줄을 가로지름
-        catch = [balloon_pos[i] + 0.55 * (branch_tip[i] - balloon_pos[i]) for i in range(3)]
+        # 늘어진 줄 위의 목표점: 풍선 *아래* (구 밑면에서 줄 중간 지점).
+        # 헤드를 여기로 올려 줄을 가로지른 뒤 회전시켜 건다.
+        catch = [balloon_pos[0], balloon_pos[1],
+                 balloon_pos[2] - (cfg.balloon_radius + cfg.string_length * 0.5)]
 
         if not hooked:
             if frac < 0.25:
@@ -302,7 +306,7 @@ class ScriptController:
         # 줄이 걸린 뒤(Phase 3~4): 아래로 당겨 풍선을 가지에서 빼내며 손 높이까지 하강.
         lin = self._vel_toward([tool_pos[0], tool_pos[1], 0.0],
                                [balloon_pos[0], balloon_pos[1], 0.0], speed * 0.3)
-        lin[2] = -speed * 0.6 if tool_pos[2] > 0.30 else 0.0
+        lin[2] = -speed * 0.7 if tool_pos[2] > 0.18 else 0.0
         return lin, zero
 
     @staticmethod
@@ -375,9 +379,9 @@ class YCBBalloonSimulator:
             cfg.tree_pos[1],
             cfg.branch_height + cfg.branch_length * math.sin(br)
         ]
-        # 풍선은 가지 끝에 줄이 걸려, 부력으로 떠오르다 가지 *아래*에 매달려 있다.
-        # 줄(길이 L) 윗끝이 가지 끝에 닿도록, 풍선 중심을 (반지름 r + L) 만큼 아래에 둔다.
-        hang_offset = cfg.balloon_radius + cfg.string_length
+        # 풍선은 부력으로 떠올라 가지 *아래*에 걸려 있다(윗면이 가지 끝 바로 밑).
+        # 줄은 풍선 *아래*로 늘어진다. → 도구가 아래에서 줄을 걸어 내릴 수 있다.
+        hang_offset = cfg.balloon_radius + cfg.branch_gap
         balloon_pos = [
             self._branch_tip[0],
             self._branch_tip[1],
@@ -568,8 +572,10 @@ class YCBBalloonSimulator:
         ho = getattr(self, "_tool_head_offset", 0.23)
         # 헤드의 월드 위치 (도구가 회전 중이므로 방향을 반영)
         head_world, _ = p.multiplyTransforms(tool_pos, tool_orn, [0, 0, ho], [0, 0, 0, 1])
-        # 줄 선분: 가지 끝(snag) ~ 풍선 중심
-        d = self._point_segment_dist(head_world, self._branch_tip, balloon_pos)
+        # 줄 선분: 풍선 중심 ~ 늘어진 줄 끝(풍선 아래 r+L)
+        string_bottom = [balloon_pos[0], balloon_pos[1],
+                         balloon_pos[2] - (self.cfg.balloon_radius + self.cfg.string_length)]
+        d = self._point_segment_dist(head_world, balloon_pos, string_bottom)
         if d < self.cfg.string_catch_radius:
             self._spin_steps += 1   # 줄 근처에서 회전한 스텝 누적
         else:
