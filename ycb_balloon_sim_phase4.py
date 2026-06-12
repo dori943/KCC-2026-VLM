@@ -592,7 +592,7 @@ class YCBBalloonSimulator:
         """스패출러 헤드가 풍선 줄(가지끝~풍선 선분) 가까이에서 충분히 회전하면,
         줄이 헤드에 감겨 걸린 것으로 보고: ① 가지 snag 해제 ② 풍선을 헤드에 고정.
         이후 도구를 내리면 줄에 걸린 풍선이 따라 내려온다."""
-        if self.capture_constraint is not None:
+        if self.capture_constraint is not None:   # "teleport" 또는 실제 constraint ID
             return True
         if not in_spin_phase:
             return False
@@ -610,6 +610,13 @@ class YCBBalloonSimulator:
             return False
 
         rotated = self._spin_steps * (1.0 / 240.0) * self.cfg.hook_spin_rate
+        # 감김 진행 로그: 줄 근처에서 회전 중일 때 20스텝마다 출력
+        if self._spin_steps % 20 == 1:
+            pct = min(rotated / self.cfg.hook_angle * 100.0, 100.0)
+            bar = "█" * int(pct / 5) + "░" * (20 - int(pct / 5))
+            print(f"  🔄 줄 감김 진행: [{bar}] {pct:5.1f}%  "
+                  f"(회전 {math.degrees(rotated):.1f}° / {math.degrees(self.cfg.hook_angle):.0f}°, "
+                  f"헤드-줄 {d:.3f}m)")
         if rotated < self.cfg.hook_angle:
             return False
 
@@ -621,27 +628,31 @@ class YCBBalloonSimulator:
             pass
         self.string_constraint = None
 
-        # 2) 풍선을 '현재 위치 그대로' 헤드(도구)에 고정 → 튐 없이 줄에 걸린 상태 유지.
-        inv_pos, inv_orn = p.invertTransform(tool_pos, tool_orn)
-        rel_local, _ = p.multiplyTransforms(inv_pos, inv_orn, balloon_pos, [0, 0, 0, 1])
-        self.capture_constraint = p.createConstraint(
-            parentBodyUniqueId=self.tool_id,
-            parentLinkIndex=-1,
-            childBodyUniqueId=self.balloon_id,
-            childLinkIndex=-1,
-            jointType=p.JOINT_POINT2POINT,
-            jointAxis=[0, 0, 0],
-            parentFramePosition=list(rel_local),
-            childFramePosition=[0, 0, 0],
-            physicsClientId=self.client,
-        )
-        p.changeConstraint(self.capture_constraint, maxForce=50.0,
-                           physicsClientId=self.client)
+        # 2) 풍선을 도구 헤드에 연결.
+        #    POINT2POINT/FIXED constraint는 도구 스핀 중 누적 반력으로 maxForce를
+        #    초과해 풍선이 튕겨 나가는 문제가 있다.
+        #    → constraint는 사용하지 않고, 매 스텝 resetBasePositionAndOrientation으로
+        #      풍선 위치를 헤드 바로 위에 직접 텔레포트하는 방식을 사용한다.
+        #      (self.capture_constraint = None 으로 두면 run_episode 에서 텔레포트 모드 활성)
 
-        self._balloon_detached = True   # 이후 부력 작용(떠오르려 함) → 도구 무게로 눌러 내림
+        # 헤드 월드 위치를 기준으로 풍선이 걸릴 오프셋 저장
+        # (헤드 바로 위 balloon_radius 만큼 → 줄이 헤드에 걸린 자연스러운 위치)
+        ho = getattr(self, "_tool_head_offset", 0.23)
+        self._hook_balloon_offset_z = ho + self.cfg.balloon_radius * 0.5  # 헤드 위 살짝
+
+        # capture_constraint 는 None 으로 유지 (텔레포트 모드 신호)
+        self.capture_constraint = "teleport"   # 문자열로 "걸림 확정" 표시
+
+        self._balloon_detached = True
+        # hook 순간 풍선 속도 초기화
+        p.resetBaseVelocity(self.balloon_id,
+                            linearVelocity=[0, 0, 0],
+                            angularVelocity=[0, 0, 0],
+                            physicsClientId=self.client)
         if verbose:
             print(f"  ✅ 줄을 헤드에 걸음! (헤드-줄 거리 {d:.3f}m, 회전 {math.degrees(rotated):.0f}°) "
                   "→ 가지에서 분리")
+        print(f"  🎣 [HOOK CONFIRMED] 풍선 줄 걸림 완료 — 텔레포트 추적 모드 활성화")
         return True
 
     # ── 단일 에피소드 실행 ──
@@ -691,6 +702,29 @@ class YCBBalloonSimulator:
                                 physicsClientId=self.client)
 
             self._apply_balloon_buoyancy()
+
+            # hook 후: 풍선을 도구 헤드 위치에 매 스텝 강제 텔레포트.
+            # constraint 방식은 스핀 누적 반력으로 풍선이 튕겨 나가므로,
+            # resetBasePositionAndOrientation 으로 직접 고정하는 것이 확실하다.
+            # 선속도·각속도도 0으로 유지해 풍선이 회전/흔들리지 않게 한다.
+            if detached:
+                t_pos, t_orn = p.getBasePositionAndOrientation(
+                    self.tool_id, physicsClientId=self.client)
+                ho = getattr(self, "_hook_balloon_offset_z",
+                             getattr(self, "_tool_head_offset", 0.23))
+                # 헤드 월드 위치 계산 (도구 회전 반영)
+                head_w, _ = p.multiplyTransforms(t_pos, t_orn, [0, 0, ho], [0, 0, 0, 1])
+                # 풍선은 헤드 바로 위에 고정, 방향은 항등 quaternion(회전 없음)
+                p.resetBasePositionAndOrientation(
+                    self.balloon_id,
+                    [head_w[0], head_w[1], head_w[2]],
+                    [0, 0, 0, 1],
+                    physicsClientId=self.client)
+                p.resetBaseVelocity(self.balloon_id,
+                                    linearVelocity=[0.0, 0.0, 0.0],
+                                    angularVelocity=[0.0, 0.0, 0.0],
+                                    physicsClientId=self.client)
+
             p.stepSimulation(physicsClientId=self.client)
             if self.gui:
                 time.sleep(self.slowmo / 240.0)   # slowmo 배수만큼 천천히 재생
