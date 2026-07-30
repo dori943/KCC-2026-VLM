@@ -1,0 +1,32 @@
+{
+  "_note": "F2 mock — 8항목 조립 검증 중 일부 fail. 논문 §3.4. 기대: action=reassemble, target=module2c(직전 단계=Tool Composition Generator), violated_checks 기록.",
+  "scenario": "pet",
+  "schema_name": "module3_output",
+  "schema_version": "0.1",
+  "assembly_strategy": {"base_object": "large_marker", "strategy_summary": "reach + hook", "sequence_reason": "mock", "filter_result_reflection": ""},
+  "assembly_steps": [
+    {"step": 1, "base_object": "large_marker", "attach_object": "fork", "joint_position_world": {"position": [0.4, 0.0, 0.7], "calculation_basis": "mock", "description": "mock"}}
+  ],
+  "final_structure": {"description": "mock tool", "functional_end": "fork_tip", "handle_end": "large_marker_body"},
+  "verification": {
+    "is_valid": false,
+    "checks": [
+      {"item": "alignment", "result": "pass", "reason": "정렬 양호"},
+      {"item": "collision", "result": "pass", "reason": "충돌 없음"},
+      {"item": "functional_end_exposed", "result": "fail", "reason": "기능단이 base에 가려짐"},
+      {"item": "handle_region_free", "result": "pass", "reason": "파지 영역 확보"},
+      {"item": "force_transfer", "result": "fail", "reason": "large_marker(plastic) 강성 부족으로 힘 전달 불가"},
+      {"item": "weak_point_mitigation", "result": "pass", "reason": "약점 완화 반영"},
+      {"item": "subgoal_support", "result": "pass", "reason": "required_atoms 지원"},
+      {"item": "contact_feasibility", "result": "pass", "reason": "접촉 가능"}
+    ]
+  },
+  "feedback": {
+    "need_feedback_to_module2a": true,
+    "feedback_target": "module2a",
+    "repair_type": "global_redesign",
+    "suggested_action": "강성 있는 base로 재조립",
+    "feedback_iteration": 0,
+    "task_abandoned": false
+  }
+}

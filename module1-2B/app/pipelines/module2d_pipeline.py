@@ -68,6 +68,7 @@ def run_module2d_pipeline(
         evaluated_candidates=evaluated,
         selected_candidate_id=selected_id,
         feedback_decision=feedback,
+        filter_counts=filter_trace.get("filter_counts", {}),
     )
     output_dict = output.to_dict()
 

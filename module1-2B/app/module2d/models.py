@@ -119,6 +119,8 @@ class FeedbackDecision:
     reason: str
     dominant_failure_pattern: list[str]
     suggested_relaxations: list[str]
+    # 논문 §3.3 F1의 두 갈래 구분: "env_constraint_wipeout" | "other" | None
+    branch: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -127,6 +129,7 @@ class FeedbackDecision:
             "reason": self.reason,
             "dominant_failure_pattern": self.dominant_failure_pattern,
             "suggested_relaxations": self.suggested_relaxations,
+            "branch": self.branch,
         }
 
 
@@ -154,6 +157,9 @@ class Module2DOutput:
     evaluated_candidates: list[EvaluatedCandidate]
     selected_candidate_id: str | None
     feedback_decision: FeedbackDecision
+    # 논문 §3.3 3단 필터의 순차 in/out 카운트. F1 분기(env_constraint_wipeout)
+    # 판정이 이 값에 의존한다(FeedbackController.evaluate_f1).
+    filter_counts: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -162,4 +168,5 @@ class Module2DOutput:
             "evaluated_candidates": [c.to_dict() for c in self.evaluated_candidates],
             "selected_candidate_id": self.selected_candidate_id,
             "feedback_decision": self.feedback_decision.to_dict(),
+            "filter_counts": self.filter_counts,
         }

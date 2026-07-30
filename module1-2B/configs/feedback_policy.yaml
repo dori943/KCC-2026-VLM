@@ -1,0 +1,13 @@
+# 피드백 재시도 정책 (논문 미명시 항목 — 구현 기본값)
+#
+# 논문 §3.3(F1)·§3.4(F2)는 재계획/재수행의 재시도 상한을 명시하지 않는다.
+# 아래 값은 "논문 미명시, 구현 기본값"이며, module3의 기존 하드코딩
+# (feedback_iteration >= 2 → task_abandoned)과 일치시킨 것이다. 임의 하드코딩을
+# 피하기 위해 설정값으로 분리한다. (README_inference_pipeline.md 참조)
+#
+# 의미: attempt는 0부터 시작(최초 시도). retry_cap회까지 재시도하고, 그 이상이면
+# task_abandoned 처리한다. cap=2 이면 최초 1회 + 재시도 2회 = 최대 3회 생성 시도.
+
+retry_caps:
+  F1: 2   # Tool Composition Generator(모듈 2C+2D) 후보 재생성/제약 완화 재시도 상한
+  F2: 2   # Tool Assembly Generator(모듈 3) 조립 재수행 재시도 상한

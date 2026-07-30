@@ -44,13 +44,14 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from app.feedback import FeedbackController, FeedbackRunner
 from app.pipelines.module2b_pipeline import run_module2b_pipeline
 from app.pipelines.module2c_pipeline import run_module2c_pipeline
 from app.pipelines.module2d_pipeline import run_module2d_pipeline
 from app.pipelines.module3_pipeline import run_module3_pipeline
 from app.runners.module1_runner import run_module1_pipeline
 from app.runners.module2a_runner import run_module2a_pipeline
-from app.utils import load_yaml
+from app.utils import load_json, load_yaml
 
 
 STAGES = ["1", "2a", "2b", "2c", "2d", "3"]
@@ -109,8 +110,15 @@ def run_full_pipeline(
     preloaded_dirs: dict[str, Path],
     scene_info_path: Path | None = None,
     task_scene_image_path: Path | None = None,
+    enable_feedback: bool = True,
 ) -> dict[str, Path]:
-    """모듈 1~3 순차 실행. preloaded_dirs는 --start-from이 2a 이상일 때 필요."""
+    """모듈 1~3 순차 실행. preloaded_dirs는 --start-from이 2a 이상일 때 필요.
+
+    enable_feedback=True면 논문 F1(2d 이후)·F2(3 이후) 피드백 루프를 배선한다:
+    통과 후보가 없거나(F1) 8항목 검증이 실패하면(F2) 컨트롤러 판정에 따라 상위
+    모듈을 재호출하고(재시도 상한은 configs/feedback_policy.yaml), 실패를
+    outputs/<task>/feedback_failures.jsonl 에 §4.5 형식으로 남긴다.
+    """
     start_idx = _stage_index(start_from)
     stop_idx  = _stage_index(stop_at)
     if start_idx > stop_idx:
@@ -262,7 +270,121 @@ def run_full_pipeline(
               f"iteration={s['feedback_iteration']}, "
               f"abandoned={s['task_abandoned']}  ({_elapsed(t0)})")
 
+    # ── 피드백 루프 (논문 F1·F2 연결) ──
+    if enable_feedback:
+        _run_feedback_loops(
+            dirs=dirs, task_name=task_name, image_path=image_path,
+            target_name=target_name, task_description=task_description,
+            model=model, api_key=api_key, scene_info_path=scene_info_path,
+            task_scene_image_path=task_scene_image_path, stop_idx=stop_idx,
+        )
+
     return dirs
+
+
+def _run_feedback_loops(
+    *, dirs: dict[str, Path], task_name: str, image_path: Path | None,
+    target_name: str, task_description: str, model: str, api_key: str,
+    scene_info_path: Path | None, task_scene_image_path: Path | None,
+    stop_idx: int,
+) -> None:
+    """2d 이후 F1, 3 이후 F2 피드백 루프를 실행한다.
+
+    재호출은 실제 파이프라인 함수를 다시 부른다(부수효과로 dirs 갱신). 재시도 상한은
+    configs/feedback_policy.yaml. 각 실패는 §4.5 형식으로 JSONL 로그에 남는다.
+    시나리오 필드는 task_name을 쓴다(논문 balloon=task3, chain=task2, pet=task6).
+    """
+    log_path = PROJECT_ROOT / "outputs" / task_name / "feedback_failures.jsonl"
+    policy_path = PROJECT_ROOT / "configs" / "feedback_policy.yaml"
+    controller = FeedbackController(policy_path=policy_path, log_path=log_path)
+    runner = FeedbackRunner(controller, scenario=task_name, log_path=log_path)
+
+    def _rerun_2c() -> None:
+        from app.module2c.providers import Module2BOutputProvider
+        provider_2c = Module2BOutputProvider(
+            image_path=image_path, target_name=target_name, task=task_description,
+            api_key=api_key, scene_info_path=scene_info_path,
+            task_scene_image_path=task_scene_image_path,
+        )
+        m2c = run_module2c_pipeline(
+            provider=provider_2c, bundle_path=dirs["2b"], api_key=api_key,
+            model=model, task_name=task_name,
+        )
+        dirs["2c"] = Path(m2c["run_dir"])
+
+    def _rerun_2d() -> None:
+        from app.module2d.providers import Module2COutputProvider
+        m2d = run_module2d_pipeline(
+            provider=Module2COutputProvider(), bundle_path=dirs["2c"],
+            api_key=api_key, model=model, task_name=task_name,
+        )
+        dirs["2d"] = Path(m2d["run_dir"])
+
+    def _rerun_2b() -> None:
+        m2a_dir = dirs.get("2a")
+        if m2a_dir is None:
+            print("  [feedback] module2b 재호출 불가(2a dir 없음) — 완화 요청 건너뜀", file=sys.stderr)
+            return
+        m2a_output = m2a_dir / "module2a_output.json"
+        m2_common = m2a_dir / "module2_common_input.json"
+        if not m2_common.exists():
+            m1_dir = dirs.get("1")
+            if m1_dir:
+                m2_common = m1_dir / "module2_common_input_template.json"
+        m2b = run_module2b_pipeline(
+            module2_common_path=m2_common, module2a_output_path=m2a_output,
+            task_name=task_name, api_key=api_key, model=model,
+            reasoner_mode="llm", task_scene_image_path=task_scene_image_path,
+        )
+        dirs["2b"] = Path(m2b["run_dir"])
+
+    def _rerun_3(iteration: int) -> None:
+        from app.module3.providers import Module2DOutputProvider
+        m3 = run_module3_pipeline(
+            provider=Module2DOutputProvider(), bundle_path=dirs["2d"],
+            api_key=api_key, model=model, task_name=task_name,
+            feedback_iteration=iteration,
+        )
+        dirs["3"] = Path(m3["run_dir"])
+
+    # ── F1: 2d 이후 ──
+    if "2d" in dirs and stop_idx >= _stage_index("2d"):
+        def _read_2d() -> dict[str, Any]:
+            return load_json(dirs["2d"] / "module2d_output.json")
+
+        def _reinvoke_f1(directive) -> None:
+            print(f"  [F1] {directive.branch} → {directive.action} "
+                  f"(target={directive.target_module}, attempt={directive.attempt + 1})")
+            if directive.target_module == "module2b" and "2b" in dirs:
+                _rerun_2b()
+            _rerun_2c()
+            _rerun_2d()
+
+        r1 = runner.resolve_f1(_read_2d, _reinvoke_f1)
+        if r1.records:
+            print(f"  [F1] resolved={r1.resolved} attempts={r1.attempts} "
+                  f"abandoned={r1.abandoned} → {log_path}")
+
+    # ── F2: 3 이후 ──
+    if "3" in dirs and stop_idx >= _stage_index("3"):
+        f2_state = {"iter": 0}
+
+        def _read_3() -> dict[str, Any]:
+            return load_json(dirs["3"] / "module3_output.json")
+
+        def _reinvoke_f2(directive) -> None:
+            f2_state["iter"] += 1
+            print(f"  [F2] {directive.action} (target={directive.target_module}, "
+                  f"violated={directive.record.violated_checks if directive.record else []}, "
+                  f"attempt={directive.attempt + 1})")
+            _rerun_2c()
+            _rerun_2d()
+            _rerun_3(f2_state["iter"])
+
+        r2 = runner.resolve_f2(_read_3, _reinvoke_f2)
+        if r2.records:
+            print(f"  [F2] resolved={r2.resolved} attempts={r2.attempts} "
+                  f"abandoned={r2.abandoned} → {log_path}")
 
 
 def main() -> int:
@@ -282,6 +404,10 @@ def main() -> int:
     parser.add_argument("--module2c-dir", default=None)
     parser.add_argument("--module2d-dir", default=None)
     parser.add_argument("--api-key", default=None)
+    parser.add_argument("--feedback", dest="feedback", action="store_true", default=True,
+                        help="논문 F1·F2 피드백 루프 활성화 (기본 on)")
+    parser.add_argument("--no-feedback", dest="feedback", action="store_false",
+                        help="피드백 루프 끄고 선형 실행(기존 동작)")
     parser.add_argument("--scene-info", default=None,
                         help="PyBullet scene_info_case{N}.json 경로 (module2c AABB 주입용). preset의 scene_info 필드 우선.")
     args = parser.parse_args()
@@ -336,6 +462,7 @@ def main() -> int:
     print(f"Description:  {task_description[:60]}{'...' if len(task_description) > 60 else ''}")
     print(f"Stages:       {args.start_from} -> {args.stop_at}")
     print(f"Model:        {args.model}")
+    print(f"Feedback:     {'on (F1·F2 루프)' if args.feedback else 'off (선형)'}")
     print(f"SceneInfo:    {scene_info_path or '(없음 — AABB 좌표 주입 건너뜀)'}")
     print(f"TaskSceneImg: {task_scene_image_path or '(없음 — 보조 이미지 사용 안 함)'}")
 
@@ -354,6 +481,7 @@ def main() -> int:
             preloaded_dirs=preloaded_dirs,
             scene_info_path=scene_info_path,
             task_scene_image_path=task_scene_image_path,
+            enable_feedback=args.feedback,
         )
     except Exception as e:
         print(f"\n[ERROR] 파이프라인 실패: {e}", file=sys.stderr)

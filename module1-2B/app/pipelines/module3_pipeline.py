@@ -27,10 +27,14 @@ def run_module3_pipeline(
     model: str = "gpt-4o",
     temperature: float = 0.1,
     task_name: str | None = None,
+    feedback_iteration: int = 0,
 ) -> dict[str, Any]:
     """Run Module 3 pose calculation and export artifacts.
 
     Output은 outputs/<task_name>/module3_<timestamp>_<suffix>/ 구조로 저장된다.
+
+    feedback_iteration: F2 재수행 회차(0=최초). 재호출 시 오케스트레이터가 증가시켜
+    넘겨주며, module3가 task_abandoned(상한 초과) 판정에 사용한다.
     """
     output_root = output_root or (Path(__file__).resolve().parents[2] / "outputs")
     resolved_task_name = derive_task_name(
@@ -50,6 +54,12 @@ def run_module3_pipeline(
     input_validation = input_validator.validate(raw_bundle)
     if not input_validation.valid:
         raise ValueError("Module 3 입력 검증 실패: " + " | ".join(input_validation.errors[:3]))
+
+    # F2 재수행 회차 주입(오케스트레이터 피드백 루프). bundle에 기존 값이 있으면 max.
+    if feedback_iteration:
+        raw_bundle["feedback_iteration"] = max(
+            int(raw_bundle.get("feedback_iteration", 0)), int(feedback_iteration)
+        )
 
     input_data = Module3Input.from_dict(raw_bundle)
 

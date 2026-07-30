@@ -1,0 +1,57 @@
+{
+  "_note": "F1 mock — 환경 제약은 일부 통과했으나 점수 평가(3단)에서 전부 탈락, 통과 후보 0. 논문 §3.3 'other' 분기. 기대: action=regenerate_candidates, target=module2c.",
+  "scenario": "balloon",
+  "schema_name": "module2d_output",
+  "schema_version": "0.1",
+  "selected_candidate_id": null,
+  "evaluated_candidates": [
+    {
+      "candidate_id": "tool_01",
+      "pass": false,
+      "failed_stage": "environment",
+      "stage_scores": {"geometry": 0.0, "physics": 0.0, "commonsense": 0.0, "task_fit": 0.0, "emergence": 0.0, "necessity": 0.0, "role_contribution": 0.0},
+      "total_score": 0.0,
+      "environment_filter": {"pass": false, "violated_constraints": ["entry_width"], "reason": "진입 폭 초과"},
+      "assembly_filter": {"pass": true},
+      "weak_points": [],
+      "repair_analysis": {"repair_type": "global_redesign", "target_issue": "environment", "reason": "env fail", "repair_strategy": []}
+    },
+    {
+      "candidate_id": "tool_02",
+      "pass": false,
+      "failed_stage": "total",
+      "stage_scores": {"geometry": 3.0, "physics": 2.0, "commonsense": 2.0, "task_fit": 1.0, "emergence": 1.5, "necessity": 1.5, "role_contribution": 1.5},
+      "total_score": 2.1,
+      "environment_filter": {"pass": true},
+      "assembly_filter": {"pass": true},
+      "weak_points": [{"stage": "emergence", "item": "EM1", "score": 1.5, "reason": "창발성 낮음"}],
+      "repair_analysis": {"repair_type": "local_fix", "target_issue": "emergence", "reason": "low emergence", "repair_strategy": ["add_reach_extension"]}
+    },
+    {
+      "candidate_id": "tool_03",
+      "pass": false,
+      "failed_stage": "task_fit",
+      "stage_scores": {"geometry": 3.0, "physics": 2.5, "commonsense": 2.0, "task_fit": 0.0, "emergence": 2.0, "necessity": 2.0, "role_contribution": 2.0},
+      "total_score": 2.4,
+      "environment_filter": {"pass": true},
+      "assembly_filter": {"pass": true},
+      "weak_points": [{"stage": "task_fit", "item": "TF1", "score": 0.0, "reason": "task 부적합"}],
+      "repair_analysis": {"repair_type": "local_fix", "target_issue": "task_fit", "reason": "task mismatch", "repair_strategy": ["swap_functional_end"]}
+    }
+  ],
+  "filter_counts": {
+    "invalid_scene_name": {"in": 3, "out": 0},
+    "env_constraint": {"in": 3, "out": 1},
+    "joint_structure": {"in": 2, "out": 0},
+    "score_eval": {"in": 2, "out": 2},
+    "passed": 0
+  },
+  "feedback_decision": {
+    "need_feedback": true,
+    "feedback_target": "module2c",
+    "reason": "Dominant failure stages: total, task_fit. Candidate composition should be improved in Module 2-C.",
+    "dominant_failure_pattern": ["total", "task_fit"],
+    "suggested_relaxations": ["generate_candidates_with_diverse_connection_modes"],
+    "branch": "other"
+  }
+}

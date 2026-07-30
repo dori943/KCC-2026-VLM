@@ -10,6 +10,7 @@ from typing import Any
 
 from openai import OpenAI
 
+from app.feedback.controller import compute_filter_counts
 from app.module2d.models import (
     EvaluatedCandidate, FeedbackDecision, Module2DInput,
     RepairAnalysis, StageScores, WeakPoint,
@@ -993,7 +994,14 @@ def filter_candidates(
         input_data.candidate_tools,
         coverage_summary_by_cid=coverage_summary_by_cid,
     )
-    feedback = _compute_feedback_decision(evaluated, input_data)
+
+    # 논문 §3.3 3단 필터의 순차 in/out 카운트. F1 분기 판정의 근거이며,
+    # "어느 필터에서 몇 개가 떨어졌는지"를 로그로 남기기 위함이다.
+    filter_counts = compute_filter_counts(
+        [c.to_dict() for c in evaluated],
+        rejected_for_unknown_names=rejected_for_unknown_names,
+    )
+    feedback = _compute_feedback_decision(evaluated, input_data, filter_counts)
 
     passed_count = sum(1 for c in evaluated if c.passed)
     is_fallback = selected_id is not None and passed_count == 0
@@ -1008,6 +1016,8 @@ def filter_candidates(
         "completion_tokens": total_completion_tokens,
         "evaluated_count": len(evaluated),
         "passed_count": passed_count,
+        "filter_counts": filter_counts,
+        "feedback_branch": feedback.branch,
         "selected_candidate_id": selected_id,
         "selected_via_fallback": is_fallback,
         "selected_passed": selected_passed,
@@ -1356,9 +1366,24 @@ def _parse_evaluated_candidates(raw: list[dict[str, Any]]) -> list[EvaluatedCand
 def _compute_feedback_decision(
     evaluated: list[EvaluatedCandidate],
     input_data: Module2DInput,
+    filter_counts: dict[str, Any] | None = None,
 ) -> FeedbackDecision:
-    """Determine feedback target using rule-based logic across all evaluated candidates."""
+    """Determine feedback target using rule-based logic across all evaluated candidates.
+
+    논문 §3.3 F1의 두 갈래를 branch 필드로 명시한다:
+    - env_constraint_wipeout: 환경 제약 필터(1단)에서 후보 전부 탈락
+        → 상위 수치 제약 생성 단계(module2b)에 완화 요청
+    - other: 그 외 통과 후보 없음
+        → 후보 재생성(module2c) + 직전 추론 단계 피드백
+    분기 판정은 FeedbackController와 동일하게 filter_counts에 의존한다.
+    """
     from collections import Counter
+
+    filter_counts = filter_counts or {}
+    env_fc = filter_counts.get("env_constraint", {}) or {}
+    env_in = int(env_fc.get("in", 0) or 0)
+    env_out = int(env_fc.get("out", 0) or 0)
+    env_wipeout = env_in > 0 and env_out == env_in
 
     passed = [c for c in evaluated if c.passed]
     if passed:
@@ -1368,6 +1393,7 @@ def _compute_feedback_decision(
             reason=f"{len(passed)}/{len(evaluated)} candidates passed.",
             dominant_failure_pattern=[],
             suggested_relaxations=[],
+            branch=None,
         )
 
     # Tally failure stages
@@ -1385,9 +1411,13 @@ def _compute_feedback_decision(
     dominant = [item for item, cnt in item_counter.most_common(3) if cnt >= 2]
     dominant_stages = [s for s, cnt in stage_counter.most_common(3)]
 
-    # Determine feedback target
-    all_env_failed = all(
-        not (c.environment_filter or {}).get("pass", True) for c in evaluated
+    # Determine feedback target — 논문 §3.3 두 갈래.
+    # env_constraint_wipeout: 1단 환경 제약 필터에서 후보 전부 탈락
+    #   → 상위 수치 제약 생성 단계(module2b)에 완화 요청.
+    # filter_counts가 비어 있을 때를 대비해 environment_filter로도 폴백 판정한다.
+    all_env_failed = env_wipeout or (
+        bool(evaluated)
+        and all(not (c.environment_filter or {}).get("pass", True) for c in evaluated)
     )
     c3_failures = sum(
         1 for c in evaluated
@@ -1395,14 +1425,20 @@ def _compute_feedback_decision(
     )
 
     if all_env_failed:
-        feedback_target = None
-        reason = "All candidates failed the environment hard filter. Constraint relaxation is required."
-        relaxations = ["relax_derived_constraint_ranges"]
+        branch = "env_constraint_wipeout"
+        feedback_target = "module2b"
+        reason = (
+            "환경 제약 필터에서 후보가 일괄 탈락했다. 상위 수치 제약 생성 단계"
+            "(module2b)에 제약 완화를 요청한다."
+        )
+        relaxations = ["relax_numeric_constraints", "relax_derived_constraint_ranges"]
     elif c3_failures >= len(evaluated) // 2:
+        branch = "other"
         feedback_target = "module2a"
         reason = "Many candidates missed required_atoms/interaction_primitives coverage."
         relaxations = ["downgrade_some_required_atoms_to_preferred_atoms"]
     else:
+        branch = "other"
         feedback_target = "module2c"
         reason = (
             f"Dominant failure stages: {', '.join(dominant_stages)}. "
@@ -1416,5 +1452,6 @@ def _compute_feedback_decision(
         reason=reason,
         dominant_failure_pattern=dominant or dominant_stages,
         suggested_relaxations=relaxations,
+        branch=branch,
     )
 

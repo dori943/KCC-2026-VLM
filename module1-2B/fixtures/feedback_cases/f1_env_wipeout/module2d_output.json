@@ -1,0 +1,57 @@
+{
+  "_note": "F1 mock — 환경 제약 필터(1단)에서 후보 전부 탈락. 논문 §3.3 env_constraint_wipeout 분기. 기대: action=relax_request_to_module2, target=module2b.",
+  "scenario": "chain",
+  "schema_name": "module2d_output",
+  "schema_version": "0.1",
+  "selected_candidate_id": null,
+  "evaluated_candidates": [
+    {
+      "candidate_id": "tool_01",
+      "pass": false,
+      "failed_stage": "environment",
+      "stage_scores": {"geometry": 0.0, "physics": 0.0, "commonsense": 0.0, "task_fit": 0.0, "emergence": 0.0, "necessity": 0.0, "role_contribution": 0.0},
+      "total_score": 0.0,
+      "environment_filter": {"pass": false, "violated_constraints": ["entry_width"], "reason": "진입 폭 초과"},
+      "assembly_filter": {"pass": true},
+      "weak_points": [],
+      "repair_analysis": {"repair_type": "global_redesign", "target_issue": "environment", "reason": "env fail", "repair_strategy": []}
+    },
+    {
+      "candidate_id": "tool_02",
+      "pass": false,
+      "failed_stage": "environment",
+      "stage_scores": {"geometry": 0.0, "physics": 0.0, "commonsense": 0.0, "task_fit": 0.0, "emergence": 0.0, "necessity": 0.0, "role_contribution": 0.0},
+      "total_score": 0.0,
+      "environment_filter": {"pass": false, "violated_constraints": ["allowed_load"], "reason": "허용 하중 초과"},
+      "assembly_filter": {"pass": true},
+      "weak_points": [],
+      "repair_analysis": {"repair_type": "global_redesign", "target_issue": "environment", "reason": "env fail", "repair_strategy": []}
+    },
+    {
+      "candidate_id": "tool_03",
+      "pass": false,
+      "failed_stage": "environment",
+      "stage_scores": {"geometry": 0.0, "physics": 0.0, "commonsense": 0.0, "task_fit": 0.0, "emergence": 0.0, "necessity": 0.0, "role_contribution": 0.0},
+      "total_score": 0.0,
+      "environment_filter": {"pass": false, "violated_constraints": ["entry_width"], "reason": "진입 폭 초과"},
+      "assembly_filter": {"pass": true},
+      "weak_points": [],
+      "repair_analysis": {"repair_type": "global_redesign", "target_issue": "environment", "reason": "env fail", "repair_strategy": []}
+    }
+  ],
+  "filter_counts": {
+    "invalid_scene_name": {"in": 3, "out": 0},
+    "env_constraint": {"in": 3, "out": 3},
+    "joint_structure": {"in": 0, "out": 0},
+    "score_eval": {"in": 0, "out": 0},
+    "passed": 0
+  },
+  "feedback_decision": {
+    "need_feedback": true,
+    "feedback_target": "module2b",
+    "reason": "환경 제약 필터에서 후보가 일괄 탈락했다. 상위 수치 제약 생성 단계(module2b)에 제약 완화를 요청한다.",
+    "dominant_failure_pattern": ["environment"],
+    "suggested_relaxations": ["relax_numeric_constraints"],
+    "branch": "env_constraint_wipeout"
+  }
+}

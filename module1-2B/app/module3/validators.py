@@ -4,6 +4,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.feedback.verification_items import ALL_ITEMS
+
 
 @dataclass(slots=True)
 class ValidationResult:
@@ -40,11 +42,8 @@ class Module3InputValidator:
 
 
 class Module3OutputValidator:
-    REQUIRED_CHECK_ITEMS = {
-        "alignment", "collision", "functional_end_exposed",
-        "handle_region_free", "force_transfer",
-        "weak_point_mitigation", "subgoal_support", "contact_feasibility",
-    }
+    # 논문 §3.4 8항목 검증 — 단일 정의 소스(app/feedback/verification_items.py)에서 참조.
+    REQUIRED_CHECK_ITEMS = set(ALL_ITEMS)
 
     def validate(self, data: dict[str, Any]) -> ValidationResult:
         errors, warnings = [], []

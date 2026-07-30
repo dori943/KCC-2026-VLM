@@ -12,12 +12,28 @@ from __future__ import annotations
 
 import json
 import os
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 from openai import OpenAI
 
 from app.module3.models import Module3Input
 from app.module3.reasoners.scene_coord_overrides import apply_scene_overrides
+
+
+@lru_cache(maxsize=1)
+def _f2_retry_cap() -> int:
+    """F2(조립 재수행) 재시도 상한. configs/feedback_policy.yaml에서 읽고,
+    없으면 구현 기본값 2 (논문 미명시). README_inference_pipeline.md 참조."""
+    try:
+        from app.utils import load_yaml
+
+        cfg_path = Path(__file__).resolve().parents[3] / "configs" / "feedback_policy.yaml"
+        caps = (load_yaml(cfg_path) or {}).get("retry_caps", {}) or {}
+        return int(caps.get("F2", 2))
+    except Exception:
+        return 2
 
 
 # ──────────────────────────────────────────────
@@ -1850,11 +1866,13 @@ def calculate_pose(
         feedback["need_feedback_to_module2a"] = False
         feedback["feedback_target"]           = None
 
-    # 피드백 회차 추적 + 태스크 포기 판단 (논문: 최대 2회)
+    # 피드백 회차 추적 + 태스크 포기 판단.
+    # 재시도 상한은 논문 미명시 → configs/feedback_policy.yaml의 구현 기본값(2) 사용.
     iteration = int(getattr(input_data, "feedback_iteration", 0))
     feedback["feedback_iteration"] = iteration
     task_abandoned = (
-        feedback.get("need_feedback_to_module2a", False) and iteration >= 2
+        feedback.get("need_feedback_to_module2a", False)
+        and iteration >= _f2_retry_cap()
     )
     feedback["task_abandoned"] = task_abandoned
     if task_abandoned:
