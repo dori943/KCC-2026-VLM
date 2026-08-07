@@ -1,0 +1,99 @@
+{
+  "meta": {
+    "kind": "unit",
+    "targets_rule": "파생 조건 top_exposed"
+  },
+  "kg": {
+    "scenario": "U2 스택 포함 다중 물체 정리",
+    "task": "너트를 작업대에 두고 상자를 팔레트로 옮겨라",
+    "subgoals": [
+      {
+        "subgoal_id": "SG1",
+        "description": "너트를 작업대에 둔다",
+        "target_hints": [
+          "SquareNutObject"
+        ],
+        "goal_region_hint": "workbench",
+        "required_capabilities": [
+          "stable_grasp",
+          "controlled_transport",
+          "controlled_release"
+        ]
+      },
+      {
+        "subgoal_id": "SG2",
+        "description": "상자를 팔레트로 옮긴다",
+        "target_hints": [
+          "PartsBoxObject"
+        ],
+        "goal_region_hint": "pallet",
+        "required_capabilities": [
+          "stable_grasp",
+          "controlled_transport",
+          "controlled_release"
+        ]
+      }
+    ],
+    "must_precede": []
+  },
+  "sg": {
+    "objects": {
+      "SquareNutObject": {
+        "reachable": true,
+        "feasible_ee": [
+          "2f"
+        ],
+        "at_rest": true
+      },
+      "PartsBoxObject": {
+        "reachable": true,
+        "feasible_ee": [
+          "2f"
+        ],
+        "at_rest": true
+      }
+    },
+    "regions": {
+      "workbench": {
+        "clear": true
+      },
+      "pallet": {
+        "clear": true
+      }
+    },
+    "on_edges": [
+      [
+        "SquareNutObject",
+        "PartsBoxObject"
+      ]
+    ],
+    "clearance": {
+      "SquareNutObject|workbench": 100,
+      "PartsBoxObject|pallet": 100
+    },
+    "per_subgoal": {
+      "SG1": {
+        "target": "SquareNutObject",
+        "goal_region": "workbench",
+        "tool_required": false,
+        "feasible_ee": [
+          "2f"
+        ],
+        "ee_candidate": "2f"
+      },
+      "SG2": {
+        "target": "PartsBoxObject",
+        "goal_region": "pallet",
+        "tool_required": false,
+        "feasible_ee": [
+          "2f"
+        ],
+        "ee_candidate": "2f"
+      }
+    }
+  },
+  "robot_state": {
+    "in_hand": null,
+    "current_ee": "2f"
+  }
+}

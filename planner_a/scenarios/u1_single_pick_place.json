@@ -1,0 +1,62 @@
+{
+  "meta": {
+    "kind": "unit",
+    "targets_rule": "규칙 1 인과링크"
+  },
+  "kg": {
+    "scenario": "U1 단일 물체 확보-운반-배치",
+    "task": "유리병을 상자에 담아라",
+    "subgoals": [
+      {
+        "subgoal_id": "SG1",
+        "description": "유리병을 상자로 옮긴다",
+        "target_hints": [
+          "BottleObject"
+        ],
+        "goal_region_hint": "box_0",
+        "required_capabilities": [
+          "stable_grasp",
+          "controlled_transport",
+          "controlled_release"
+        ]
+      }
+    ],
+    "must_precede": []
+  },
+  "sg": {
+    "objects": {
+      "BottleObject": {
+        "reachable": true,
+        "feasible_ee": [
+          "2f",
+          "3f"
+        ],
+        "at_rest": true
+      }
+    },
+    "regions": {
+      "box_0": {
+        "clear": true
+      }
+    },
+    "on_edges": [],
+    "clearance": {
+      "BottleObject|box_0": 40
+    },
+    "per_subgoal": {
+      "SG1": {
+        "target": "BottleObject",
+        "goal_region": "box_0",
+        "tool_required": false,
+        "feasible_ee": [
+          "2f"
+        ],
+        "ee_candidate": "2f"
+      }
+    }
+  },
+  "robot_state": {
+    "in_hand": null,
+    "current_ee": "2f"
+  }
+}

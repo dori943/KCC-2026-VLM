@@ -1,0 +1,310 @@
+{
+  "meta": {
+    "task_id": "T1-2",
+    "category": "1. Tool Selection",
+    "verify": "주변 물체를 적절한 도구로 선택하는가",
+    "scene_version": 1
+  },
+  "kg": {
+    "scenario": "T1-2 작고 많은 물체 회수하기",
+    "task": "레고를 담을 수거 트레이를 앞으로 끌어오고, 테이블에 흩어진 레고 블록을 수거 트레이에 쓸어 담아라",
+    "subgoals": [
+      {
+        "subgoal_id": "SG1",
+        "description": "부품 상자를 앞으로 끌어온다",
+        "target_hints": [
+          "PartsBoxObject"
+        ],
+        "goal_region_hint": "blue_region",
+        "required_capabilities": [
+          "pull",
+          "tool_use"
+        ]
+      },
+      {
+        "subgoal_id": "SG2",
+        "description": "레고 블록을 수거 트레이에 쓸어 담는다",
+        "target_hints": [
+          "LegoBlockCluster"
+        ],
+        "goal_region_hint": "collection_tray",
+        "required_capabilities": [
+          "sweep",
+          "tool_use"
+        ]
+      }
+    ],
+    "must_precede": []
+  },
+  "sg": {
+    "objects": {
+      "LongHookObject": {
+        "reachable": true,
+        "feasible_ee": [
+          "2f",
+          "3f"
+        ],
+        "at_rest": true
+      },
+      "HammerObject": {
+        "reachable": true,
+        "feasible_ee": [
+          "2f",
+          "3f"
+        ],
+        "at_rest": true
+      },
+      "CylinderObject": {
+        "reachable": true,
+        "feasible_ee": [
+          "2f",
+          "3f"
+        ],
+        "at_rest": true
+      },
+      "LightWideBoxObject": {
+        "reachable": true,
+        "feasible_ee": [
+          "vac"
+        ],
+        "at_rest": true
+      },
+      "HeavyWideBoxObject": {
+        "reachable": true,
+        "feasible_ee": [
+          "vac"
+        ],
+        "at_rest": true
+      },
+      "BottleObject": {
+        "reachable": true,
+        "feasible_ee": [
+          "2f",
+          "3f"
+        ],
+        "at_rest": true
+      },
+      "PartsBoxObject": {
+        "reachable": false,
+        "feasible_ee": [],
+        "at_rest": true
+      },
+      "LegoBlockCluster": {
+        "reachable": true,
+        "feasible_ee": [
+          "2f"
+        ],
+        "at_rest": true
+      }
+    },
+    "regions": {
+      "blue_region": {
+        "clear": true,
+        "multi": true,
+        "spec": "x <= 0.45 m"
+      },
+      "collection_tray": {
+        "clear": true,
+        "multi": true,
+        "spec": "CollectionTrayObject 250x180x35mm, 0.3kg"
+      },
+      "tool_rest": {
+        "clear": true,
+        "multi": true
+      }
+    },
+    "on_edges": [],
+    "clearance": {
+      "LongHookObject|tool_rest": 100,
+      "LightWideBoxObject|tool_rest": 100,
+      "PartsBoxObject|blue_region": 100,
+      "LegoBlockCluster|collection_tray": 100
+    },
+    "tool_effective": {
+      "LongHookObject|PartsBoxObject": true,
+      "LongHookObject|LegoBlockCluster": false,
+      "HammerObject|PartsBoxObject": false,
+      "HammerObject|LegoBlockCluster": false,
+      "CylinderObject|PartsBoxObject": false,
+      "CylinderObject|LegoBlockCluster": false,
+      "LightWideBoxObject|PartsBoxObject": false,
+      "LightWideBoxObject|LegoBlockCluster": true,
+      "HeavyWideBoxObject|PartsBoxObject": false,
+      "HeavyWideBoxObject|LegoBlockCluster": false,
+      "BottleObject|PartsBoxObject": false,
+      "BottleObject|LegoBlockCluster": false
+    },
+    "tool_effective_reason": {
+      "LongHookObject|PartsBoxObject": "리치·형상·질량 모두 만족 (파지 EE ['2f', '3f'])",
+      "LongHookObject|LegoBlockCluster": "접촉 폭 70mm < 흩어진 범위 180mm",
+      "HammerObject|PartsBoxObject": "유효 리치 180mm < 목표 거리 400mm",
+      "HammerObject|LegoBlockCluster": "유효 리치 180mm < 목표 거리 200mm",
+      "CylinderObject|PartsBoxObject": "lip/hook 없음 — 뒤에 걸 수 없어 당기기 불가",
+      "CylinderObject|LegoBlockCluster": "접촉 폭 30mm < 흩어진 범위 180mm",
+      "LightWideBoxObject|PartsBoxObject": "유효 리치 220mm < 목표 거리 400mm",
+      "LightWideBoxObject|LegoBlockCluster": "리치·형상·질량 모두 만족 (파지 EE ['vac'])",
+      "HeavyWideBoxObject|PartsBoxObject": "유효 리치 220mm < 목표 거리 400mm",
+      "HeavyWideBoxObject|LegoBlockCluster": "도구 질량 0.8kg 가 파지 가능한 EE ['vac'] 의 payload 초과",
+      "BottleObject|PartsBoxObject": "유효 리치 120mm < 목표 거리 400mm",
+      "BottleObject|LegoBlockCluster": "유효 리치 120mm < 목표 거리 200mm"
+    },
+    "object_specs": {
+      "LongHookObject": {
+        "bbox_mm": [
+          40,
+          70,
+          450
+        ],
+        "reach_mm": 420,
+        "lip_mm": 35,
+        "grip_width_mm": 40,
+        "contact_width_mm": 70,
+        "mass_kg": 0.2,
+        "flat_top": false,
+        "role": "긴 갈고리. reach + hooking 모두 만족. SG1 주 성공 후보"
+      },
+      "HammerObject": {
+        "bbox_mm": [
+          200,
+          100,
+          40
+        ],
+        "reach_mm": 180,
+        "lip_mm": 40,
+        "grip_width_mm": 30,
+        "contact_width_mm": 100,
+        "mass_kg": 0.2,
+        "flat_top": false,
+        "role": "claw 로 hooking 가능하지만 유효 리치 부족. SG1 hard negative"
+      },
+      "CylinderObject": {
+        "bbox_mm": [
+          30,
+          30,
+          550
+        ],
+        "reach_mm": 550,
+        "lip_mm": 0,
+        "grip_width_mm": 30,
+        "contact_width_mm": 30,
+        "volume_cm3": 389,
+        "density": 514,
+        "mass_kg": 0.2,
+        "flat_top": false,
+        "role": "긴 직선 막대. reach 충분하지만 hooking 불가. geometry distractor"
+      },
+      "LightWideBoxObject": {
+        "bbox_mm": [
+          200,
+          20,
+          220
+        ],
+        "reach_mm": 220,
+        "lip_mm": 25,
+        "contact_width_mm": 200,
+        "volume_cm3": 880,
+        "density": 227,
+        "mass_kg": 0.2,
+        "flat_top": true,
+        "role": "넓은 sweeping 판. 넓은 접촉 + 가벼운 질량. SG2 주 후보",
+        "ee_rack": [
+          "vac"
+        ]
+      },
+      "HeavyWideBoxObject": {
+        "bbox_mm": [
+          200,
+          20,
+          220
+        ],
+        "reach_mm": 220,
+        "lip_mm": 25,
+        "contact_width_mm": 200,
+        "volume_cm3": 880,
+        "density": 909,
+        "mass_kg": 0.8,
+        "flat_top": true,
+        "role": "geometry 는 Light 와 동일. Vacuum payload 초과용 hard negative",
+        "ee_rack": [
+          "vac"
+        ]
+      },
+      "BottleObject": {
+        "bbox_mm": [
+          55,
+          59,
+          160
+        ],
+        "reach_mm": 120,
+        "lip_mm": 0,
+        "grip_width_mm": 55,
+        "contact_width_mm": 55,
+        "volume_cm3": 277,
+        "mass_kg": 0.2,
+        "flat_top": false,
+        "role": "짧은 곡면 물체. reach·hook·sweep 모두 불리한 순수 오답"
+      },
+      "PartsBoxObject": {
+        "bbox_mm": [
+          180,
+          180,
+          90
+        ],
+        "mass_kg": 3.0,
+        "distance_mm": 400,
+        "mode": "pull",
+        "role": "작업 반경 밖. 직접 grasp/lift 불가 → 도구 pull 필요",
+        "goal_region": "blue_region"
+      },
+      "LegoBlockCluster": {
+        "bbox_mm": [
+          20,
+          20,
+          12
+        ],
+        "mass_kg": 0.0024,
+        "count": 12,
+        "distance_mm": 200,
+        "span_mm": 180,
+        "mode": "sweep",
+        "role": "개별 파지는 가능하나 step budget 초과 → sweep 필요",
+        "goal_region": "collection_tray"
+      }
+    },
+    "per_subgoal": {
+      "SG1": {
+        "target": "PartsBoxObject",
+        "goal_region": "blue_region",
+        "tool_required": true,
+        "selected_tool": "LongHookObject",
+        "tool_mode": "pull",
+        "tool_rest_region": "tool_rest",
+        "feasible_ee": [
+          "2f"
+        ],
+        "ee_candidate": "2f"
+      },
+      "SG2": {
+        "target": "LegoBlockCluster",
+        "goal_region": "collection_tray",
+        "tool_required": true,
+        "selected_tool": "LightWideBoxObject",
+        "tool_mode": "sweep",
+        "tool_rest_region": "tool_rest",
+        "feasible_ee": [
+          "vac"
+        ],
+        "ee_candidate": "vac"
+      }
+    }
+  },
+  "robot_state": {
+    "in_hand": null,
+    "current_ee": "2f",
+    "ee_rack": [
+      "2f",
+      "3f",
+      "vac"
+    ]
+  }
+}

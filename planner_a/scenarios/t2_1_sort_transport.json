@@ -1,0 +1,277 @@
+{
+  "meta": {
+    "task_id": "T2-1",
+    "category": "2. Efficient EE Selection",
+    "verify": "불필요한 EE 교체를 줄이는가",
+    "scene_version": "안 B (내장 + MimicGen 래퍼, 권장)"
+  },
+  "kg": {
+    "scenario": "T2-1 다중 객체 분류 및 운반",
+    "task": "테이블 위의 모든 물체를 각각 지정된 트레이로 옮겨라. 식품은 초록 트레이, 음료 용기는 파랑 트레이, 부품은 빨강 트레이이다",
+    "subgoals": [
+      {
+        "subgoal_id": "SG1",
+        "description": "PlateWithHoleObject 를 부품 트레이로 옮긴다",
+        "target_hints": [
+          "PlateWithHoleObject"
+        ],
+        "goal_region_hint": "red_tray",
+        "required_capabilities": [
+          "stable_grasp",
+          "controlled_transport",
+          "controlled_release"
+        ]
+      },
+      {
+        "subgoal_id": "SG2",
+        "description": "BlenderObject 를 음료 용기 트레이로 옮긴다",
+        "target_hints": [
+          "BlenderObject"
+        ],
+        "goal_region_hint": "blue_tray",
+        "required_capabilities": [
+          "stable_grasp",
+          "controlled_transport",
+          "controlled_release"
+        ]
+      },
+      {
+        "subgoal_id": "SG3",
+        "description": "CanObject 를 음료 용기 트레이로 옮긴다",
+        "target_hints": [
+          "CanObject"
+        ],
+        "goal_region_hint": "blue_tray",
+        "required_capabilities": [
+          "stable_grasp",
+          "controlled_transport",
+          "controlled_release"
+        ]
+      },
+      {
+        "subgoal_id": "SG4",
+        "description": "BreadObject 를 식품 트레이로 옮긴다",
+        "target_hints": [
+          "BreadObject"
+        ],
+        "goal_region_hint": "green_tray",
+        "required_capabilities": [
+          "stable_grasp",
+          "controlled_transport",
+          "controlled_release"
+        ]
+      }
+    ],
+    "must_precede": []
+  },
+  "sg": {
+    "objects": {
+      "PlateWithHoleObject": {
+        "reachable": true,
+        "feasible_ee": [
+          "vac"
+        ],
+        "at_rest": true
+      },
+      "BlenderObject": {
+        "reachable": true,
+        "feasible_ee": [
+          "3f"
+        ],
+        "at_rest": true
+      },
+      "CanObject": {
+        "reachable": true,
+        "feasible_ee": [
+          "2f"
+        ],
+        "at_rest": true
+      },
+      "BreadObject": {
+        "reachable": true,
+        "feasible_ee": [
+          "3f",
+          "vac"
+        ],
+        "at_rest": true
+      }
+    },
+    "regions": {
+      "red_tray": {
+        "clear": true,
+        "multi": true,
+        "label": "부품 (빨강)"
+      },
+      "blue_tray": {
+        "clear": true,
+        "multi": true,
+        "label": "음료 용기 (파랑)"
+      },
+      "green_tray": {
+        "clear": true,
+        "multi": true,
+        "label": "식품 (초록)"
+      }
+    },
+    "on_edges": [],
+    "clearance": {
+      "PlateWithHoleObject|red_tray": 50,
+      "BlenderObject|blue_tray": 50,
+      "CanObject|blue_tray": 50,
+      "BreadObject|green_tray": 50
+    },
+    "object_specs": {
+      "PlateWithHoleObject": {
+        "bbox_mm": [
+          340,
+          340,
+          20
+        ],
+        "mass_kg": 0.3,
+        "class": "부품",
+        "goal_region": "red_tray",
+        "feasible_ee": [
+          "vac"
+        ],
+        "reason": "대형 평판 프레임, 밀착. 넓고 납작해 흡착만 성립. 테이블 대비 크므로 트레이도 커야 함",
+        "robosuite": "robosuite 내장"
+      },
+      "BlenderObject": {
+        "bbox_mm": [
+          88,
+          94,
+          256
+        ],
+        "mass_kg": 1.5,
+        "class": "음료 용기",
+        "goal_region": "blue_tray",
+        "feasible_ee": [
+          "3f"
+        ],
+        "reason": "폭 94mm 가 2F 개구 90mm 초과. 곡면이라 Vac 밀봉도 실패",
+        "robosuite": "내장 메시 + MimicGen 래퍼 BlenderObject(bottle.xml, scale=1.6, density=1300)"
+      },
+      "CanObject": {
+        "bbox_mm": [
+          50,
+          50,
+          80
+        ],
+        "mass_kg": 0.0146,
+        "class": "음료 용기",
+        "goal_region": "blue_tray",
+        "feasible_ee": [
+          "2f"
+        ],
+        "reason": "Ø50x80. 슬롯 간격 95mm 라 2F(진입 90) 만 빠듯하게 진입",
+        "robosuite": "robosuite 내장"
+      },
+      "BreadObject": {
+        "bbox_mm": [
+          48,
+          40,
+          48
+        ],
+        "mass_kg": 0.0041,
+        "class": "식품",
+        "goal_region": "green_tray",
+        "feasible_ee": [
+          "3f",
+          "vac"
+        ],
+        "reason": "불규칙 유기형. F_crit(접촉력 임계)가 낮아 2F 는 파손 판정. 3F/Vac 둘 다 가능한 복수해",
+        "robosuite": "robosuite 내장"
+      }
+    },
+    "randomization": [
+      {
+        "param": "BlenderObject scale",
+        "range": "1.0 - 1.8",
+        "flip": "<= 1.45 (폭 85) 이면 2F 가능 -> {3F} 유일성 소멸"
+      },
+      {
+        "param": "BlenderObject 질량 (런타임 오버라이드)",
+        "range": "0.05 - 2.0 kg",
+        "flip": "Vac payload 아래면 Vac 가능"
+      },
+      {
+        "param": "슬롯 간격",
+        "range": "95 - 200 mm",
+        "flip": "> 170 이면 3F 가능"
+      },
+      {
+        "param": "오버행 천장",
+        "range": "100 - 350 mm",
+        "flip": ">= 200 이면 Vac 가능"
+      },
+      {
+        "param": "PlateWithHoleObject 부양 (받침 유무)",
+        "range": "0 - 15 mm",
+        "flip": ">= 8 mm 면 2F 핀치 가능"
+      },
+      {
+        "param": "BreadObject F_crit",
+        "range": "5 - 30 N",
+        "flip": ">= 25 N 이면 2F 가능"
+      },
+      {
+        "param": "물체 - 구역 배정",
+        "range": "셔플",
+        "flip": "'이 물체 = 이 EE' 암기 방지"
+      },
+      {
+        "param": "트레이 색·위치",
+        "range": "셔플",
+        "flip": "분류 규칙 암기 방지"
+      }
+    ],
+    "per_subgoal": {
+      "SG1": {
+        "target": "PlateWithHoleObject",
+        "goal_region": "red_tray",
+        "tool_required": false,
+        "feasible_ee": [
+          "vac"
+        ],
+        "ee_candidate": "vac"
+      },
+      "SG2": {
+        "target": "BlenderObject",
+        "goal_region": "blue_tray",
+        "tool_required": false,
+        "feasible_ee": [
+          "3f"
+        ],
+        "ee_candidate": "3f"
+      },
+      "SG3": {
+        "target": "CanObject",
+        "goal_region": "blue_tray",
+        "tool_required": false,
+        "feasible_ee": [
+          "2f"
+        ],
+        "ee_candidate": "2f"
+      },
+      "SG4": {
+        "target": "BreadObject",
+        "goal_region": "green_tray",
+        "tool_required": false,
+        "feasible_ee": [
+          "3f",
+          "vac"
+        ],
+        "ee_candidate": "3f"
+      }
+    }
+  },
+  "robot_state": {
+    "in_hand": null,
+    "current_ee": "2f",
+    "ee_rack": [
+      "2f",
+      "3f",
+      "vac"
+    ]
+  }
+}

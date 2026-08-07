@@ -1,0 +1,75 @@
+{
+  "meta": {
+    "kind": "unit",
+    "targets_rule": "도구 경로 + 규칙 2b 인과링크 위협"
+  },
+  "kg": {
+    "scenario": "U4 가반하중 초과 물체 밀기",
+    "task": "무거운 상자를 팔레트로 밀어라",
+    "subgoals": [
+      {
+        "subgoal_id": "SG1",
+        "description": "무거운 상자를 팔레트로 민다",
+        "target_hints": [
+          "PartsBoxObject"
+        ],
+        "goal_region_hint": "pallet",
+        "required_capabilities": [
+          "push",
+          "tool_use"
+        ]
+      }
+    ],
+    "must_precede": []
+  },
+  "sg": {
+    "objects": {
+      "CylinderObject": {
+        "reachable": true,
+        "feasible_ee": [
+          "2f"
+        ],
+        "at_rest": true
+      },
+      "PartsBoxObject": {
+        "reachable": true,
+        "feasible_ee": [],
+        "at_rest": true
+      }
+    },
+    "regions": {
+      "pallet": {
+        "clear": true
+      },
+      "tool_rest": {
+        "clear": true
+      }
+    },
+    "on_edges": [],
+    "clearance": {
+      "CylinderObject|tool_rest": 100,
+      "PartsBoxObject|pallet": 100
+    },
+    "tool_effective": {
+      "CylinderObject|PartsBoxObject": true
+    },
+    "per_subgoal": {
+      "SG1": {
+        "target": "PartsBoxObject",
+        "goal_region": "pallet",
+        "tool_required": true,
+        "selected_tool": "CylinderObject",
+        "tool_mode": "push",
+        "tool_rest_region": "tool_rest",
+        "feasible_ee": [
+          "2f"
+        ],
+        "ee_candidate": "2f"
+      }
+    }
+  },
+  "robot_state": {
+    "in_hand": null,
+    "current_ee": "2f"
+  }
+}

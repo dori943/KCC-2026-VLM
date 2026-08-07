@@ -1,0 +1,1605 @@
+{
+  "scenario": "T2-1 다중 객체 분류 및 운반",
+  "task": "테이블 위의 모든 물체를 각각 지정된 트레이로 옮겨라. 식품은 초록 트레이, 음료 용기는 파랑 트레이, 부품은 빨강 트레이이다",
+  "condition_source": "template",
+  "decidability_source": "rule",
+  "detailed_subgoals": [
+    {
+      "subgoal_id": "SG1_d1",
+      "action_type": "acquire",
+      "mode": null,
+      "binding": {
+        "?o": "PlateWithHoleObject",
+        "?ee": "vac"
+      },
+      "group_id": "G_PlateWithHoleObject",
+      "from_kg": "SG1",
+      "condition_source": "template",
+      "note": "PlateWithHoleObject 확보",
+      "pre": [
+        {
+          "cond_id": "C_SG1_d1_pre_0",
+          "type": "reachable",
+          "args": [
+            "PlateWithHoleObject"
+          ],
+          "check": "dist(base, pose(PlateWithHoleObject)) <= robot.reach",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "PlateWithHoleObject가 작업 반경 안에 있다"
+        },
+        {
+          "cond_id": "C_SG1_d1_pre_1",
+          "type": "top_exposed",
+          "args": [
+            "PlateWithHoleObject"
+          ],
+          "check": "count(edges[type=on, to=PlateWithHoleObject]) == 0",
+          "pass": true,
+          "eval_by": "sg",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "PlateWithHoleObject 위에 다른 object가 없다"
+        },
+        {
+          "cond_id": "C_SG1_d1_pre_2",
+          "type": "ee_feasible",
+          "args": [
+            "PlateWithHoleObject"
+          ],
+          "check": "PlateWithHoleObject in sg.feasible_ee_objects[current_ee]",
+          "pass": true,
+          "eval_by": "sg",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "현재 EE로 PlateWithHoleObject를 다룰 수 있다"
+        },
+        {
+          "cond_id": "C_SG1_d1_pre_3",
+          "type": "attached_ee",
+          "args": [
+            "vac"
+          ],
+          "check": "robot.attached == vac",
+          "pass": null,
+          "eval_by": "motion",
+          "depends_on": "motion",
+          "needs_observation": false,
+          "nl": "vac가 장착되어 있다"
+        },
+        {
+          "cond_id": "C_SG1_d1_pre_4",
+          "type": "hand_empty",
+          "args": [],
+          "check": "state.in_hand is None",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "손이 비어 있다"
+        }
+      ],
+      "establish": [
+        {
+          "cond_id": "C_SG1_d1_est_0",
+          "type": "holding",
+          "args": [
+            "PlateWithHoleObject"
+          ],
+          "check": "state.in_hand == PlateWithHoleObject",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "PlateWithHoleObject를 들고 있다"
+        }
+      ],
+      "destroy": [
+        {
+          "cond_id": "C_SG1_d1_des_0",
+          "type": "hand_empty",
+          "args": [],
+          "check": "state.in_hand is None",
+          "pass": false,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "손이 비어 있다"
+        },
+        {
+          "cond_id": "C_SG1_d1_des_1",
+          "type": "at_rest",
+          "args": [
+            "PlateWithHoleObject"
+          ],
+          "check": "abs(vel(PlateWithHoleObject)) < eps",
+          "pass": false,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "PlateWithHoleObject가 안정 상태다"
+        },
+        {
+          "cond_id": "C_SG1_d1_des_2",
+          "type": "top_exposed",
+          "args": [
+            "PlateWithHoleObject"
+          ],
+          "check": "count(edges[type=on, to=PlateWithHoleObject]) == 0",
+          "pass": false,
+          "eval_by": "sg",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "PlateWithHoleObject 위에 다른 object가 없다"
+        }
+      ]
+    },
+    {
+      "subgoal_id": "SG1_d2",
+      "action_type": "transport",
+      "mode": null,
+      "binding": {
+        "?o": "PlateWithHoleObject",
+        "?r": "red_tray"
+      },
+      "group_id": "G_PlateWithHoleObject",
+      "from_kg": "SG1",
+      "condition_source": "template",
+      "note": "PlateWithHoleObject를 red_tray로 운반",
+      "pre": [
+        {
+          "cond_id": "C_SG1_d2_pre_0",
+          "type": "holding",
+          "args": [
+            "PlateWithHoleObject"
+          ],
+          "check": "state.in_hand == PlateWithHoleObject",
+          "pass": false,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "PlateWithHoleObject를 들고 있다"
+        },
+        {
+          "cond_id": "C_SG1_d2_pre_1",
+          "type": "path_clear",
+          "args": [
+            "PlateWithHoleObject",
+            "red_tray"
+          ],
+          "check": "motion.collision_free(PlateWithHoleObject, red_tray)",
+          "pass": null,
+          "eval_by": "motion",
+          "depends_on": "motion",
+          "needs_observation": false,
+          "nl": "PlateWithHoleObject에서 red_tray까지 경로가 비어 있다"
+        }
+      ],
+      "establish": [
+        {
+          "cond_id": "C_SG1_d2_est_0",
+          "type": "above",
+          "args": [
+            "PlateWithHoleObject",
+            "red_tray"
+          ],
+          "check": "xy_overlap(PlateWithHoleObject, red_tray)",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "PlateWithHoleObject가 red_tray 위에 있다"
+        }
+      ],
+      "destroy": []
+    },
+    {
+      "subgoal_id": "SG1_d3",
+      "action_type": "place",
+      "mode": null,
+      "binding": {
+        "?o": "PlateWithHoleObject",
+        "?r": "red_tray"
+      },
+      "group_id": "G_PlateWithHoleObject",
+      "from_kg": "SG1",
+      "condition_source": "template",
+      "note": "PlateWithHoleObject를 red_tray에 배치",
+      "pre": [
+        {
+          "cond_id": "C_SG1_d3_pre_0",
+          "type": "holding",
+          "args": [
+            "PlateWithHoleObject"
+          ],
+          "check": "state.in_hand == PlateWithHoleObject",
+          "pass": false,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "PlateWithHoleObject를 들고 있다"
+        },
+        {
+          "cond_id": "C_SG1_d3_pre_1",
+          "type": "above",
+          "args": [
+            "PlateWithHoleObject",
+            "red_tray"
+          ],
+          "check": "xy_overlap(PlateWithHoleObject, red_tray)",
+          "pass": false,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "PlateWithHoleObject가 red_tray 위에 있다"
+        },
+        {
+          "cond_id": "C_SG1_d3_pre_2",
+          "type": "clear",
+          "args": [
+            "red_tray"
+          ],
+          "check": "sg.free_volume(red_tray) > 0",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "red_tray에 배치 공간이 있다"
+        },
+        {
+          "cond_id": "C_SG1_d3_pre_3",
+          "type": "fits_inside",
+          "args": [
+            "PlateWithHoleObject",
+            "red_tray"
+          ],
+          "check": "sg.clearance(PlateWithHoleObject, red_tray) >= 0",
+          "pass": true,
+          "eval_by": "sg",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "PlateWithHoleObject가 red_tray 안에 들어간다"
+        }
+      ],
+      "establish": [
+        {
+          "cond_id": "C_SG1_d3_est_0",
+          "type": "in_region",
+          "args": [
+            "PlateWithHoleObject",
+            "red_tray"
+          ],
+          "check": "inside(PlateWithHoleObject, red_tray)",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "PlateWithHoleObject가 red_tray 안에 있다"
+        },
+        {
+          "cond_id": "C_SG1_d3_est_1",
+          "type": "at_rest",
+          "args": [
+            "PlateWithHoleObject"
+          ],
+          "check": "abs(vel(PlateWithHoleObject)) < eps",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "PlateWithHoleObject가 안정 상태다"
+        },
+        {
+          "cond_id": "C_SG1_d3_est_2",
+          "type": "hand_empty",
+          "args": [],
+          "check": "state.in_hand is None",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "손이 비어 있다"
+        }
+      ],
+      "destroy": [
+        {
+          "cond_id": "C_SG1_d3_des_0",
+          "type": "holding",
+          "args": [
+            "PlateWithHoleObject"
+          ],
+          "check": "state.in_hand == PlateWithHoleObject",
+          "pass": false,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "PlateWithHoleObject를 들고 있다"
+        }
+      ]
+    },
+    {
+      "subgoal_id": "SG2_d1",
+      "action_type": "acquire",
+      "mode": null,
+      "binding": {
+        "?o": "BlenderObject",
+        "?ee": "3f"
+      },
+      "group_id": "G_BlenderObject",
+      "from_kg": "SG2",
+      "condition_source": "template",
+      "note": "BlenderObject 확보",
+      "pre": [
+        {
+          "cond_id": "C_SG2_d1_pre_0",
+          "type": "reachable",
+          "args": [
+            "BlenderObject"
+          ],
+          "check": "dist(base, pose(BlenderObject)) <= robot.reach",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "BlenderObject가 작업 반경 안에 있다"
+        },
+        {
+          "cond_id": "C_SG2_d1_pre_1",
+          "type": "top_exposed",
+          "args": [
+            "BlenderObject"
+          ],
+          "check": "count(edges[type=on, to=BlenderObject]) == 0",
+          "pass": true,
+          "eval_by": "sg",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "BlenderObject 위에 다른 object가 없다"
+        },
+        {
+          "cond_id": "C_SG2_d1_pre_2",
+          "type": "ee_feasible",
+          "args": [
+            "BlenderObject"
+          ],
+          "check": "BlenderObject in sg.feasible_ee_objects[current_ee]",
+          "pass": true,
+          "eval_by": "sg",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "현재 EE로 BlenderObject를 다룰 수 있다"
+        },
+        {
+          "cond_id": "C_SG2_d1_pre_3",
+          "type": "attached_ee",
+          "args": [
+            "3f"
+          ],
+          "check": "robot.attached == 3f",
+          "pass": null,
+          "eval_by": "motion",
+          "depends_on": "motion",
+          "needs_observation": false,
+          "nl": "3f가 장착되어 있다"
+        },
+        {
+          "cond_id": "C_SG2_d1_pre_4",
+          "type": "hand_empty",
+          "args": [],
+          "check": "state.in_hand is None",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "손이 비어 있다"
+        }
+      ],
+      "establish": [
+        {
+          "cond_id": "C_SG2_d1_est_0",
+          "type": "holding",
+          "args": [
+            "BlenderObject"
+          ],
+          "check": "state.in_hand == BlenderObject",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "BlenderObject를 들고 있다"
+        }
+      ],
+      "destroy": [
+        {
+          "cond_id": "C_SG2_d1_des_0",
+          "type": "hand_empty",
+          "args": [],
+          "check": "state.in_hand is None",
+          "pass": false,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "손이 비어 있다"
+        },
+        {
+          "cond_id": "C_SG2_d1_des_1",
+          "type": "at_rest",
+          "args": [
+            "BlenderObject"
+          ],
+          "check": "abs(vel(BlenderObject)) < eps",
+          "pass": false,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "BlenderObject가 안정 상태다"
+        },
+        {
+          "cond_id": "C_SG2_d1_des_2",
+          "type": "top_exposed",
+          "args": [
+            "BlenderObject"
+          ],
+          "check": "count(edges[type=on, to=BlenderObject]) == 0",
+          "pass": false,
+          "eval_by": "sg",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "BlenderObject 위에 다른 object가 없다"
+        }
+      ]
+    },
+    {
+      "subgoal_id": "SG2_d2",
+      "action_type": "transport",
+      "mode": null,
+      "binding": {
+        "?o": "BlenderObject",
+        "?r": "blue_tray"
+      },
+      "group_id": "G_BlenderObject",
+      "from_kg": "SG2",
+      "condition_source": "template",
+      "note": "BlenderObject를 blue_tray로 운반",
+      "pre": [
+        {
+          "cond_id": "C_SG2_d2_pre_0",
+          "type": "holding",
+          "args": [
+            "BlenderObject"
+          ],
+          "check": "state.in_hand == BlenderObject",
+          "pass": false,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "BlenderObject를 들고 있다"
+        },
+        {
+          "cond_id": "C_SG2_d2_pre_1",
+          "type": "path_clear",
+          "args": [
+            "BlenderObject",
+            "blue_tray"
+          ],
+          "check": "motion.collision_free(BlenderObject, blue_tray)",
+          "pass": null,
+          "eval_by": "motion",
+          "depends_on": "motion",
+          "needs_observation": false,
+          "nl": "BlenderObject에서 blue_tray까지 경로가 비어 있다"
+        }
+      ],
+      "establish": [
+        {
+          "cond_id": "C_SG2_d2_est_0",
+          "type": "above",
+          "args": [
+            "BlenderObject",
+            "blue_tray"
+          ],
+          "check": "xy_overlap(BlenderObject, blue_tray)",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "BlenderObject가 blue_tray 위에 있다"
+        }
+      ],
+      "destroy": []
+    },
+    {
+      "subgoal_id": "SG2_d3",
+      "action_type": "place",
+      "mode": null,
+      "binding": {
+        "?o": "BlenderObject",
+        "?r": "blue_tray"
+      },
+      "group_id": "G_BlenderObject",
+      "from_kg": "SG2",
+      "condition_source": "template",
+      "note": "BlenderObject를 blue_tray에 배치",
+      "pre": [
+        {
+          "cond_id": "C_SG2_d3_pre_0",
+          "type": "holding",
+          "args": [
+            "BlenderObject"
+          ],
+          "check": "state.in_hand == BlenderObject",
+          "pass": false,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "BlenderObject를 들고 있다"
+        },
+        {
+          "cond_id": "C_SG2_d3_pre_1",
+          "type": "above",
+          "args": [
+            "BlenderObject",
+            "blue_tray"
+          ],
+          "check": "xy_overlap(BlenderObject, blue_tray)",
+          "pass": false,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "BlenderObject가 blue_tray 위에 있다"
+        },
+        {
+          "cond_id": "C_SG2_d3_pre_2",
+          "type": "clear",
+          "args": [
+            "blue_tray"
+          ],
+          "check": "sg.free_volume(blue_tray) > 0",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "blue_tray에 배치 공간이 있다"
+        },
+        {
+          "cond_id": "C_SG2_d3_pre_3",
+          "type": "fits_inside",
+          "args": [
+            "BlenderObject",
+            "blue_tray"
+          ],
+          "check": "sg.clearance(BlenderObject, blue_tray) >= 0",
+          "pass": true,
+          "eval_by": "sg",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "BlenderObject가 blue_tray 안에 들어간다"
+        }
+      ],
+      "establish": [
+        {
+          "cond_id": "C_SG2_d3_est_0",
+          "type": "in_region",
+          "args": [
+            "BlenderObject",
+            "blue_tray"
+          ],
+          "check": "inside(BlenderObject, blue_tray)",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "BlenderObject가 blue_tray 안에 있다"
+        },
+        {
+          "cond_id": "C_SG2_d3_est_1",
+          "type": "at_rest",
+          "args": [
+            "BlenderObject"
+          ],
+          "check": "abs(vel(BlenderObject)) < eps",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "BlenderObject가 안정 상태다"
+        },
+        {
+          "cond_id": "C_SG2_d3_est_2",
+          "type": "hand_empty",
+          "args": [],
+          "check": "state.in_hand is None",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "손이 비어 있다"
+        }
+      ],
+      "destroy": [
+        {
+          "cond_id": "C_SG2_d3_des_0",
+          "type": "holding",
+          "args": [
+            "BlenderObject"
+          ],
+          "check": "state.in_hand == BlenderObject",
+          "pass": false,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "BlenderObject를 들고 있다"
+        }
+      ]
+    },
+    {
+      "subgoal_id": "SG3_d1",
+      "action_type": "acquire",
+      "mode": null,
+      "binding": {
+        "?o": "CanObject",
+        "?ee": "2f"
+      },
+      "group_id": "G_CanObject",
+      "from_kg": "SG3",
+      "condition_source": "template",
+      "note": "CanObject 확보",
+      "pre": [
+        {
+          "cond_id": "C_SG3_d1_pre_0",
+          "type": "reachable",
+          "args": [
+            "CanObject"
+          ],
+          "check": "dist(base, pose(CanObject)) <= robot.reach",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "CanObject가 작업 반경 안에 있다"
+        },
+        {
+          "cond_id": "C_SG3_d1_pre_1",
+          "type": "top_exposed",
+          "args": [
+            "CanObject"
+          ],
+          "check": "count(edges[type=on, to=CanObject]) == 0",
+          "pass": true,
+          "eval_by": "sg",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "CanObject 위에 다른 object가 없다"
+        },
+        {
+          "cond_id": "C_SG3_d1_pre_2",
+          "type": "ee_feasible",
+          "args": [
+            "CanObject"
+          ],
+          "check": "CanObject in sg.feasible_ee_objects[current_ee]",
+          "pass": true,
+          "eval_by": "sg",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "현재 EE로 CanObject를 다룰 수 있다"
+        },
+        {
+          "cond_id": "C_SG3_d1_pre_3",
+          "type": "attached_ee",
+          "args": [
+            "2f"
+          ],
+          "check": "robot.attached == 2f",
+          "pass": null,
+          "eval_by": "motion",
+          "depends_on": "motion",
+          "needs_observation": false,
+          "nl": "2f가 장착되어 있다"
+        },
+        {
+          "cond_id": "C_SG3_d1_pre_4",
+          "type": "hand_empty",
+          "args": [],
+          "check": "state.in_hand is None",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "손이 비어 있다"
+        }
+      ],
+      "establish": [
+        {
+          "cond_id": "C_SG3_d1_est_0",
+          "type": "holding",
+          "args": [
+            "CanObject"
+          ],
+          "check": "state.in_hand == CanObject",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "CanObject를 들고 있다"
+        }
+      ],
+      "destroy": [
+        {
+          "cond_id": "C_SG3_d1_des_0",
+          "type": "hand_empty",
+          "args": [],
+          "check": "state.in_hand is None",
+          "pass": false,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "손이 비어 있다"
+        },
+        {
+          "cond_id": "C_SG3_d1_des_1",
+          "type": "at_rest",
+          "args": [
+            "CanObject"
+          ],
+          "check": "abs(vel(CanObject)) < eps",
+          "pass": false,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "CanObject가 안정 상태다"
+        },
+        {
+          "cond_id": "C_SG3_d1_des_2",
+          "type": "top_exposed",
+          "args": [
+            "CanObject"
+          ],
+          "check": "count(edges[type=on, to=CanObject]) == 0",
+          "pass": false,
+          "eval_by": "sg",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "CanObject 위에 다른 object가 없다"
+        }
+      ]
+    },
+    {
+      "subgoal_id": "SG3_d2",
+      "action_type": "transport",
+      "mode": null,
+      "binding": {
+        "?o": "CanObject",
+        "?r": "blue_tray"
+      },
+      "group_id": "G_CanObject",
+      "from_kg": "SG3",
+      "condition_source": "template",
+      "note": "CanObject를 blue_tray로 운반",
+      "pre": [
+        {
+          "cond_id": "C_SG3_d2_pre_0",
+          "type": "holding",
+          "args": [
+            "CanObject"
+          ],
+          "check": "state.in_hand == CanObject",
+          "pass": false,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "CanObject를 들고 있다"
+        },
+        {
+          "cond_id": "C_SG3_d2_pre_1",
+          "type": "path_clear",
+          "args": [
+            "CanObject",
+            "blue_tray"
+          ],
+          "check": "motion.collision_free(CanObject, blue_tray)",
+          "pass": null,
+          "eval_by": "motion",
+          "depends_on": "motion",
+          "needs_observation": false,
+          "nl": "CanObject에서 blue_tray까지 경로가 비어 있다"
+        }
+      ],
+      "establish": [
+        {
+          "cond_id": "C_SG3_d2_est_0",
+          "type": "above",
+          "args": [
+            "CanObject",
+            "blue_tray"
+          ],
+          "check": "xy_overlap(CanObject, blue_tray)",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "CanObject가 blue_tray 위에 있다"
+        }
+      ],
+      "destroy": []
+    },
+    {
+      "subgoal_id": "SG3_d3",
+      "action_type": "place",
+      "mode": null,
+      "binding": {
+        "?o": "CanObject",
+        "?r": "blue_tray"
+      },
+      "group_id": "G_CanObject",
+      "from_kg": "SG3",
+      "condition_source": "template",
+      "note": "CanObject를 blue_tray에 배치",
+      "pre": [
+        {
+          "cond_id": "C_SG3_d3_pre_0",
+          "type": "holding",
+          "args": [
+            "CanObject"
+          ],
+          "check": "state.in_hand == CanObject",
+          "pass": false,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "CanObject를 들고 있다"
+        },
+        {
+          "cond_id": "C_SG3_d3_pre_1",
+          "type": "above",
+          "args": [
+            "CanObject",
+            "blue_tray"
+          ],
+          "check": "xy_overlap(CanObject, blue_tray)",
+          "pass": false,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "CanObject가 blue_tray 위에 있다"
+        },
+        {
+          "cond_id": "C_SG3_d3_pre_2",
+          "type": "clear",
+          "args": [
+            "blue_tray"
+          ],
+          "check": "sg.free_volume(blue_tray) > 0",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "blue_tray에 배치 공간이 있다"
+        },
+        {
+          "cond_id": "C_SG3_d3_pre_3",
+          "type": "fits_inside",
+          "args": [
+            "CanObject",
+            "blue_tray"
+          ],
+          "check": "sg.clearance(CanObject, blue_tray) >= 0",
+          "pass": true,
+          "eval_by": "sg",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "CanObject가 blue_tray 안에 들어간다"
+        }
+      ],
+      "establish": [
+        {
+          "cond_id": "C_SG3_d3_est_0",
+          "type": "in_region",
+          "args": [
+            "CanObject",
+            "blue_tray"
+          ],
+          "check": "inside(CanObject, blue_tray)",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "CanObject가 blue_tray 안에 있다"
+        },
+        {
+          "cond_id": "C_SG3_d3_est_1",
+          "type": "at_rest",
+          "args": [
+            "CanObject"
+          ],
+          "check": "abs(vel(CanObject)) < eps",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "CanObject가 안정 상태다"
+        },
+        {
+          "cond_id": "C_SG3_d3_est_2",
+          "type": "hand_empty",
+          "args": [],
+          "check": "state.in_hand is None",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "손이 비어 있다"
+        }
+      ],
+      "destroy": [
+        {
+          "cond_id": "C_SG3_d3_des_0",
+          "type": "holding",
+          "args": [
+            "CanObject"
+          ],
+          "check": "state.in_hand == CanObject",
+          "pass": false,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "CanObject를 들고 있다"
+        }
+      ]
+    },
+    {
+      "subgoal_id": "SG4_d1",
+      "action_type": "acquire",
+      "mode": null,
+      "binding": {
+        "?o": "BreadObject",
+        "?ee": "3f"
+      },
+      "group_id": "G_BreadObject",
+      "from_kg": "SG4",
+      "condition_source": "template",
+      "note": "BreadObject 확보",
+      "pre": [
+        {
+          "cond_id": "C_SG4_d1_pre_0",
+          "type": "reachable",
+          "args": [
+            "BreadObject"
+          ],
+          "check": "dist(base, pose(BreadObject)) <= robot.reach",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "BreadObject가 작업 반경 안에 있다"
+        },
+        {
+          "cond_id": "C_SG4_d1_pre_1",
+          "type": "top_exposed",
+          "args": [
+            "BreadObject"
+          ],
+          "check": "count(edges[type=on, to=BreadObject]) == 0",
+          "pass": true,
+          "eval_by": "sg",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "BreadObject 위에 다른 object가 없다"
+        },
+        {
+          "cond_id": "C_SG4_d1_pre_2",
+          "type": "ee_feasible",
+          "args": [
+            "BreadObject"
+          ],
+          "check": "BreadObject in sg.feasible_ee_objects[current_ee]",
+          "pass": true,
+          "eval_by": "sg",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "현재 EE로 BreadObject를 다룰 수 있다"
+        },
+        {
+          "cond_id": "C_SG4_d1_pre_3",
+          "type": "attached_ee",
+          "args": [
+            "3f"
+          ],
+          "check": "robot.attached == 3f",
+          "pass": null,
+          "eval_by": "motion",
+          "depends_on": "motion",
+          "needs_observation": false,
+          "nl": "3f가 장착되어 있다"
+        },
+        {
+          "cond_id": "C_SG4_d1_pre_4",
+          "type": "hand_empty",
+          "args": [],
+          "check": "state.in_hand is None",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "손이 비어 있다"
+        }
+      ],
+      "establish": [
+        {
+          "cond_id": "C_SG4_d1_est_0",
+          "type": "holding",
+          "args": [
+            "BreadObject"
+          ],
+          "check": "state.in_hand == BreadObject",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "BreadObject를 들고 있다"
+        }
+      ],
+      "destroy": [
+        {
+          "cond_id": "C_SG4_d1_des_0",
+          "type": "hand_empty",
+          "args": [],
+          "check": "state.in_hand is None",
+          "pass": false,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "손이 비어 있다"
+        },
+        {
+          "cond_id": "C_SG4_d1_des_1",
+          "type": "at_rest",
+          "args": [
+            "BreadObject"
+          ],
+          "check": "abs(vel(BreadObject)) < eps",
+          "pass": false,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "BreadObject가 안정 상태다"
+        },
+        {
+          "cond_id": "C_SG4_d1_des_2",
+          "type": "top_exposed",
+          "args": [
+            "BreadObject"
+          ],
+          "check": "count(edges[type=on, to=BreadObject]) == 0",
+          "pass": false,
+          "eval_by": "sg",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "BreadObject 위에 다른 object가 없다"
+        }
+      ]
+    },
+    {
+      "subgoal_id": "SG4_d2",
+      "action_type": "transport",
+      "mode": null,
+      "binding": {
+        "?o": "BreadObject",
+        "?r": "green_tray"
+      },
+      "group_id": "G_BreadObject",
+      "from_kg": "SG4",
+      "condition_source": "template",
+      "note": "BreadObject를 green_tray로 운반",
+      "pre": [
+        {
+          "cond_id": "C_SG4_d2_pre_0",
+          "type": "holding",
+          "args": [
+            "BreadObject"
+          ],
+          "check": "state.in_hand == BreadObject",
+          "pass": false,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "BreadObject를 들고 있다"
+        },
+        {
+          "cond_id": "C_SG4_d2_pre_1",
+          "type": "path_clear",
+          "args": [
+            "BreadObject",
+            "green_tray"
+          ],
+          "check": "motion.collision_free(BreadObject, green_tray)",
+          "pass": null,
+          "eval_by": "motion",
+          "depends_on": "motion",
+          "needs_observation": false,
+          "nl": "BreadObject에서 green_tray까지 경로가 비어 있다"
+        }
+      ],
+      "establish": [
+        {
+          "cond_id": "C_SG4_d2_est_0",
+          "type": "above",
+          "args": [
+            "BreadObject",
+            "green_tray"
+          ],
+          "check": "xy_overlap(BreadObject, green_tray)",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "BreadObject가 green_tray 위에 있다"
+        }
+      ],
+      "destroy": []
+    },
+    {
+      "subgoal_id": "SG4_d3",
+      "action_type": "place",
+      "mode": null,
+      "binding": {
+        "?o": "BreadObject",
+        "?r": "green_tray"
+      },
+      "group_id": "G_BreadObject",
+      "from_kg": "SG4",
+      "condition_source": "template",
+      "note": "BreadObject를 green_tray에 배치",
+      "pre": [
+        {
+          "cond_id": "C_SG4_d3_pre_0",
+          "type": "holding",
+          "args": [
+            "BreadObject"
+          ],
+          "check": "state.in_hand == BreadObject",
+          "pass": false,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "BreadObject를 들고 있다"
+        },
+        {
+          "cond_id": "C_SG4_d3_pre_1",
+          "type": "above",
+          "args": [
+            "BreadObject",
+            "green_tray"
+          ],
+          "check": "xy_overlap(BreadObject, green_tray)",
+          "pass": false,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "BreadObject가 green_tray 위에 있다"
+        },
+        {
+          "cond_id": "C_SG4_d3_pre_2",
+          "type": "clear",
+          "args": [
+            "green_tray"
+          ],
+          "check": "sg.free_volume(green_tray) > 0",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "green_tray에 배치 공간이 있다"
+        },
+        {
+          "cond_id": "C_SG4_d3_pre_3",
+          "type": "fits_inside",
+          "args": [
+            "BreadObject",
+            "green_tray"
+          ],
+          "check": "sg.clearance(BreadObject, green_tray) >= 0",
+          "pass": true,
+          "eval_by": "sg",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "BreadObject가 green_tray 안에 들어간다"
+        }
+      ],
+      "establish": [
+        {
+          "cond_id": "C_SG4_d3_est_0",
+          "type": "in_region",
+          "args": [
+            "BreadObject",
+            "green_tray"
+          ],
+          "check": "inside(BreadObject, green_tray)",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "BreadObject가 green_tray 안에 있다"
+        },
+        {
+          "cond_id": "C_SG4_d3_est_1",
+          "type": "at_rest",
+          "args": [
+            "BreadObject"
+          ],
+          "check": "abs(vel(BreadObject)) < eps",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "BreadObject가 안정 상태다"
+        },
+        {
+          "cond_id": "C_SG4_d3_est_2",
+          "type": "hand_empty",
+          "args": [],
+          "check": "state.in_hand is None",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "손이 비어 있다"
+        }
+      ],
+      "destroy": [
+        {
+          "cond_id": "C_SG4_d3_des_0",
+          "type": "holding",
+          "args": [
+            "BreadObject"
+          ],
+          "check": "state.in_hand == BreadObject",
+          "pass": false,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "BreadObject를 들고 있다"
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "SG1_d1",
+      "to": "SG1_d2",
+      "reason": "causal_link",
+      "via_condition": "C_SG1_d2_pre_0",
+      "source": "planner_a"
+    },
+    {
+      "from": "SG1_d1",
+      "to": "SG1_d3",
+      "reason": "causal_link",
+      "via_condition": "C_SG1_d3_pre_0",
+      "source": "planner_a"
+    },
+    {
+      "from": "SG1_d2",
+      "to": "SG1_d3",
+      "reason": "causal_link",
+      "via_condition": "C_SG1_d3_pre_1",
+      "source": "planner_a"
+    },
+    {
+      "from": "SG2_d1",
+      "to": "SG2_d2",
+      "reason": "causal_link",
+      "via_condition": "C_SG2_d2_pre_0",
+      "source": "planner_a"
+    },
+    {
+      "from": "SG2_d1",
+      "to": "SG2_d3",
+      "reason": "causal_link",
+      "via_condition": "C_SG2_d3_pre_0",
+      "source": "planner_a"
+    },
+    {
+      "from": "SG2_d2",
+      "to": "SG2_d3",
+      "reason": "causal_link",
+      "via_condition": "C_SG2_d3_pre_1",
+      "source": "planner_a"
+    },
+    {
+      "from": "SG3_d1",
+      "to": "SG3_d2",
+      "reason": "causal_link",
+      "via_condition": "C_SG3_d2_pre_0",
+      "source": "planner_a"
+    },
+    {
+      "from": "SG3_d1",
+      "to": "SG3_d3",
+      "reason": "causal_link",
+      "via_condition": "C_SG3_d3_pre_0",
+      "source": "planner_a"
+    },
+    {
+      "from": "SG3_d2",
+      "to": "SG3_d3",
+      "reason": "causal_link",
+      "via_condition": "C_SG3_d3_pre_1",
+      "source": "planner_a"
+    },
+    {
+      "from": "SG4_d1",
+      "to": "SG4_d2",
+      "reason": "causal_link",
+      "via_condition": "C_SG4_d2_pre_0",
+      "source": "planner_a"
+    },
+    {
+      "from": "SG4_d1",
+      "to": "SG4_d3",
+      "reason": "causal_link",
+      "via_condition": "C_SG4_d3_pre_0",
+      "source": "planner_a"
+    },
+    {
+      "from": "SG4_d2",
+      "to": "SG4_d3",
+      "reason": "causal_link",
+      "via_condition": "C_SG4_d3_pre_1",
+      "source": "planner_a"
+    }
+  ],
+  "mutex": [
+    {
+      "a": "SG1_d1",
+      "b": "SG2_d1",
+      "condition": "C_SG1_d1_pre_4",
+      "predicate": "hand_empty",
+      "args": [],
+      "reestablished_by": [
+        "SG1_d3",
+        "SG2_d3",
+        "SG3_d3",
+        "SG4_d3"
+      ],
+      "resolutions": [
+        "SG1_d1 -> SG2_d1 사이에 hand_empty 재확립을 끼움",
+        "SG2_d1 -> SG1_d1 사이에 hand_empty 재확립을 끼움"
+      ],
+      "note": "순서 제약이 아니라 자원 배타. 둘 다 이 조건을 소비하므로 사이에 재확립 서브골이 반드시 들어가야 한다. 강제는 Planner B 의 통합 상태공간이 담당."
+    },
+    {
+      "a": "SG1_d1",
+      "b": "SG3_d1",
+      "condition": "C_SG1_d1_pre_4",
+      "predicate": "hand_empty",
+      "args": [],
+      "reestablished_by": [
+        "SG1_d3",
+        "SG2_d3",
+        "SG3_d3",
+        "SG4_d3"
+      ],
+      "resolutions": [
+        "SG1_d1 -> SG3_d1 사이에 hand_empty 재확립을 끼움",
+        "SG3_d1 -> SG1_d1 사이에 hand_empty 재확립을 끼움"
+      ],
+      "note": "순서 제약이 아니라 자원 배타. 둘 다 이 조건을 소비하므로 사이에 재확립 서브골이 반드시 들어가야 한다. 강제는 Planner B 의 통합 상태공간이 담당."
+    },
+    {
+      "a": "SG1_d1",
+      "b": "SG4_d1",
+      "condition": "C_SG1_d1_pre_4",
+      "predicate": "hand_empty",
+      "args": [],
+      "reestablished_by": [
+        "SG1_d3",
+        "SG2_d3",
+        "SG3_d3",
+        "SG4_d3"
+      ],
+      "resolutions": [
+        "SG1_d1 -> SG4_d1 사이에 hand_empty 재확립을 끼움",
+        "SG4_d1 -> SG1_d1 사이에 hand_empty 재확립을 끼움"
+      ],
+      "note": "순서 제약이 아니라 자원 배타. 둘 다 이 조건을 소비하므로 사이에 재확립 서브골이 반드시 들어가야 한다. 강제는 Planner B 의 통합 상태공간이 담당."
+    },
+    {
+      "a": "SG1_d1",
+      "b": "SG2_d1",
+      "condition": "C_SG2_d1_pre_4",
+      "predicate": "hand_empty",
+      "args": [],
+      "reestablished_by": [
+        "SG1_d3",
+        "SG2_d3",
+        "SG3_d3",
+        "SG4_d3"
+      ],
+      "resolutions": [
+        "SG1_d1 -> SG2_d1 사이에 hand_empty 재확립을 끼움",
+        "SG2_d1 -> SG1_d1 사이에 hand_empty 재확립을 끼움"
+      ],
+      "note": "순서 제약이 아니라 자원 배타. 둘 다 이 조건을 소비하므로 사이에 재확립 서브골이 반드시 들어가야 한다. 강제는 Planner B 의 통합 상태공간이 담당."
+    },
+    {
+      "a": "SG2_d1",
+      "b": "SG3_d1",
+      "condition": "C_SG2_d1_pre_4",
+      "predicate": "hand_empty",
+      "args": [],
+      "reestablished_by": [
+        "SG1_d3",
+        "SG2_d3",
+        "SG3_d3",
+        "SG4_d3"
+      ],
+      "resolutions": [
+        "SG2_d1 -> SG3_d1 사이에 hand_empty 재확립을 끼움",
+        "SG3_d1 -> SG2_d1 사이에 hand_empty 재확립을 끼움"
+      ],
+      "note": "순서 제약이 아니라 자원 배타. 둘 다 이 조건을 소비하므로 사이에 재확립 서브골이 반드시 들어가야 한다. 강제는 Planner B 의 통합 상태공간이 담당."
+    },
+    {
+      "a": "SG2_d1",
+      "b": "SG4_d1",
+      "condition": "C_SG2_d1_pre_4",
+      "predicate": "hand_empty",
+      "args": [],
+      "reestablished_by": [
+        "SG1_d3",
+        "SG2_d3",
+        "SG3_d3",
+        "SG4_d3"
+      ],
+      "resolutions": [
+        "SG2_d1 -> SG4_d1 사이에 hand_empty 재확립을 끼움",
+        "SG4_d1 -> SG2_d1 사이에 hand_empty 재확립을 끼움"
+      ],
+      "note": "순서 제약이 아니라 자원 배타. 둘 다 이 조건을 소비하므로 사이에 재확립 서브골이 반드시 들어가야 한다. 강제는 Planner B 의 통합 상태공간이 담당."
+    },
+    {
+      "a": "SG1_d1",
+      "b": "SG3_d1",
+      "condition": "C_SG3_d1_pre_4",
+      "predicate": "hand_empty",
+      "args": [],
+      "reestablished_by": [
+        "SG1_d3",
+        "SG2_d3",
+        "SG3_d3",
+        "SG4_d3"
+      ],
+      "resolutions": [
+        "SG1_d1 -> SG3_d1 사이에 hand_empty 재확립을 끼움",
+        "SG3_d1 -> SG1_d1 사이에 hand_empty 재확립을 끼움"
+      ],
+      "note": "순서 제약이 아니라 자원 배타. 둘 다 이 조건을 소비하므로 사이에 재확립 서브골이 반드시 들어가야 한다. 강제는 Planner B 의 통합 상태공간이 담당."
+    },
+    {
+      "a": "SG2_d1",
+      "b": "SG3_d1",
+      "condition": "C_SG3_d1_pre_4",
+      "predicate": "hand_empty",
+      "args": [],
+      "reestablished_by": [
+        "SG1_d3",
+        "SG2_d3",
+        "SG3_d3",
+        "SG4_d3"
+      ],
+      "resolutions": [
+        "SG2_d1 -> SG3_d1 사이에 hand_empty 재확립을 끼움",
+        "SG3_d1 -> SG2_d1 사이에 hand_empty 재확립을 끼움"
+      ],
+      "note": "순서 제약이 아니라 자원 배타. 둘 다 이 조건을 소비하므로 사이에 재확립 서브골이 반드시 들어가야 한다. 강제는 Planner B 의 통합 상태공간이 담당."
+    },
+    {
+      "a": "SG3_d1",
+      "b": "SG4_d1",
+      "condition": "C_SG3_d1_pre_4",
+      "predicate": "hand_empty",
+      "args": [],
+      "reestablished_by": [
+        "SG1_d3",
+        "SG2_d3",
+        "SG3_d3",
+        "SG4_d3"
+      ],
+      "resolutions": [
+        "SG3_d1 -> SG4_d1 사이에 hand_empty 재확립을 끼움",
+        "SG4_d1 -> SG3_d1 사이에 hand_empty 재확립을 끼움"
+      ],
+      "note": "순서 제약이 아니라 자원 배타. 둘 다 이 조건을 소비하므로 사이에 재확립 서브골이 반드시 들어가야 한다. 강제는 Planner B 의 통합 상태공간이 담당."
+    },
+    {
+      "a": "SG1_d1",
+      "b": "SG4_d1",
+      "condition": "C_SG4_d1_pre_4",
+      "predicate": "hand_empty",
+      "args": [],
+      "reestablished_by": [
+        "SG1_d3",
+        "SG2_d3",
+        "SG3_d3",
+        "SG4_d3"
+      ],
+      "resolutions": [
+        "SG1_d1 -> SG4_d1 사이에 hand_empty 재확립을 끼움",
+        "SG4_d1 -> SG1_d1 사이에 hand_empty 재확립을 끼움"
+      ],
+      "note": "순서 제약이 아니라 자원 배타. 둘 다 이 조건을 소비하므로 사이에 재확립 서브골이 반드시 들어가야 한다. 강제는 Planner B 의 통합 상태공간이 담당."
+    },
+    {
+      "a": "SG2_d1",
+      "b": "SG4_d1",
+      "condition": "C_SG4_d1_pre_4",
+      "predicate": "hand_empty",
+      "args": [],
+      "reestablished_by": [
+        "SG1_d3",
+        "SG2_d3",
+        "SG3_d3",
+        "SG4_d3"
+      ],
+      "resolutions": [
+        "SG2_d1 -> SG4_d1 사이에 hand_empty 재확립을 끼움",
+        "SG4_d1 -> SG2_d1 사이에 hand_empty 재확립을 끼움"
+      ],
+      "note": "순서 제약이 아니라 자원 배타. 둘 다 이 조건을 소비하므로 사이에 재확립 서브골이 반드시 들어가야 한다. 강제는 Planner B 의 통합 상태공간이 담당."
+    },
+    {
+      "a": "SG3_d1",
+      "b": "SG4_d1",
+      "condition": "C_SG4_d1_pre_4",
+      "predicate": "hand_empty",
+      "args": [],
+      "reestablished_by": [
+        "SG1_d3",
+        "SG2_d3",
+        "SG3_d3",
+        "SG4_d3"
+      ],
+      "resolutions": [
+        "SG3_d1 -> SG4_d1 사이에 hand_empty 재확립을 끼움",
+        "SG4_d1 -> SG3_d1 사이에 hand_empty 재확립을 끼움"
+      ],
+      "note": "순서 제약이 아니라 자원 배타. 둘 다 이 조건을 소비하므로 사이에 재확립 서브골이 반드시 들어가야 한다. 강제는 Planner B 의 통합 상태공간이 담당."
+    }
+  ],
+  "deferred_conditions": [],
+  "sg_observation_requests": [],
+  "open_conditions": [],
+  "disjunctive_threats": [],
+  "cycles": [],
+  "redecompose_signals": [],
+  "kg_order_audit": {
+    "verdicts": [],
+    "kg_missing": [],
+    "counts": {
+      "필요": 0,
+      "중복": 0,
+      "모순": 0
+    }
+  },
+  "stats": {
+    "n_kg_subgoals": 4,
+    "n_detailed_subgoals": 12,
+    "n_edges": 12,
+    "n_edges_from_kg": 0,
+    "n_edges_from_planner_a": 12,
+    "n_edges_observability": 0,
+    "n_deferred": 0,
+    "n_sg_requests": 0,
+    "n_mutex": 12,
+    "n_cycles": 0,
+    "n_orders_dp": 369600,
+    "n_orders_bruteforce": -1,
+    "orders_agree": true,
+    "orders_note": "DAG 의 선형확장 수. mutex(자원 배타)는 반영하지 않았으므로 Planner B 가 실제로 고를 수 있는 계획 수는 이보다 적다.",
+    "kg_must_precede_preserved": true,
+    "kg_violation": []
+  }
+}

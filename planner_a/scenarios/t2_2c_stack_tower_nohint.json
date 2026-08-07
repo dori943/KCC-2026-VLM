@@ -1,0 +1,283 @@
+{
+  "meta": {
+    "task_id": "T2-2",
+    "category": "판정기 대조군",
+    "verify": "SG 주석 없이 판정 가능 시점을 추론하는가",
+    "scene_version": "주석 제거"
+  },
+  "kg": {
+    "scenario": "T2-2(대조군) 다중 객체 탑 쌓기 — SG 주석 없음",
+    "task": "부품 3개를 작업대 위에 하나의 탑으로 쌓아 올려라. 큰 것이 아래로 가야한다",
+    "subgoals": [
+      {
+        "subgoal_id": "SG1",
+        "description": "가장 큰 CerealObject 를 작업대에 놓는다",
+        "target_hints": [
+          "CerealObject"
+        ],
+        "goal_region_hint": "stack_base",
+        "required_capabilities": [
+          "stable_grasp",
+          "controlled_transport",
+          "controlled_release"
+        ]
+      },
+      {
+        "subgoal_id": "SG2",
+        "description": "MilkObject 를 CerealObject 위에 올린다",
+        "target_hints": [
+          "MilkObject"
+        ],
+        "goal_region_hint": "on_cereal",
+        "required_capabilities": [
+          "stable_grasp",
+          "controlled_transport",
+          "controlled_release"
+        ]
+      },
+      {
+        "subgoal_id": "SG3",
+        "description": "CanObject 를 MilkObject 위에 올린다",
+        "target_hints": [
+          "CanObject"
+        ],
+        "goal_region_hint": "on_milk",
+        "required_capabilities": [
+          "stable_grasp",
+          "controlled_transport",
+          "controlled_release"
+        ]
+      }
+    ],
+    "must_precede": []
+  },
+  "sg": {
+    "objects": {
+      "CanObject": {
+        "reachable": true,
+        "feasible_ee": [
+          "2f",
+          "3f"
+        ],
+        "at_rest": true
+      },
+      "MilkObject": {
+        "reachable": true,
+        "feasible_ee": [
+          "2f"
+        ],
+        "at_rest": true
+      },
+      "CerealObject": {
+        "reachable": true,
+        "feasible_ee": [
+          "2f",
+          "vac"
+        ],
+        "at_rest": true
+      },
+      "BottleObject": {
+        "reachable": true,
+        "feasible_ee": [
+          "2f",
+          "3f"
+        ],
+        "at_rest": true
+      },
+      "BreadObject": {
+        "reachable": true,
+        "feasible_ee": [
+          "3f"
+        ],
+        "at_rest": true
+      },
+      "LemonObject": {
+        "reachable": true,
+        "feasible_ee": [
+          "3f"
+        ],
+        "at_rest": true
+      },
+      "PlateWithHoleObject": {
+        "reachable": true,
+        "feasible_ee": [
+          "vac"
+        ],
+        "at_rest": true
+      },
+      "SquareNutObject": {
+        "reachable": true,
+        "feasible_ee": [
+          "2f"
+        ],
+        "at_rest": true
+      }
+    },
+    "regions": {
+      "stack_base": {
+        "clear": true
+      }
+    },
+    "on_edges": [],
+    "clearance": {
+      "CerealObject|stack_base": 100
+    },
+    "object_specs": {
+      "CanObject": {
+        "bbox_mm": [
+          50,
+          50,
+          80
+        ],
+        "volume_cm3": 146,
+        "density": 100,
+        "mass_g": 14.6,
+        "shape": "원통 (콜라캔)",
+        "feasible_ee": [
+          "2f",
+          "3f"
+        ]
+      },
+      "MilkObject": {
+        "bbox_mm": [
+          40,
+          40,
+          144
+        ],
+        "volume_cm3": 192,
+        "density": 100,
+        "mass_g": 19.2,
+        "shape": "우유 카톤 (윗면 박공지붕)",
+        "feasible_ee": [
+          "2f"
+        ]
+      },
+      "CerealObject": {
+        "bbox_mm": [
+          100,
+          30,
+          150
+        ],
+        "volume_cm3": 450,
+        "density": 150,
+        "mass_g": 67.5,
+        "shape": "얇은 박스",
+        "feasible_ee": [
+          "2f",
+          "vac"
+        ]
+      },
+      "BottleObject": {
+        "bbox_mm": [
+          55,
+          58.5,
+          160
+        ],
+        "volume_cm3": 277,
+        "density": 50,
+        "mass_g": 13.9,
+        "shape": "유리병 (목·뚜껑)",
+        "feasible_ee": [
+          "2f",
+          "3f"
+        ]
+      },
+      "BreadObject": {
+        "bbox_mm": [
+          48,
+          40,
+          48
+        ],
+        "volume_cm3": 83,
+        "density": 50,
+        "mass_g": 4.1,
+        "shape": "불규칙 유기형",
+        "feasible_ee": [
+          "3f"
+        ]
+      },
+      "LemonObject": {
+        "bbox_mm": [
+          67.5,
+          40,
+          40
+        ],
+        "volume_cm3": 53,
+        "density": 50,
+        "mass_g": 2.7,
+        "shape": "타원 구형",
+        "feasible_ee": [
+          "3f"
+        ]
+      },
+      "PlateWithHoleObject": {
+        "bbox_mm": [
+          340,
+          340,
+          20
+        ],
+        "volume_cm3": null,
+        "density": null,
+        "mass_g": null,
+        "shape": "대형 평판 프레임 (박스 조합)",
+        "feasible_ee": [
+          "vac"
+        ]
+      },
+      "SquareNutObject": {
+        "bbox_mm": [
+          110,
+          87,
+          20
+        ],
+        "volume_cm3": null,
+        "density": 100,
+        "mass_g": null,
+        "shape": "손잡이 달린 너트 (박스 조합)",
+        "feasible_ee": [
+          "2f"
+        ]
+      }
+    },
+    "per_subgoal": {
+      "SG1": {
+        "target": "CerealObject",
+        "goal_region": "stack_base",
+        "tool_required": false,
+        "feasible_ee": [
+          "2f",
+          "vac"
+        ],
+        "ee_candidate": "2f"
+      },
+      "SG2": {
+        "target": "MilkObject",
+        "goal_region": "on_cereal",
+        "tool_required": false,
+        "feasible_ee": [
+          "2f"
+        ],
+        "ee_candidate": "2f"
+      },
+      "SG3": {
+        "target": "CanObject",
+        "goal_region": "on_milk",
+        "tool_required": false,
+        "feasible_ee": [
+          "2f",
+          "3f"
+        ],
+        "ee_candidate": "2f"
+      }
+    }
+  },
+  "robot_state": {
+    "in_hand": null,
+    "current_ee": "2f",
+    "ee_rack": [
+      "2f",
+      "3f",
+      "vac"
+    ]
+  }
+}

@@ -1,0 +1,205 @@
+{
+  "meta": {
+    "task_id": "T1-1",
+    "category": "1. Tool Selection",
+    "verify": "주변 물체를 적절한 도구로 선택하는가",
+    "scene_version": 1
+  },
+  "kg": {
+    "scenario": "T1-1 작업 반경 밖 물체 끌어오기",
+    "task": "우유를 작업 환경 안으로 가져오기",
+    "subgoals": [
+      {
+        "subgoal_id": "SG1",
+        "description": "우유를 작업 영역 안으로 가져온다",
+        "target_hints": [
+          "MilkObject"
+        ],
+        "goal_region_hint": "work_zone",
+        "required_capabilities": [
+          "pull",
+          "tool_use"
+        ]
+      }
+    ],
+    "must_precede": []
+  },
+  "sg": {
+    "objects": {
+      "HammerObject": {
+        "reachable": true,
+        "feasible_ee": [
+          "2f",
+          "3f"
+        ],
+        "at_rest": true
+      },
+      "CylinderObject": {
+        "reachable": true,
+        "feasible_ee": [
+          "2f",
+          "3f"
+        ],
+        "at_rest": true
+      },
+      "BoxObject": {
+        "reachable": true,
+        "feasible_ee": [
+          "2f",
+          "3f",
+          "vac"
+        ],
+        "at_rest": true
+      },
+      "ShortHookObject": {
+        "reachable": true,
+        "feasible_ee": [
+          "2f",
+          "3f"
+        ],
+        "at_rest": true
+      },
+      "MilkObject": {
+        "reachable": false,
+        "feasible_ee": [
+          "2f"
+        ],
+        "at_rest": true
+      }
+    },
+    "regions": {
+      "work_zone": {
+        "clear": true,
+        "multi": true
+      },
+      "tool_rest": {
+        "clear": true,
+        "multi": true
+      }
+    },
+    "on_edges": [],
+    "clearance": {
+      "HammerObject|tool_rest": 100,
+      "MilkObject|work_zone": 100
+    },
+    "tool_effective": {
+      "HammerObject|MilkObject": true,
+      "CylinderObject|MilkObject": false,
+      "BoxObject|MilkObject": false,
+      "ShortHookObject|MilkObject": false
+    },
+    "tool_effective_reason": {
+      "HammerObject|MilkObject": "리치·형상·질량 모두 만족 (파지 EE ['2f', '3f'])",
+      "CylinderObject|MilkObject": "lip/hook 없음 — 뒤에 걸 수 없어 당기기 불가",
+      "BoxObject|MilkObject": "lip/hook 없음 — 뒤에 걸 수 없어 당기기 불가",
+      "ShortHookObject|MilkObject": "유효 리치 180mm < 목표 거리 240mm"
+    },
+    "object_specs": {
+      "HammerObject": {
+        "bbox_mm": [
+          300,
+          100,
+          40
+        ],
+        "reach_mm": 275,
+        "lip_mm": 40,
+        "grip_width_mm": 30,
+        "contact_width_mm": 100,
+        "volume_cm3": 150,
+        "density": 1330,
+        "mass_kg": 0.2,
+        "flat_top": false,
+        "role": "긴 손잡이 + head + claw. 후킹/당기기",
+        "robosuite": "robosuite.models.objects.HammerObject (Composite)"
+      },
+      "CylinderObject": {
+        "bbox_mm": [
+          30,
+          30,
+          300
+        ],
+        "reach_mm": 300,
+        "lip_mm": 0,
+        "grip_width_mm": 30,
+        "contact_width_mm": 30,
+        "volume_cm3": 212,
+        "density": 500,
+        "mass_kg": 0.106,
+        "flat_top": false,
+        "role": "Ø30 직선 막대. 리치 충분 / hook 없음",
+        "robosuite": "robosuite.models.objects.CylinderObject (primitive)"
+      },
+      "BoxObject": {
+        "bbox_mm": [
+          120,
+          15,
+          300
+        ],
+        "reach_mm": 300,
+        "lip_mm": 0,
+        "grip_width_mm": 15,
+        "contact_width_mm": 120,
+        "volume_cm3": 540,
+        "density": 250,
+        "mass_kg": 0.135,
+        "flat_top": true,
+        "role": "얇고 긴 평판. broad push",
+        "robosuite": "robosuite.models.objects.BoxObject (primitive)"
+      },
+      "ShortHookObject": {
+        "bbox_mm": [
+          120,
+          25,
+          180
+        ],
+        "reach_mm": 180,
+        "lip_mm": 30,
+        "grip_width_mm": 25,
+        "contact_width_mm": 120,
+        "volume_cm3": 110,
+        "density": 500,
+        "mass_kg": 0.055,
+        "flat_top": false,
+        "role": "짧은 L-hook. 후킹 가능 / 리치 부족",
+        "robosuite": "CompositeObject 로 새로 정의 (내장 클래스 아님)"
+      },
+      "MilkObject": {
+        "bbox_mm": [
+          40,
+          40,
+          144
+        ],
+        "volume_cm3": 192,
+        "density": 1500,
+        "mass_kg": 0.288,
+        "shape": "우유 카톤 (윗면 박공지붕)",
+        "distance_mm": 240,
+        "mode": "pull",
+        "note": "바닥면이 평평해 끌기 시 마찰 확보는 양호. 무게중심이 높아 옆으로 미는 힘이 크면 전도 위험"
+      }
+    },
+    "per_subgoal": {
+      "SG1": {
+        "target": "MilkObject",
+        "goal_region": "work_zone",
+        "tool_required": true,
+        "selected_tool": "HammerObject",
+        "tool_mode": "pull",
+        "tool_rest_region": "tool_rest",
+        "feasible_ee": [
+          "2f"
+        ],
+        "ee_candidate": "2f"
+      }
+    }
+  },
+  "robot_state": {
+    "in_hand": null,
+    "current_ee": "2f",
+    "ee_rack": [
+      "2f",
+      "3f",
+      "vac"
+    ]
+  }
+}

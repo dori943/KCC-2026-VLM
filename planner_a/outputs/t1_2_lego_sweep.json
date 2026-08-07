@@ -1,0 +1,977 @@
+{
+  "scenario": "T1-2 작고 많은 물체 회수하기",
+  "task": "레고를 담을 수거 트레이를 앞으로 끌어오고, 테이블에 흩어진 레고 블록을 수거 트레이에 쓸어 담아라",
+  "condition_source": "template",
+  "decidability_source": "rule",
+  "detailed_subgoals": [
+    {
+      "subgoal_id": "SG1_d1",
+      "action_type": "acquire",
+      "mode": null,
+      "binding": {
+        "?o": "LongHookObject",
+        "?ee": "2f"
+      },
+      "group_id": "G_LongHookObject",
+      "from_kg": "SG1",
+      "condition_source": "template",
+      "note": "도구 LongHookObject 확보 [capability 어휘와 불일치 - 확인 필요]",
+      "pre": [
+        {
+          "cond_id": "C_SG1_d1_pre_0",
+          "type": "reachable",
+          "args": [
+            "LongHookObject"
+          ],
+          "check": "dist(base, pose(LongHookObject)) <= robot.reach",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "LongHookObject가 작업 반경 안에 있다"
+        },
+        {
+          "cond_id": "C_SG1_d1_pre_1",
+          "type": "top_exposed",
+          "args": [
+            "LongHookObject"
+          ],
+          "check": "count(edges[type=on, to=LongHookObject]) == 0",
+          "pass": true,
+          "eval_by": "sg",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "LongHookObject 위에 다른 object가 없다"
+        },
+        {
+          "cond_id": "C_SG1_d1_pre_2",
+          "type": "ee_feasible",
+          "args": [
+            "LongHookObject"
+          ],
+          "check": "LongHookObject in sg.feasible_ee_objects[current_ee]",
+          "pass": true,
+          "eval_by": "sg",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "현재 EE로 LongHookObject를 다룰 수 있다"
+        },
+        {
+          "cond_id": "C_SG1_d1_pre_3",
+          "type": "attached_ee",
+          "args": [
+            "2f"
+          ],
+          "check": "robot.attached == 2f",
+          "pass": null,
+          "eval_by": "motion",
+          "depends_on": "motion",
+          "needs_observation": false,
+          "nl": "2f가 장착되어 있다"
+        },
+        {
+          "cond_id": "C_SG1_d1_pre_4",
+          "type": "hand_empty",
+          "args": [],
+          "check": "state.in_hand is None",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "손이 비어 있다"
+        }
+      ],
+      "establish": [
+        {
+          "cond_id": "C_SG1_d1_est_0",
+          "type": "holding",
+          "args": [
+            "LongHookObject"
+          ],
+          "check": "state.in_hand == LongHookObject",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "LongHookObject를 들고 있다"
+        }
+      ],
+      "destroy": [
+        {
+          "cond_id": "C_SG1_d1_des_0",
+          "type": "hand_empty",
+          "args": [],
+          "check": "state.in_hand is None",
+          "pass": false,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "손이 비어 있다"
+        },
+        {
+          "cond_id": "C_SG1_d1_des_1",
+          "type": "at_rest",
+          "args": [
+            "LongHookObject"
+          ],
+          "check": "abs(vel(LongHookObject)) < eps",
+          "pass": false,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "LongHookObject가 안정 상태다"
+        },
+        {
+          "cond_id": "C_SG1_d1_des_2",
+          "type": "top_exposed",
+          "args": [
+            "LongHookObject"
+          ],
+          "check": "count(edges[type=on, to=LongHookObject]) == 0",
+          "pass": false,
+          "eval_by": "sg",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "LongHookObject 위에 다른 object가 없다"
+        }
+      ]
+    },
+    {
+      "subgoal_id": "SG1_d2",
+      "action_type": "tool_act",
+      "mode": "pull",
+      "binding": {
+        "?t": "LongHookObject",
+        "?o": "PartsBoxObject",
+        "?r": "blue_region"
+      },
+      "group_id": "G_LongHookObject",
+      "from_kg": "SG1",
+      "condition_source": "template",
+      "note": "LongHookObject로 PartsBoxObject에 pull",
+      "pre": [
+        {
+          "cond_id": "C_SG1_d2_pre_0",
+          "type": "holding",
+          "args": [
+            "LongHookObject"
+          ],
+          "check": "state.in_hand == LongHookObject",
+          "pass": false,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "LongHookObject를 들고 있다"
+        },
+        {
+          "cond_id": "C_SG1_d2_pre_1",
+          "type": "tool_effective",
+          "args": [
+            "LongHookObject",
+            "PartsBoxObject"
+          ],
+          "check": "sg.tool_effective(LongHookObject, PartsBoxObject)",
+          "pass": true,
+          "eval_by": "sg",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "LongHookObject로 PartsBoxObject에 실제로 작용할 수 있다"
+        },
+        {
+          "cond_id": "C_SG1_d2_pre_2",
+          "type": "path_clear",
+          "args": [
+            "LongHookObject",
+            "PartsBoxObject"
+          ],
+          "check": "motion.collision_free(LongHookObject, PartsBoxObject)",
+          "pass": null,
+          "eval_by": "motion",
+          "depends_on": "motion",
+          "needs_observation": false,
+          "nl": "LongHookObject에서 PartsBoxObject까지 경로가 비어 있다"
+        }
+      ],
+      "establish": [
+        {
+          "cond_id": "C_SG1_d2_est_0",
+          "type": "in_region",
+          "args": [
+            "PartsBoxObject",
+            "blue_region"
+          ],
+          "check": "inside(PartsBoxObject, blue_region)",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "PartsBoxObject가 blue_region 안에 있다"
+        },
+        {
+          "cond_id": "C_SG1_d2_est_1",
+          "type": "reachable",
+          "args": [
+            "PartsBoxObject"
+          ],
+          "check": "dist(base, pose(PartsBoxObject)) <= robot.reach",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "PartsBoxObject가 작업 반경 안에 있다"
+        },
+        {
+          "cond_id": "C_SG1_d2_est_2",
+          "type": "at_rest",
+          "args": [
+            "PartsBoxObject"
+          ],
+          "check": "abs(vel(PartsBoxObject)) < eps",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "PartsBoxObject가 안정 상태다"
+        }
+      ],
+      "destroy": []
+    },
+    {
+      "subgoal_id": "SG1_d2b",
+      "action_type": "transport",
+      "mode": null,
+      "binding": {
+        "?o": "LongHookObject",
+        "?r": "tool_rest"
+      },
+      "group_id": "G_LongHookObject",
+      "from_kg": "SG1",
+      "condition_source": "template",
+      "note": "도구를 거치 위치로 운반 [capability 어휘와 불일치 - 확인 필요]",
+      "pre": [
+        {
+          "cond_id": "C_SG1_d2b_pre_0",
+          "type": "holding",
+          "args": [
+            "LongHookObject"
+          ],
+          "check": "state.in_hand == LongHookObject",
+          "pass": false,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "LongHookObject를 들고 있다"
+        },
+        {
+          "cond_id": "C_SG1_d2b_pre_1",
+          "type": "path_clear",
+          "args": [
+            "LongHookObject",
+            "tool_rest"
+          ],
+          "check": "motion.collision_free(LongHookObject, tool_rest)",
+          "pass": null,
+          "eval_by": "motion",
+          "depends_on": "motion",
+          "needs_observation": false,
+          "nl": "LongHookObject에서 tool_rest까지 경로가 비어 있다"
+        }
+      ],
+      "establish": [
+        {
+          "cond_id": "C_SG1_d2b_est_0",
+          "type": "above",
+          "args": [
+            "LongHookObject",
+            "tool_rest"
+          ],
+          "check": "xy_overlap(LongHookObject, tool_rest)",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "LongHookObject가 tool_rest 위에 있다"
+        }
+      ],
+      "destroy": []
+    },
+    {
+      "subgoal_id": "SG1_d3",
+      "action_type": "place",
+      "mode": null,
+      "binding": {
+        "?o": "LongHookObject",
+        "?r": "tool_rest"
+      },
+      "group_id": "G_LongHookObject",
+      "from_kg": "SG1",
+      "condition_source": "template",
+      "note": "도구 LongHookObject 내려놓기 [capability 어휘와 불일치 - 확인 필요]",
+      "pre": [
+        {
+          "cond_id": "C_SG1_d3_pre_0",
+          "type": "holding",
+          "args": [
+            "LongHookObject"
+          ],
+          "check": "state.in_hand == LongHookObject",
+          "pass": false,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "LongHookObject를 들고 있다"
+        },
+        {
+          "cond_id": "C_SG1_d3_pre_1",
+          "type": "above",
+          "args": [
+            "LongHookObject",
+            "tool_rest"
+          ],
+          "check": "xy_overlap(LongHookObject, tool_rest)",
+          "pass": false,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "LongHookObject가 tool_rest 위에 있다"
+        },
+        {
+          "cond_id": "C_SG1_d3_pre_2",
+          "type": "clear",
+          "args": [
+            "tool_rest"
+          ],
+          "check": "sg.free_volume(tool_rest) > 0",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "tool_rest에 배치 공간이 있다"
+        },
+        {
+          "cond_id": "C_SG1_d3_pre_3",
+          "type": "fits_inside",
+          "args": [
+            "LongHookObject",
+            "tool_rest"
+          ],
+          "check": "sg.clearance(LongHookObject, tool_rest) >= 0",
+          "pass": true,
+          "eval_by": "sg",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "LongHookObject가 tool_rest 안에 들어간다"
+        }
+      ],
+      "establish": [
+        {
+          "cond_id": "C_SG1_d3_est_0",
+          "type": "in_region",
+          "args": [
+            "LongHookObject",
+            "tool_rest"
+          ],
+          "check": "inside(LongHookObject, tool_rest)",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "LongHookObject가 tool_rest 안에 있다"
+        },
+        {
+          "cond_id": "C_SG1_d3_est_1",
+          "type": "at_rest",
+          "args": [
+            "LongHookObject"
+          ],
+          "check": "abs(vel(LongHookObject)) < eps",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "LongHookObject가 안정 상태다"
+        },
+        {
+          "cond_id": "C_SG1_d3_est_2",
+          "type": "hand_empty",
+          "args": [],
+          "check": "state.in_hand is None",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "손이 비어 있다"
+        }
+      ],
+      "destroy": [
+        {
+          "cond_id": "C_SG1_d3_des_0",
+          "type": "holding",
+          "args": [
+            "LongHookObject"
+          ],
+          "check": "state.in_hand == LongHookObject",
+          "pass": false,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "LongHookObject를 들고 있다"
+        }
+      ]
+    },
+    {
+      "subgoal_id": "SG2_d1",
+      "action_type": "acquire",
+      "mode": null,
+      "binding": {
+        "?o": "LightWideBoxObject",
+        "?ee": "vac"
+      },
+      "group_id": "G_LightWideBoxObject",
+      "from_kg": "SG2",
+      "condition_source": "template",
+      "note": "도구 LightWideBoxObject 확보 [capability 어휘와 불일치 - 확인 필요]",
+      "pre": [
+        {
+          "cond_id": "C_SG2_d1_pre_0",
+          "type": "reachable",
+          "args": [
+            "LightWideBoxObject"
+          ],
+          "check": "dist(base, pose(LightWideBoxObject)) <= robot.reach",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "LightWideBoxObject가 작업 반경 안에 있다"
+        },
+        {
+          "cond_id": "C_SG2_d1_pre_1",
+          "type": "top_exposed",
+          "args": [
+            "LightWideBoxObject"
+          ],
+          "check": "count(edges[type=on, to=LightWideBoxObject]) == 0",
+          "pass": true,
+          "eval_by": "sg",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "LightWideBoxObject 위에 다른 object가 없다"
+        },
+        {
+          "cond_id": "C_SG2_d1_pre_2",
+          "type": "ee_feasible",
+          "args": [
+            "LightWideBoxObject"
+          ],
+          "check": "LightWideBoxObject in sg.feasible_ee_objects[current_ee]",
+          "pass": true,
+          "eval_by": "sg",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "현재 EE로 LightWideBoxObject를 다룰 수 있다"
+        },
+        {
+          "cond_id": "C_SG2_d1_pre_3",
+          "type": "attached_ee",
+          "args": [
+            "vac"
+          ],
+          "check": "robot.attached == vac",
+          "pass": null,
+          "eval_by": "motion",
+          "depends_on": "motion",
+          "needs_observation": false,
+          "nl": "vac가 장착되어 있다"
+        },
+        {
+          "cond_id": "C_SG2_d1_pre_4",
+          "type": "hand_empty",
+          "args": [],
+          "check": "state.in_hand is None",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "손이 비어 있다"
+        }
+      ],
+      "establish": [
+        {
+          "cond_id": "C_SG2_d1_est_0",
+          "type": "holding",
+          "args": [
+            "LightWideBoxObject"
+          ],
+          "check": "state.in_hand == LightWideBoxObject",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "LightWideBoxObject를 들고 있다"
+        }
+      ],
+      "destroy": [
+        {
+          "cond_id": "C_SG2_d1_des_0",
+          "type": "hand_empty",
+          "args": [],
+          "check": "state.in_hand is None",
+          "pass": false,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "손이 비어 있다"
+        },
+        {
+          "cond_id": "C_SG2_d1_des_1",
+          "type": "at_rest",
+          "args": [
+            "LightWideBoxObject"
+          ],
+          "check": "abs(vel(LightWideBoxObject)) < eps",
+          "pass": false,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "LightWideBoxObject가 안정 상태다"
+        },
+        {
+          "cond_id": "C_SG2_d1_des_2",
+          "type": "top_exposed",
+          "args": [
+            "LightWideBoxObject"
+          ],
+          "check": "count(edges[type=on, to=LightWideBoxObject]) == 0",
+          "pass": false,
+          "eval_by": "sg",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "LightWideBoxObject 위에 다른 object가 없다"
+        }
+      ]
+    },
+    {
+      "subgoal_id": "SG2_d2",
+      "action_type": "tool_act",
+      "mode": "sweep",
+      "binding": {
+        "?t": "LightWideBoxObject",
+        "?o": "LegoBlockCluster",
+        "?r": "collection_tray"
+      },
+      "group_id": "G_LightWideBoxObject",
+      "from_kg": "SG2",
+      "condition_source": "template",
+      "note": "LightWideBoxObject로 LegoBlockCluster에 sweep",
+      "pre": [
+        {
+          "cond_id": "C_SG2_d2_pre_0",
+          "type": "holding",
+          "args": [
+            "LightWideBoxObject"
+          ],
+          "check": "state.in_hand == LightWideBoxObject",
+          "pass": false,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "LightWideBoxObject를 들고 있다"
+        },
+        {
+          "cond_id": "C_SG2_d2_pre_1",
+          "type": "tool_effective",
+          "args": [
+            "LightWideBoxObject",
+            "LegoBlockCluster"
+          ],
+          "check": "sg.tool_effective(LightWideBoxObject, LegoBlockCluster)",
+          "pass": true,
+          "eval_by": "sg",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "LightWideBoxObject로 LegoBlockCluster에 실제로 작용할 수 있다"
+        },
+        {
+          "cond_id": "C_SG2_d2_pre_2",
+          "type": "path_clear",
+          "args": [
+            "LightWideBoxObject",
+            "LegoBlockCluster"
+          ],
+          "check": "motion.collision_free(LightWideBoxObject, LegoBlockCluster)",
+          "pass": null,
+          "eval_by": "motion",
+          "depends_on": "motion",
+          "needs_observation": false,
+          "nl": "LightWideBoxObject에서 LegoBlockCluster까지 경로가 비어 있다"
+        }
+      ],
+      "establish": [
+        {
+          "cond_id": "C_SG2_d2_est_0",
+          "type": "in_region",
+          "args": [
+            "LegoBlockCluster",
+            "collection_tray"
+          ],
+          "check": "inside(LegoBlockCluster, collection_tray)",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "LegoBlockCluster가 collection_tray 안에 있다"
+        },
+        {
+          "cond_id": "C_SG2_d2_est_1",
+          "type": "reachable",
+          "args": [
+            "LegoBlockCluster"
+          ],
+          "check": "dist(base, pose(LegoBlockCluster)) <= robot.reach",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "LegoBlockCluster가 작업 반경 안에 있다"
+        },
+        {
+          "cond_id": "C_SG2_d2_est_2",
+          "type": "at_rest",
+          "args": [
+            "LegoBlockCluster"
+          ],
+          "check": "abs(vel(LegoBlockCluster)) < eps",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "LegoBlockCluster가 안정 상태다"
+        }
+      ],
+      "destroy": []
+    },
+    {
+      "subgoal_id": "SG2_d2b",
+      "action_type": "transport",
+      "mode": null,
+      "binding": {
+        "?o": "LightWideBoxObject",
+        "?r": "tool_rest"
+      },
+      "group_id": "G_LightWideBoxObject",
+      "from_kg": "SG2",
+      "condition_source": "template",
+      "note": "도구를 거치 위치로 운반 [capability 어휘와 불일치 - 확인 필요]",
+      "pre": [
+        {
+          "cond_id": "C_SG2_d2b_pre_0",
+          "type": "holding",
+          "args": [
+            "LightWideBoxObject"
+          ],
+          "check": "state.in_hand == LightWideBoxObject",
+          "pass": false,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "LightWideBoxObject를 들고 있다"
+        },
+        {
+          "cond_id": "C_SG2_d2b_pre_1",
+          "type": "path_clear",
+          "args": [
+            "LightWideBoxObject",
+            "tool_rest"
+          ],
+          "check": "motion.collision_free(LightWideBoxObject, tool_rest)",
+          "pass": null,
+          "eval_by": "motion",
+          "depends_on": "motion",
+          "needs_observation": false,
+          "nl": "LightWideBoxObject에서 tool_rest까지 경로가 비어 있다"
+        }
+      ],
+      "establish": [
+        {
+          "cond_id": "C_SG2_d2b_est_0",
+          "type": "above",
+          "args": [
+            "LightWideBoxObject",
+            "tool_rest"
+          ],
+          "check": "xy_overlap(LightWideBoxObject, tool_rest)",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "LightWideBoxObject가 tool_rest 위에 있다"
+        }
+      ],
+      "destroy": []
+    },
+    {
+      "subgoal_id": "SG2_d3",
+      "action_type": "place",
+      "mode": null,
+      "binding": {
+        "?o": "LightWideBoxObject",
+        "?r": "tool_rest"
+      },
+      "group_id": "G_LightWideBoxObject",
+      "from_kg": "SG2",
+      "condition_source": "template",
+      "note": "도구 LightWideBoxObject 내려놓기 [capability 어휘와 불일치 - 확인 필요]",
+      "pre": [
+        {
+          "cond_id": "C_SG2_d3_pre_0",
+          "type": "holding",
+          "args": [
+            "LightWideBoxObject"
+          ],
+          "check": "state.in_hand == LightWideBoxObject",
+          "pass": false,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "LightWideBoxObject를 들고 있다"
+        },
+        {
+          "cond_id": "C_SG2_d3_pre_1",
+          "type": "above",
+          "args": [
+            "LightWideBoxObject",
+            "tool_rest"
+          ],
+          "check": "xy_overlap(LightWideBoxObject, tool_rest)",
+          "pass": false,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "LightWideBoxObject가 tool_rest 위에 있다"
+        },
+        {
+          "cond_id": "C_SG2_d3_pre_2",
+          "type": "clear",
+          "args": [
+            "tool_rest"
+          ],
+          "check": "sg.free_volume(tool_rest) > 0",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "tool_rest에 배치 공간이 있다"
+        },
+        {
+          "cond_id": "C_SG2_d3_pre_3",
+          "type": "fits_inside",
+          "args": [
+            "LightWideBoxObject",
+            "tool_rest"
+          ],
+          "check": "sg.clearance(LightWideBoxObject, tool_rest) >= 0",
+          "pass": true,
+          "eval_by": "sg",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "LightWideBoxObject가 tool_rest 안에 들어간다"
+        }
+      ],
+      "establish": [
+        {
+          "cond_id": "C_SG2_d3_est_0",
+          "type": "in_region",
+          "args": [
+            "LightWideBoxObject",
+            "tool_rest"
+          ],
+          "check": "inside(LightWideBoxObject, tool_rest)",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "LightWideBoxObject가 tool_rest 안에 있다"
+        },
+        {
+          "cond_id": "C_SG2_d3_est_1",
+          "type": "at_rest",
+          "args": [
+            "LightWideBoxObject"
+          ],
+          "check": "abs(vel(LightWideBoxObject)) < eps",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "LightWideBoxObject가 안정 상태다"
+        },
+        {
+          "cond_id": "C_SG2_d3_est_2",
+          "type": "hand_empty",
+          "args": [],
+          "check": "state.in_hand is None",
+          "pass": true,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "손이 비어 있다"
+        }
+      ],
+      "destroy": [
+        {
+          "cond_id": "C_SG2_d3_des_0",
+          "type": "holding",
+          "args": [
+            "LightWideBoxObject"
+          ],
+          "check": "state.in_hand == LightWideBoxObject",
+          "pass": false,
+          "eval_by": "planner_a",
+          "depends_on": null,
+          "needs_observation": false,
+          "nl": "LightWideBoxObject를 들고 있다"
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "SG1_d1",
+      "to": "SG1_d2",
+      "reason": "causal_link",
+      "via_condition": "C_SG1_d2_pre_0",
+      "source": "planner_a"
+    },
+    {
+      "from": "SG1_d1",
+      "to": "SG1_d2b",
+      "reason": "causal_link",
+      "via_condition": "C_SG1_d2b_pre_0",
+      "source": "planner_a"
+    },
+    {
+      "from": "SG1_d1",
+      "to": "SG1_d3",
+      "reason": "causal_link",
+      "via_condition": "C_SG1_d3_pre_0",
+      "source": "planner_a"
+    },
+    {
+      "from": "SG1_d2b",
+      "to": "SG1_d3",
+      "reason": "causal_link",
+      "via_condition": "C_SG1_d3_pre_1",
+      "source": "planner_a"
+    },
+    {
+      "from": "SG2_d1",
+      "to": "SG2_d2",
+      "reason": "causal_link",
+      "via_condition": "C_SG2_d2_pre_0",
+      "source": "planner_a"
+    },
+    {
+      "from": "SG2_d1",
+      "to": "SG2_d2b",
+      "reason": "causal_link",
+      "via_condition": "C_SG2_d2b_pre_0",
+      "source": "planner_a"
+    },
+    {
+      "from": "SG2_d1",
+      "to": "SG2_d3",
+      "reason": "causal_link",
+      "via_condition": "C_SG2_d3_pre_0",
+      "source": "planner_a"
+    },
+    {
+      "from": "SG2_d2b",
+      "to": "SG2_d3",
+      "reason": "causal_link",
+      "via_condition": "C_SG2_d3_pre_1",
+      "source": "planner_a"
+    },
+    {
+      "from": "SG1_d2",
+      "to": "SG1_d3",
+      "reason": "threat_demotion",
+      "via_condition": "C_SG1_d2_pre_0",
+      "source": "planner_a"
+    },
+    {
+      "from": "SG2_d2",
+      "to": "SG2_d3",
+      "reason": "threat_demotion",
+      "via_condition": "C_SG2_d2_pre_0",
+      "source": "planner_a"
+    }
+  ],
+  "mutex": [
+    {
+      "a": "SG1_d1",
+      "b": "SG2_d1",
+      "condition": "C_SG1_d1_pre_4",
+      "predicate": "hand_empty",
+      "args": [],
+      "reestablished_by": [
+        "SG1_d3",
+        "SG2_d3"
+      ],
+      "resolutions": [
+        "SG1_d1 -> SG2_d1 사이에 hand_empty 재확립을 끼움",
+        "SG2_d1 -> SG1_d1 사이에 hand_empty 재확립을 끼움"
+      ],
+      "note": "순서 제약이 아니라 자원 배타. 둘 다 이 조건을 소비하므로 사이에 재확립 서브골이 반드시 들어가야 한다. 강제는 Planner B 의 통합 상태공간이 담당."
+    },
+    {
+      "a": "SG1_d1",
+      "b": "SG2_d1",
+      "condition": "C_SG2_d1_pre_4",
+      "predicate": "hand_empty",
+      "args": [],
+      "reestablished_by": [
+        "SG1_d3",
+        "SG2_d3"
+      ],
+      "resolutions": [
+        "SG1_d1 -> SG2_d1 사이에 hand_empty 재확립을 끼움",
+        "SG2_d1 -> SG1_d1 사이에 hand_empty 재확립을 끼움"
+      ],
+      "note": "순서 제약이 아니라 자원 배타. 둘 다 이 조건을 소비하므로 사이에 재확립 서브골이 반드시 들어가야 한다. 강제는 Planner B 의 통합 상태공간이 담당."
+    }
+  ],
+  "deferred_conditions": [],
+  "sg_observation_requests": [],
+  "open_conditions": [],
+  "disjunctive_threats": [],
+  "cycles": [],
+  "redecompose_signals": [],
+  "kg_order_audit": {
+    "verdicts": [],
+    "kg_missing": [],
+    "counts": {
+      "필요": 0,
+      "중복": 0,
+      "모순": 0
+    }
+  },
+  "stats": {
+    "n_kg_subgoals": 2,
+    "n_detailed_subgoals": 8,
+    "n_edges": 10,
+    "n_edges_from_kg": 0,
+    "n_edges_from_planner_a": 10,
+    "n_edges_observability": 0,
+    "n_deferred": 0,
+    "n_sg_requests": 0,
+    "n_mutex": 2,
+    "n_cycles": 0,
+    "n_orders_dp": 280,
+    "n_orders_bruteforce": 280,
+    "orders_agree": true,
+    "orders_note": "DAG 의 선형확장 수. mutex(자원 배타)는 반영하지 않았으므로 Planner B 가 실제로 고를 수 있는 계획 수는 이보다 적다.",
+    "kg_must_precede_preserved": true,
+    "kg_violation": []
+  }
+}

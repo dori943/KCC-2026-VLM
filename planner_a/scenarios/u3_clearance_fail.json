@@ -1,0 +1,61 @@
+{
+  "meta": {
+    "kind": "unit",
+    "targets_rule": "규칙 3 재분해 신호"
+  },
+  "kg": {
+    "scenario": "U3 상자 깊이보다 높은 병",
+    "task": "병을 상자에 넣어라",
+    "subgoals": [
+      {
+        "subgoal_id": "SG1",
+        "description": "병을 상자에 넣는다",
+        "target_hints": [
+          "BottleObject"
+        ],
+        "goal_region_hint": "box_shallow",
+        "required_capabilities": [
+          "stable_grasp",
+          "controlled_transport",
+          "controlled_release"
+        ]
+      }
+    ],
+    "must_precede": []
+  },
+  "sg": {
+    "objects": {
+      "BottleObject": {
+        "reachable": true,
+        "feasible_ee": [
+          "2f"
+        ],
+        "at_rest": true
+      }
+    },
+    "regions": {
+      "box_shallow": {
+        "clear": true
+      }
+    },
+    "on_edges": [],
+    "clearance": {
+      "BottleObject|box_shallow": -70
+    },
+    "per_subgoal": {
+      "SG1": {
+        "target": "BottleObject",
+        "goal_region": "box_shallow",
+        "tool_required": false,
+        "feasible_ee": [
+          "2f"
+        ],
+        "ee_candidate": "2f"
+      }
+    }
+  },
+  "robot_state": {
+    "in_hand": null,
+    "current_ee": "2f"
+  }
+}
